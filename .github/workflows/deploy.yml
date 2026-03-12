@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - main
+      - develop
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/deploy.yml'
 
 # OIDC 인증을 위한 권한 설정
