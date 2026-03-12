@@ -1,0 +1,29 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+README.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environments
+env/
+venv/
+.env
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Database / Local storage
+chroma_db/
+*.db
+*.sqlite3
+
+# Logs
+*.log

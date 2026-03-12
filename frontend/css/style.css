@@ -1,0 +1,419 @@
+/* ==================================
+   1. Base & Fonts & Variables
+   ================================== */
+:root {
+    --primary: #f23c60; 
+    --primary-hover: #d22b4d;
+    --bg-gradient: linear-gradient(135deg, #fef5f6 0%, #fef8f9 100%);
+    --white: #ffffff;
+    --text-dark: #222222;
+    --text-muted: #888888;
+    --border: #f0f0f0;
+    --pill-bg: #ffffff;
+    --pill-border: #eeeeee;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Pretendard', sans-serif;
+    color: var(--text-dark);
+    background: var(--bg-gradient);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+a { text-decoration: none; color: inherit; }
+
+/* ==================================
+   2. GNB (Global Navigation Bar)
+   ================================== */
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 50px;
+    background: transparent;
+}
+
+.logo {
+    font-size: 24px;
+    font-weight: 800;
+}
+.logo span { color: var(--text-dark); font-weight: 800; }
+
+.menu {
+    display: none;
+    gap: 30px;
+    font-weight: 600;
+    font-size: 15px;
+    color: #444;
+}
+
+.nav-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 30px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.3s;
+}
+.nav-btn:hover { background: var(--primary-hover); transform: translateY(-2px); }
+
+/* ==================================
+   3. Kiosk Layout (Sidebar + Content)
+   ================================== */
+.kiosk-container {
+    display: flex;
+    max-width: 1100px;
+    margin: 40px auto;
+    padding: 0 20px;
+    gap: 150px;
+}
+
+/* 3-1. Sidebar Steps */
+.sidebar-steps {
+    flex: 0 0 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.step-item {
+    background: var(--white);
+    border-radius: 16px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    opacity: 0.6;
+    transition: 0.3s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+    cursor: pointer;
+}
+
+.step-item.active {
+    opacity: 1;
+    transform: translateX(10px);
+    border-left: 5px solid var(--primary);
+    box-shadow: 0 8px 20px rgba(242, 60, 96, 0.1);
+}
+
+.step-item .icon {
+    font-size: 20px;
+    background: #fdf5f6;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.step-text { display: flex; flex-direction: column; }
+.step-label { font-size: 11px; color: #aaa; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.step-item strong { font-size: 14px; margin-top: 3px; font-weight: 700; color: #333;}
+
+/* 3-2. Content Area & Phone Frame */
+.content-area {
+    flex: 1;
+    display: flex;
+    justify-content: flex-start;
+    align-items: flex-start;
+}
+
+.step-content {
+    display: none; 
+    flex-direction: column;
+    width: 100%;
+    animation: fadeIn 0.4s ease forwards;
+}
+.step-content.active { display: flex; }
+
+/* Progress Header Above Frame */
+.progress-header {
+    width: 380px;
+    margin-bottom: 20px;
+}
+.progress-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #999;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+.progress-bar-container {
+    width: 100%;
+    height: 3px;
+    background: #e9ecef;
+    border-radius: 2px;
+}
+.progress-fill {
+    height: 100%;
+    background: var(--primary);
+    border-radius: 2px;
+    transition: width 0.5s ease-in-out;
+}
+.loading-fill {
+    width: 50%;
+    animation: loadingBar 2s infinite alternate ease-in-out;
+}
+@keyframes loadingBar {
+    0% { width: 30%; }
+    100% { width: 90%; }
+}
+
+/* Mobile Phone Frame */
+.mobile-phone-frame {
+    width: 380px;
+    height: 580px;
+    background: var(--white);
+    border-radius: 40px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.06);
+    position: relative;
+    overflow: hidden;
+    padding: 30px 24px;
+    display: flex;
+    flex-direction: column;
+}
+
+.divider {
+    border-top: 1px solid var(--border);
+    margin-bottom: 20px;
+    margin-top: 15px;
+}
+
+/* ==================================
+   4. Screen Contents (Inside Frame)
+   ================================== */
+.screen-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.screen-content.scrollable { overflow-y: auto; padding-right: 5px; padding-bottom: 10px; }
+.screen-content::-webkit-scrollbar { width: 4px; }
+.screen-content::-webkit-scrollbar-thumb { background: #eee; border-radius: 4px; }
+
+.step-badge {
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 5px;
+    letter-spacing: 1px;
+}
+.screen-content h3 { font-size: 22px; margin-bottom: 8px; font-weight: 800; color: #111; }
+.sub-text { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; }
+.text-center { text-align: center; }
+
+/* Main Screen (Step 0) */
+.main-screen { justify-content: center; text-align: center; }
+.main-illustration { font-size: 60px; margin-bottom: 15px; }
+.brand-title { font-size: 32px; font-weight: 800; margin-bottom: 5px; }
+.brand-desc { color: #999; font-size: 14px; margin-bottom: 40px; font-weight: 600;}
+.admin-link { font-size: 12px; color: #ccc; text-decoration: underline; margin-top: 15px; display: inline-block; }
+
+/* Forms & Privacy Notice */
+.form-group { margin-bottom: 20px; width: 100%; }
+.form-group label { display: block; font-size: 13px; font-weight: 800; margin-bottom: 8px; color: #444; }
+.form-group input {
+    width: 100%; padding: 14px 16px; font-size: 14px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: #fff; transition: 0.3s; outline: none;
+    font-family: inherit; font-weight: 500;
+}
+.form-group input::placeholder { color: #ccc; }
+.form-group input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(242, 60, 96, 0.1); }
+
+.privacy-notice {
+    background: #fff5f7;
+    color: #777;
+    padding: 16px;
+    border-radius: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 5px;
+    font-weight: 500;
+}
+.icon-small { font-size: 14px; margin-right: 4px; }
+
+/* Survey Pills (Step 2) */
+.survey-group { margin-bottom: 25px; }
+.survey-group label {
+    display: block; font-size: 13px; font-weight: 800; margin-bottom: 12px; color: #333;
+}
+.pill-group {
+    display: flex; flex-wrap: wrap; gap: 8px;
+}
+.pill {
+    padding: 10px 16px;
+    background: var(--pill-bg);
+    border: 1px solid var(--pill-border);
+    border-radius: 30px;
+    font-size: 13px;
+    color: #666;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+    font-family: inherit;
+}
+.pill.active {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: #fff5f7;
+}
+
+/* ---------------------------------
+   Buttons 
+   --------------------------------- */
+.action-btn {
+    width: 100%; background: var(--primary); color: var(--white);
+    padding: 16px; border: none; border-radius: 12px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 8px 16px rgba(242, 60, 96, 0.15);
+    margin-top: auto; transition: 0.3s;
+}
+.action-btn:hover { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 10px 20px rgba(242, 60, 96, 0.2); }
+.action-btn:disabled { background: #ffb3c1; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-group { display: flex; gap: 10px; width: 100%; margin-top: auto;}
+.btn-outline {
+    flex: 1;
+    padding: 16px;
+    border: 1px solid #ddd;
+    background: #fff;
+    border-radius: 12px;
+    font-weight: 700;
+    color: #555;
+    cursor: pointer;
+}
+.btn-outline:hover { background: #f8f9fa; }
+.btn-group .action-btn { flex: 2; margin-top: 0; }
+
+/* ---------------------------------
+   Camera Box (Step 3) 
+   --------------------------------- */
+.camera-ui-box {
+    width: 100%; height: 320px; background: #f8f9fb; border-radius: 16px;
+    position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden;
+}
+.face-guide {
+    text-align: center; display: flex; flex-direction: column; align-items: center; gap: 20px; cursor: pointer;
+}
+.guide-circle {
+    width: 160px; height: 210px;
+    border: 2px dashed #ffb3c1;
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; 
+    position: relative; display: flex; align-items: center; justify-content: center;
+}
+.guide-circle .dot { position: absolute; width: 14px; height: 14px; background: #ff85a2; border-radius: 50%; }
+.dot.top { top: -7px; left: 50%; transform: translateX(-50%); }
+.dot.bottom { bottom: -7px; left: 50%; transform: translateX(-50%); }
+.dot.left { left: -7px; top: 50%; transform: translateY(-50%); }
+.dot.right { right: -7px; top: 50%; transform: translateY(-50%); }
+
+.face-emoji { font-size: 50px; }
+.guide-text { font-size: 12px; color: #888; font-weight: 700; background: white; padding: 6px 16px; border-radius: 30px;}
+.camera-desc { font-size: 11px; color: #999; margin-top: 20px; }
+
+#image-preview { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; display: none; z-index: 10; cursor: pointer; }
+
+/* ---------------------------------
+   Loading & Status 
+   --------------------------------- */
+.loading-screen { justify-content: center; align-items: center; text-align: center;}
+.spinner {
+    width: 50px; height: 50px; border: 4px solid #f0f0f0; border-top: 4px solid var(--primary);
+    border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;
+}
+.analysis-status { margin-top: 40px; text-align: left; width: 100%; }
+.status-item { font-size: 13px; margin-bottom: 15px; color: #555; font-weight: 600;}
+.check { color: #2ecc71; font-weight: bold; margin-right: 8px; font-size: 14px;}
+.loading-text { color: var(--primary); font-weight: 700; animation: pulse 1.5s infinite; }
+
+/* ---------------------------------
+   Analysis Results (Step 4) 
+   --------------------------------- */
+.analysis-card {
+    background: #fff5f7; border-radius: 14px; padding: 16px; margin-bottom: 20px;
+}
+.analysis-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.analysis-icon { font-size: 20px; }
+.tag-pink { background: #fff; border: 1px solid #ffb3c1; color: var(--primary); padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 800; }
+.tag-purple { background: #fff; border: 1px solid #e0c3fc; color: #8e44ad; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 800; }
+.analysis-desc { font-size: 12px; color: #555; line-height: 1.5; font-weight: 500;}
+
+.recommend-list { display: flex; flex-direction: column; gap: 12px; }
+.recommend-item {
+    background: #fff; border: 1px solid #eee; border-radius: 16px; padding: 14px;
+    display: flex; align-items: center; gap: 14px; cursor: pointer; transition: 0.2s;
+}
+.recommend-item.active { border: 1.5px solid var(--primary); box-shadow: 0 4px 12px rgba(242, 60, 96, 0.1); }
+
+.recommend-row { display: flex; gap: 10px; }
+.recommend-item.half { flex: 1; flex-direction: column; text-align: center; padding: 20px 10px; gap: 10px;}
+.rec-thumb {
+    width: 60px; height: 60px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 32px;
+}
+.rec-thumb.main-rec { background: #fff0f3; }
+.green-bg { background: #eefbee; }
+.purple-bg { background: #fdf0fa; }
+.orange-bg { background: #fff5ea; }
+.yellow-bg { background: #fffbe6; }
+
+.rec-info { flex: 1; text-align: left; }
+.rec-name { font-size: 13px; font-weight: 800; margin-bottom: 5px; color: #222;}
+.rec-match { font-size: 12px; color: var(--primary); font-weight: 700; }
+.rec-check { color: var(--primary); font-weight: bold; font-size: 18px; margin-right: 5px;}
+.half .rec-info { display: flex; flex-direction: column; align-items: center; }
+
+/* ---------------------------------
+   Simulation Viewer (Step 5) 
+   --------------------------------- */
+.simulation-viewer {
+    width: 100%; height: 320px; background: #fffcf7; border-radius: 16px;
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 25px;
+}
+.model-badge {
+    position: absolute; top: 16px; right: 16px; background: var(--primary);
+    color: white; padding: 5px 14px; border-radius: 30px; font-size: 11px; font-weight: 800; box-shadow: 0 4px 10px rgba(242,60,96,0.2);
+}
+.sim-avatar { position: relative; font-size: 70px; margin-bottom: 20px; margin-top: 10px;}
+.sim-hair { position: absolute; top: -35px; left: 50%; transform: translateX(-50%); z-index: 2; font-size: 100px; }
+.sim-face { position: relative; z-index: 1; text-align: center;}
+.sim-label { background: #fff; border: 1px solid #eee; padding: 8px 18px; border-radius: 30px; font-size: 12px; font-weight: 700; color: #555;}
+
+.thumbnail-list { display: flex; gap: 10px; justify-content: center; }
+.thumb-item {
+    width: 55px; height: 55px; border-radius: 14px; background: #fff; border: 1px solid transparent; 
+    display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; padding: 2px;
+}
+.thumb-item.active { border: 1.5px solid var(--primary); }
+.thumb-icon { font-size: 24px; }
+.in-pink { background: #fff0f3; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
+.in-green { background: #eefbee; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
+.in-purple { background: #fdf0fa; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
+.in-orange { background: #fff5ea; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
+.in-yellow { background: #fffbe6; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
+
+/* Utils */
+.mt-20 { margin-top: 20px; } .mt-10 { margin-top: 10px; } .pt-10 { padding-top: 10px;}
+.mt-auto { margin-top: auto; }
+
+/* ==================================
+   5. Animations & Responsive
+   ================================== */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+
+.slide-up { opacity: 0; animation: fadeIn 0.5s forwards ease-out; }
+
+@media (min-width: 992px) {
+    .menu { display: flex; }
+}
+@media (max-width: 768px) {
+    .kiosk-container { flex-direction: column; align-items: center; gap: 30px; margin-top: 20px; padding: 0 10px; }
+    .sidebar-steps { flex-direction: row; overflow-x: auto; width: 100%; padding-bottom: 10px; }
+    .step-item { min-width: 200px; }
+}
