@@ -1,4 +1,4 @@
-name: CI/CD Pipeline for Backend
+name: CI/CD Pipeline for MirrAI
 
 on:
   push:
@@ -73,26 +73,21 @@ jobs:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Run SSM Document to update Docker containers on EC2
+      - name: Run SSM Document
         run: |
-          cat << 'EOF' > ssm-input.json
-          {
-            "DocumentName": "AWS-RunShellScript",
-            "InstanceIds": ["${{ secrets.EC2_INSTANCE_ID }}"],
-            "Parameters": {
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters '{
               "commands": [
-                "aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com",
-                "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_BACKEND }}:latest",
-                "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_FRONTEND }}:latest",
-                "docker stop mirrai-backend || true",
-                "docker rm mirrai-backend || true",
-                "docker stop mirrai-frontend || true",
-                "docker rm mirrai-frontend || true",
-                "aws ssm get-parameter --name /mirrai/prod/env --with-decryption --query \"Parameter.Value\" --output text > /home/ssm-user/.env || touch /home/ssm-user/.env",
-                "docker run -d --name mirrai-backend -p 8000:8000 --env-file /home/ssm-user/.env --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_BACKEND }}:latest",
-                "docker run -d --name mirrai-frontend -p 80:80 --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_FRONTEND }}:latest"
+                "aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com",
+                "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-backend:latest",
+                "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-frontend:latest",
+                "docker stop mirrai-backend mirrai-frontend || true",
+                "docker rm mirrai-backend mirrai-frontend || true",
+                "aws ssm get-parameter --name /mirrai/prod/env --with-decryption --query \"Parameter.Value\" --output text > /tmp/.env || touch /tmp/.env",
+                "docker run -d --name mirrai-backend -p 8000:8000 --env-file /tmp/.env --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-backend:latest",
+                "docker run -d --name mirrai-frontend -p 80:80 --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-frontend:latest"
               ]
-            }
-          }
-          EOF
-          aws ssm send-command --cli-input-json file://ssm-input.json
+            }' \
+            --region ap-northeast-2
