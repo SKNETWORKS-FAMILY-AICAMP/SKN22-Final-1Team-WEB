@@ -1,0 +1,18 @@
+# Virtual Environment files moved to root
+/Include/
+/Lib/
+/Scripts/
+/pyvenv.cfg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment variables
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
