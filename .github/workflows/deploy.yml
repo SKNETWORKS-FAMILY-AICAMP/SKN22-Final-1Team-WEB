@@ -10,7 +10,6 @@ on:
       - 'frontend/**'
       - '.github/workflows/deploy.yml'
 
-# OIDC 인증을 위한 권한 설정
 permissions:
   id-token: write
   contents: read
@@ -24,7 +23,6 @@ jobs:
   build-and-push:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -39,13 +37,12 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push images to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Build, tag, and push images
         run: |
-          # Build and push Backend
+          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG=${{ github.sha }}
+          
+          # Backend
           cd backend
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
@@ -53,19 +50,17 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
           cd ..
           
-          # Build and push Frontend
+          # Frontend
           cd frontend
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
-          cd ..
 
   deploy:
     name: Deploy to EC2 via AWS SSM
     needs: build-and-push
     runs-on: ubuntu-latest
-
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -80,12 +75,13 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters '{
               "commands": [
-                "aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com",
+                "sudo chmod 666 /var/run/docker.sock || true",
+                "/usr/local/bin/aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com",
                 "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-backend:latest",
                 "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-frontend:latest",
                 "docker stop mirrai-backend mirrai-frontend || true",
                 "docker rm mirrai-backend mirrai-frontend || true",
-                "aws ssm get-parameter --name /mirrai/prod/env --with-decryption --query \"Parameter.Value\" --output text > /tmp/.env || touch /tmp/.env",
+                "/usr/local/bin/aws ssm get-parameter --name /mirrai/prod/env --with-decryption --query \"Parameter.Value\" --output text > /tmp/.env || touch /tmp/.env",
                 "docker run -d --name mirrai-backend -p 8000:8000 --env-file /tmp/.env --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-backend:latest",
                 "docker run -d --name mirrai-frontend -p 80:80 --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-frontend:latest"
               ]
