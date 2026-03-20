@@ -28,14 +28,43 @@ terraform.tfstate*
 # OS generated files
 .DS_Store
 Thumbs.db
+
 .terraform/
 terraform/.terraform/
 *.tfstate
 *.tfstate.*
-.terraform/
-terraform/.terraform/
-terraform/.terraform/
-*.tfstate.*
+
 backend/db.sqlite3
 backend/mirrai.db
 backend/storage/
+
+# PDF storage folder (commit 제외)
+PDF/
+
+# Tasks & Planning
+tasks/
+.agents/
+pm/
+review/
+
+# IDE
+.vscode/
+.idea/
+
+# Node / Frontend
+**/node_modules/
+**/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local static/dev server logs
+frontend/*.log
+frontend/**/*.log
+
+# Root accidental lockfile (no root package.json)
+/package-lock.json
+
+# EB deployment artifact
+deploy.zip

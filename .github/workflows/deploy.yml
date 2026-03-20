@@ -1,4 +1,4 @@
-name: CI/CD Pipeline for MirrAI
+﻿name: Deploy Backend to Elastic Beanstalk
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'backend/**'
-      - 'frontend/**'
+      - 'Dockerrun.aws.json'
       - '.github/workflows/deploy.yml'
 
 permissions:
@@ -15,18 +15,20 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-2
-  ECR_REPOSITORY_BACKEND: mirrai-backend
-  ECR_REPOSITORY_FRONTEND: mirrai-frontend
+  EB_APP_NAME: ${{ secrets.EB_APPLICATION_NAME }}
+  EB_ENV_NAME: ${{ secrets.EB_ENVIRONMENT_NAME }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
 
 jobs:
-  build-and-push:
-    name: Build & Push Docker Image
+  deploy:
+    name: Build, Push, and Deploy
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
 
-      - name: Configure AWS Credentials (OIDC)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
@@ -36,53 +38,54 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push images
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG=${{ github.sha }}
-          
-          # Backend
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           cd backend
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
-          cd ..
-          
-          # Frontend
-          cd frontend
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-  deploy:
-    name: Deploy to EC2 via AWS SSM
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Run SSM Document
+      - name: Inject image URI into Dockerrun.aws.json
         run: |
-          aws ssm send-command \
-            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --parameters '{
-              "commands": [
-                "sudo chmod 666 /var/run/docker.sock || true",
-                "/usr/local/bin/aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com",
-                "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-backend:latest",
-                "docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-frontend:latest",
-                "docker stop mirrai-backend mirrai-frontend || true",
-                "docker rm mirrai-backend mirrai-frontend || true",
-                "/usr/local/bin/aws ssm get-parameter --name /mirrai/prod/env --with-decryption --query \"Parameter.Value\" --output text > /tmp/.env || touch /tmp/.env",
-                "docker run -d --name mirrai-backend -p 8000:8000 --env-file /tmp/.env --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-backend:latest",
-                "docker run -d --name mirrai-frontend -p 80:80 --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/mirrai-frontend:latest"
-              ]
-            }' \
-            --region ap-northeast-2
+          python - << 'PY'
+          import json
+          import os
+
+          with open('Dockerrun.aws.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+
+          data['Image']['Name'] = os.environ['IMAGE_URI']
+
+          with open('Dockerrun.aws.json', 'w', encoding='utf-8') as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+              f.write('\n')
+          PY
+
+      - name: Create deployment package
+        run: zip deploy.zip Dockerrun.aws.json
+
+      - name: Upload version and deploy to Elastic Beanstalk
+        env:
+          VERSION_LABEL: deploy-${{ github.sha }}-${{ github.run_number }}
+        run: |
+          S3_BUCKET=$(aws elasticbeanstalk create-storage-location --query "S3Bucket" --output text)
+
+          aws s3 cp deploy.zip "s3://$S3_BUCKET/$EB_APP_NAME/$VERSION_LABEL.zip"
+
+          aws elasticbeanstalk create-application-version \
+            --application-name "$EB_APP_NAME" \
+            --version-label "$VERSION_LABEL" \
+            --source-bundle S3Bucket="$S3_BUCKET",S3Key="$EB_APP_NAME/$VERSION_LABEL.zip"
+
+          aws elasticbeanstalk update-environment \
+            --environment-name "$EB_ENV_NAME" \
+            --version-label "$VERSION_LABEL"
+
+      - name: Wait for environment update to complete
+        run: |
+          aws elasticbeanstalk wait environment-updated \
+            --environment-names "$EB_ENV_NAME"

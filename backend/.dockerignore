@@ -1,29 +1,24 @@
-.git
-.gitignore
-.dockerignore
-Dockerfile
-README.md
-
-# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-
-# Environments
-env/
-venv/
+*.py[cod]
+*$py.class
 .env
-
-# Editor / IDE
-.vscode/
-.idea/
-
-# Database / Local storage
-chroma_db/
-*.db
-*.sqlite3
-
-# Logs
+.venv
+venv/
+ENV/
+db.sqlite3
+storage/
+.git/
+.dockerignore
+.pytest_cache/
+alembic/
+alembic.ini
+app/
+main.py
+simulate_flow.py
+test_via_client.py
+manual_login.py
+reset.py
+test_*.py
 *.log
+*.db
+*.bat
