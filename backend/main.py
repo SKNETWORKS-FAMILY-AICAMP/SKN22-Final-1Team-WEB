@@ -1,98 +1,109 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-import time
-import os
-import boto3
-from botocore.exceptions import ClientError
-from pydantic import BaseModel
+from types import SimpleNamespace
 
-# 1. 메타데이터가 포함된 FastAPI 앱 생성
-app = FastAPI(
-    title="MirrAI (sAIon) API",
-    description="얼굴형 및 취향 기반 헤어스타일 추천 시뮬레이션 웹 서비스 API",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url=None, # Redoc은 사용하지 않음
-)
+from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
+from pydantic import BaseModel, Field
 
-# 2. CORS 미들웨어 설정
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # TODO: 운영 배포 시 특정 도메인으로 제한 필요
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from app.api.v1.recommendation_logic import score_recommendations
 
-# 3. 전역 에러 핸들러 (커스텀 에러 응답 포맷)
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    # 외부 시스템 연동, AI 모델 분석 중 에러가 발생한 경우를 대비한 공통 포맷
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": True,
-            "message": "서버 내부 오류가 발생했습니다.",
-            "detail": str(exc),
-            "timestamp": time.time()
-        }
+
+app = FastAPI(title="MirrAI Internal AI Service")
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version="1.1.0",
+        description="Internal AI service for MirrAI recommendation generation and explanation.",
+        routes=app.routes,
     )
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
 
-# 4. Health Check API (AWS ALB 대상 그룹 타겟 검증 및 로컬 확인용)
-@app.get("/health", tags=["System"])
-async def health_check():
-    return {"status": "ok", "message": "MirrAI Backend is running smoothly."}
 
-# [API 라우터 추가 예정 공간]
-# app.include_router(user_router, prefix="/api/v1/users")
-# app.include_router(recommend_router, prefix="/api/v1/recommend")
+app.openapi = custom_openapi
 
-# 5. S3 Presigned URL 발급 API
-# S3 클라이언트 전역 초기화 (Boto3 Session 병목 방지)
-s3_client = boto3.client(
-    's3',
-    region_name=os.getenv('AWS_REGION', 'ap-northeast-2')
-)
 
-ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/webp"}
+class AnalyzeFaceRequest(BaseModel):
+    image_url: str | None = None
 
-class PresignedUrlRequest(BaseModel):
-    filename: str
-    file_type: str
 
-@app.post("/api/v1/upload/presigned-url", tags=["Upload"])
-async def get_presigned_url(request_data: PresignedUrlRequest):
-    # 파일 확장자(MIME Type) 화이트리스트 검증 (Critical 보안 이슈 해결)
-    if request_data.file_type not in ALLOWED_MIME_TYPES:
-        return JSONResponse(
-            status_code=400,
-            content={"error": True, "message": "지원하지 않는 파일 형식입니다. (JPG, PNG, WEBP만 허용)"}
-        )
+class AnalyzeFaceResponse(BaseModel):
+    face_shape: str
+    golden_ratio_score: float
+    image_url: str | None = None
 
-    bucket_name = os.getenv('S3_BUCKET_NAME', 'mirrai-user-images-dev')
-    
-    # 충돌 방지용 접두어(timestamp) 추가
-    object_name = f"uploads/{int(time.time())}_{request_data.filename}"
-    
-    try:
-        response = s3_client.generate_presigned_url(
-            'put_object',
-            Params={
-                'Bucket': bucket_name,
-                'Key': object_name,
-                'ContentType': request_data.file_type
-            },
-            ExpiresIn=3600
-        )
-    except ClientError as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": True, "message": "S3 URL 발급 실패", "detail": str(e)}
-        )
-    
+
+class GenerateSimulationsRequest(BaseModel):
+    customer_id: int
+    survey_data: dict = Field(default_factory=dict)
+    analysis_data: dict
+
+
+class GenerateSimulationsResponse(BaseModel):
+    status: str
+    items: list[dict]
+
+
+class ExplainStyleRequest(BaseModel):
+    card: dict
+
+
+class ExplainStyleResponse(BaseModel):
+    style_id: int | None = None
+    style_name: str | None = None
+    sample_image_url: str | None = None
+    simulation_image_url: str | None = None
+    llm_explanation: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+
+
+def _simulate_face_analysis(image_url: str | None = None) -> dict:
     return {
-        "presigned_url": response,
-        "object_key": object_name,
-        "file_url": f"https://{bucket_name}.s3.ap-northeast-2.amazonaws.com/{object_name}"
+        "face_shape": "Oval",
+        "golden_ratio_score": 0.92,
+        "image_url": image_url,
+    }
+
+
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "service": "mirrai-internal-ai",
+        "message": "Internal AI service for analysis and recommendation generation.",
+    }
+
+
+@app.get("/internal/health")
+async def internal_health():
+    return {"status": "ok", "role": "ai-microservice"}
+
+
+@app.post("/internal/analyze-face", response_model=AnalyzeFaceResponse)
+async def analyze_face(payload: AnalyzeFaceRequest):
+    return _simulate_face_analysis(image_url=payload.image_url)
+
+
+@app.post("/internal/generate-simulations", response_model=GenerateSimulationsResponse)
+async def generate_simulations(payload: GenerateSimulationsRequest):
+    survey = SimpleNamespace(customer_id=payload.customer_id, **(payload.survey_data or {}))
+    analysis = SimpleNamespace(**payload.analysis_data)
+    items = score_recommendations(survey=survey, analysis=analysis)
+    return {"status": "ready", "items": items}
+
+
+@app.post("/internal/explain-style", response_model=ExplainStyleResponse)
+async def explain_style(payload: ExplainStyleRequest):
+    card = payload.card or {}
+    return {
+        "style_id": card.get("style_id"),
+        "style_name": card.get("style_name"),
+        "sample_image_url": card.get("sample_image_url"),
+        "simulation_image_url": card.get("simulation_image_url"),
+        "llm_explanation": card.get("llm_explanation"),
+        "keywords": card.get("keywords", []),
     }
