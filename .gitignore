@@ -36,3 +36,6 @@ terraform/.terraform/
 terraform/.terraform/
 terraform/.terraform/
 *.tfstate.*
+backend/db.sqlite3
+backend/mirrai.db
+backend/storage/
