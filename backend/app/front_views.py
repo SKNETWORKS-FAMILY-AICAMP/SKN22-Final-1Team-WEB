@@ -1,21 +1,9 @@
-﻿from django.http import JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import render
 
 
 def health_check(request):
     return JsonResponse({"status": "django_running", "framework": "Django"})
-
-
-def _render_shell(request, *, template_name: str, title: str, subtitle: str, api_map: list[dict]):
-    return render(
-        request,
-        template_name,
-        {
-            "page_title": title,
-            "page_subtitle": subtitle,
-            "api_map": api_map,
-        },
-    )
 
 
 def home_page(request):
@@ -44,4 +32,3 @@ def admin_login_page(request):
 
 def admin_dashboard_page(request):
     return render(request, "admin/index.html")
-
