@@ -26,6 +26,15 @@ from app.services.storage_service import resolve_storage_reference
 logger = logging.getLogger(__name__)
 
 
+REGENERATION_MAX_ATTEMPTS = 1
+REGENERATION_POLICY = {
+    "mode": "single_retry",
+    "seed_strategy": "vary_seed",
+    "selection_bias": "face_ratio_preference_boost",
+    "trend_bias": "reduced",
+}
+
+
 def build_default_survey_context(client_id: int) -> SimpleNamespace:
     return SimpleNamespace(
         client_id=client_id,
@@ -186,6 +195,7 @@ def persist_generated_batch(
             "face_shape": analysis.face_shape,
             "golden_ratio_score": analysis.golden_ratio_score,
             "image_url": resolve_storage_reference(analysis.image_url),
+            "landmark_snapshot": analysis.landmark_snapshot,
         },
         styles_by_id=styles_by_id,
     )
@@ -231,6 +241,12 @@ def serialize_recommendation_row(row: FormerRecommendation) -> dict:
         styles_by_id=({row.style_id_snapshot: row.style} if row.style else None),
     )
     uses_vector_only_policy = bool(row.regeneration_snapshot)
+    regeneration_attempts_used = int(reasoning_snapshot.get("regeneration_attempts_used") or 0)
+    regeneration_attempts_allowed = (
+        REGENERATION_MAX_ATTEMPTS if uses_vector_only_policy else 0
+    )
+    regeneration_remaining_count = max(0, regeneration_attempts_allowed - regeneration_attempts_used)
+    can_regenerate_simulation = uses_vector_only_policy and regeneration_remaining_count > 0
     sample_image_url = style_reference["sample_image_url"] or resolve_storage_reference(row.sample_image_url)
     simulation_image_url = None if uses_vector_only_policy else resolve_storage_reference(row.simulation_image_url)
     reference_images = []
@@ -260,7 +276,17 @@ def serialize_recommendation_row(row: FormerRecommendation) -> dict:
         "rank": row.rank,
         "is_chosen": row.is_chosen,
         "image_policy": ("vector_only" if uses_vector_only_policy else "legacy_asset_store"),
-        "can_regenerate_simulation": uses_vector_only_policy,
+        "can_regenerate_simulation": can_regenerate_simulation,
+        "regeneration_remaining_count": regeneration_remaining_count,
+        "regeneration_policy": (
+            {
+                **REGENERATION_POLICY,
+                "attempts_allowed": regeneration_attempts_allowed,
+                "attempts_used": regeneration_attempts_used,
+            }
+            if uses_vector_only_policy
+            else None
+        ),
         "created_at": row.created_at,
     }
 
@@ -300,6 +326,129 @@ def serialize_capture_status(record: CaptureRecord) -> dict:
     if record.status in {"NEEDS_RETAKE", "FAILED"}:
         payload["next_action"] = "capture"
     return payload
+
+
+def regenerate_recommendation_simulation(
+    *,
+    recommendation_id: int | None = None,
+    regeneration_snapshot: dict | None = None,
+    style_id: int | None = None,
+) -> dict:
+    selected_row = None
+    if recommendation_id is not None:
+        selected_row = FormerRecommendation.objects.filter(id=recommendation_id).first()
+        if not selected_row:
+            raise ValueError("The selected recommendation could not be found.")
+        regeneration_snapshot = regeneration_snapshot or selected_row.regeneration_snapshot
+        style_id = style_id or selected_row.style_id_snapshot
+        attempts_used = int((selected_row.reasoning_snapshot or {}).get("regeneration_attempts_used") or 0)
+        if attempts_used >= REGENERATION_MAX_ATTEMPTS:
+            raise ValueError("This recommendation has already used its one allowed regeneration.")
+
+    if not regeneration_snapshot:
+        raise ValueError("No regeneration snapshot is available for this recommendation.")
+    if style_id is None:
+        raise ValueError("Style information is required to regenerate the simulation.")
+
+    survey_data = dict(regeneration_snapshot.get("survey_data") or {})
+    analysis_data = dict(regeneration_snapshot.get("analysis_data") or {})
+    client_id = int(regeneration_snapshot.get("client_id") or 0)
+    if client_id <= 0:
+        raise ValueError("The regeneration snapshot is missing client context.")
+
+    styles_by_id = ensure_catalog_styles()
+    generated_items = generate_recommendation_batch(
+        client_id=client_id,
+        survey_data=survey_data,
+        analysis_data=analysis_data,
+        styles_by_id=styles_by_id,
+    )
+    regenerated_card = next(
+        (item for item in generated_items if int(item.get("style_id", -1)) == int(style_id)),
+        None,
+    )
+    if regenerated_card is None:
+        raise ValueError("Could not regenerate the requested style from the current snapshot.")
+
+    if selected_row is not None:
+        reasoning_snapshot = dict(selected_row.reasoning_snapshot or {})
+        attempts_used = int(reasoning_snapshot.get("regeneration_attempts_used") or 0) + 1
+        reasoning_snapshot["regenerated"] = True
+        reasoning_snapshot["regeneration_source"] = regeneration_snapshot.get("source")
+        reasoning_snapshot["regeneration_attempts_used"] = attempts_used
+        reasoning_snapshot["regeneration_attempts_allowed"] = REGENERATION_MAX_ATTEMPTS
+        reasoning_snapshot["regeneration_remaining_count"] = max(0, REGENERATION_MAX_ATTEMPTS - attempts_used)
+        reasoning_snapshot["regeneration_policy"] = dict(REGENERATION_POLICY)
+
+        selected_row.reasoning_snapshot = reasoning_snapshot
+        selected_row.match_score = regenerated_card.get("match_score") or selected_row.match_score
+        selected_row.llm_explanation = regenerated_card.get("llm_explanation") or selected_row.llm_explanation
+        selected_row.save(update_fields=["reasoning_snapshot", "match_score", "llm_explanation"])
+        card = serialize_recommendation_row(selected_row)
+    else:
+        style_reference = _style_reference(int(style_id), styles_by_id=styles_by_id)
+        card = {
+            "recommendation_id": None,
+            "batch_id": None,
+            "source": "generated",
+            "style_id": int(style_id),
+            "style_name": regenerated_card.get("style_name") or style_reference["style_name"],
+            "style_description": regenerated_card.get("style_description") or style_reference["style_description"],
+            "keywords": regenerated_card.get("keywords") or style_reference["keywords"],
+            "sample_image_url": regenerated_card.get("sample_image_url") or style_reference["sample_image_url"],
+            "reference_images": [],
+            "simulation_image_url": None,
+            "synthetic_image_url": None,
+            "llm_explanation": regenerated_card.get("llm_explanation") or "",
+            "reasoning": regenerated_card.get("reasoning") or "",
+            "reasoning_snapshot": {
+                **(regenerated_card.get("reasoning_snapshot") or {}),
+                "regenerated": True,
+                "regeneration_source": regeneration_snapshot.get("source"),
+                "regeneration_attempts_used": 1,
+                "regeneration_attempts_allowed": REGENERATION_MAX_ATTEMPTS,
+                "regeneration_remaining_count": 0,
+                "regeneration_policy": dict(REGENERATION_POLICY),
+            },
+            "image_policy": "vector_only",
+            "can_regenerate_simulation": False,
+            "regeneration_remaining_count": 0,
+            "regeneration_policy": {
+                **REGENERATION_POLICY,
+                "attempts_allowed": REGENERATION_MAX_ATTEMPTS,
+                "attempts_used": 1,
+            },
+            "match_score": regenerated_card.get("match_score") or 0.0,
+            "rank": regenerated_card.get("rank") or 1,
+            "is_chosen": False,
+            "created_at": timezone.now(),
+        }
+
+    card["simulation_image_url"] = regenerated_card.get("simulation_image_url")
+    card["synthetic_image_url"] = regenerated_card.get("synthetic_image_url")
+    card["image_policy"] = "vector_only"
+    card["can_regenerate_simulation"] = False
+    card["regeneration_remaining_count"] = 0
+    card["reasoning"] = regenerated_card.get("reasoning") or card.get("reasoning") or ""
+    card["llm_explanation"] = regenerated_card.get("llm_explanation") or card.get("llm_explanation") or ""
+
+    return {
+        "status": "success",
+        "recommendation_id": (selected_row.id if selected_row else None),
+        "style_id": int(style_id),
+        "image_policy": "vector_only",
+        "can_regenerate_simulation": False,
+        "regeneration_remaining_count": 0,
+        "regeneration_policy": {
+            **REGENERATION_POLICY,
+            "attempts_allowed": REGENERATION_MAX_ATTEMPTS,
+            "attempts_used": 1,
+        },
+        "simulation_image_url": card.get("simulation_image_url"),
+        "synthetic_image_url": card.get("synthetic_image_url"),
+        "card": card,
+        "message": "A regenerated simulation payload is ready.",
+    }
 
 
 def get_former_recommendations(client: Client) -> dict:

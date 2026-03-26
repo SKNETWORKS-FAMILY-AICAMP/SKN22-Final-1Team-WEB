@@ -4,6 +4,14 @@ from rest_framework import status
 from rest_framework.response import Response
 
 
+def get_error_contract_snapshot() -> dict:
+    return {
+        "mode": "drf_detail",
+        "fields": ["detail"],
+        "envelope_supported": False,
+    }
+
+
 def detail_response(
     message: str,
     *,

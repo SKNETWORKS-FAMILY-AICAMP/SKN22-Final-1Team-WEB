@@ -8,11 +8,12 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from app.api.v1.admin_auth import TOKEN_MAX_AGE_SECONDS, build_admin_token
+from app.api.v1.admin_auth import issue_admin_token_pair
 from app.api.v1.recommendation_logic import STYLE_CATALOG
 from app.api.v1.services_django import ensure_catalog_styles, get_latest_analysis, get_latest_survey, serialize_recommendation_row
 from app.models_django import AdminAccount, CaptureRecord, ConsultationRequest, Client, ClientSessionNote, FormerRecommendation, Style, StyleSelection
 from app.services.age_profile import build_client_age_profile
+from app.services.ai_facade import get_ai_health
 from app.services.storage_service import resolve_storage_reference
 
 
@@ -48,31 +49,10 @@ def _business_number_variants(value: str) -> set[str]:
 
 
 def _ai_health() -> dict:
-    base_url = os.environ.get("MIRRAI_AI_SERVICE_URL", "").rstrip("/")
-    if not base_url:
-        return {
-            "status": "fallback",
-            "mode": "local",
-            "message": "AI service URL is not configured. Local fallback is active.",
-            "checked_at": timezone.now(),
-        }
-
-    try:
-        with request.urlopen(f"{base_url}/internal/health", timeout=5) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        return {
-            "status": "online",
-            "mode": "remote",
-            "message": payload.get("role", "ai-microservice"),
-            "checked_at": timezone.now(),
-        }
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        return {
-            "status": "offline",
-            "mode": "remote",
-            "message": str(exc),
-            "checked_at": timezone.now(),
-        }
+    return {
+        **get_ai_health(),
+        "checked_at": timezone.now(),
+    }
 
 
 def _serialize_survey(survey) -> dict | None:
@@ -258,14 +238,11 @@ def register_admin(*, payload: dict) -> dict:
         consent_snapshot=consent_snapshot,
         consented_at=timezone.now(),
     )
-    token = build_admin_token(admin=admin)
     return {
         "status": "success",
         "admin_id": admin.id,
         "admin": _serialize_admin_profile(admin),
-        "access_token": token,
-        "token_type": "bearer",
-        "expires_in": TOKEN_MAX_AGE_SECONDS,
+        **issue_admin_token_pair(admin=admin),
     }
 
 
@@ -274,13 +251,10 @@ def login_admin(*, phone: str, password: str) -> dict:
     admin = AdminAccount.objects.filter(phone=phone, is_active=True).first()
     if not admin or not check_password(password, admin.password_hash):
         raise ValueError("Please check the admin account credentials and try again.")
-    token = build_admin_token(admin=admin)
     return {
         "status": "success",
         "admin": _serialize_admin_profile(admin),
-        "access_token": token,
-        "token_type": "bearer",
-        "expires_in": TOKEN_MAX_AGE_SECONDS,
+        **issue_admin_token_pair(admin=admin),
     }
 
 

@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
-from app.api.v1.admin_auth import AdminTokenAuthentication, IsAuthenticatedAdmin
+from app.api.v1.admin_auth import AdminTokenAuthentication, IsAuthenticatedAdmin, refresh_admin_access_token
 from app.api.v1.response_helpers import detail_response
 from app.api.v1.admin_serializers import (
     AdminLoginSerializer,
@@ -14,6 +14,7 @@ from app.api.v1.admin_serializers import (
     AdminTrendFilterSerializer,
     ConsultationCloseSerializer,
     ConsultationNoteCreateSerializer,
+    RefreshTokenSerializer,
 )
 from app.api.v1.admin_services import (
     close_consultation_session,
@@ -72,6 +73,18 @@ class AdminLoginView(APIView):
             payload = login_admin(**serializer.validated_data)
         except ValueError as exc:
             return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
+
+class AdminRefreshView(APIView):
+    @extend_schema(summary="Refresh admin token", request=RefreshTokenSerializer, responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
+    def post(self, request):
+        serializer = RefreshTokenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = refresh_admin_access_token(refresh_token=serializer.validated_data["refresh_token"])
+        except Exception as exc:
+            return detail_response(str(exc), status_code=status.HTTP_401_UNAUTHORIZED)
         return Response(payload)
 
 

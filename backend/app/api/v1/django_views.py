@@ -10,12 +10,15 @@ from rest_framework.views import APIView
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
+from app.api.v1.admin_auth import issue_client_token_pair, refresh_client_access_token
 from app.api.v1.response_helpers import detail_response
 from app.api.v1.django_serializers import (
     ClientCheckSerializer,
     ClientRegisterSerializer,
+    RegenerateSimulationRequestSerializer,
     RecommendationListResponseSerializer,
     SurveySerializer,
+    TokenRefreshSerializer,
 )
 from app.api.v1.services_django import (
     cancel_style_selection,
@@ -23,6 +26,7 @@ from app.api.v1.services_django import (
     get_current_recommendations,
     get_former_recommendations,
     get_trend_recommendations,
+    regenerate_recommendation_simulation,
     run_mirrai_analysis_pipeline,
     serialize_capture_status,
     upsert_survey,
@@ -73,15 +77,26 @@ class LoginView(APIView):
         age_profile = build_client_age_profile(client) or {}
         return Response(
             {
-                "access_token": f"mock-token-{client.id}",
-                "token_type": "bearer",
                 "client_id": client.id,
                 "age": age_profile.get("current_age"),
                 "age_decade": age_profile.get("age_decade"),
                 "age_segment": age_profile.get("age_segment"),
                 "age_group": age_profile.get("age_group"),
+                **issue_client_token_pair(client=client),
             }
         )
+
+
+class ClientRefreshView(APIView):
+    @extend_schema(summary="Refresh client token", request=TokenRefreshSerializer, responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
+    def post(self, request):
+        serializer = TokenRefreshSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = refresh_client_access_token(refresh_token=serializer.validated_data["refresh_token"])
+        except Exception as exc:
+            return detail_response(str(exc), status_code=status.HTTP_401_UNAUTHORIZED)
+        return Response(payload)
 
 
 class ClientCheckView(APIView):
@@ -126,12 +141,11 @@ class RegisterView(APIView):
             {
                 "status": "success",
                 "client_id": client.id,
-                "access_token": f"mock-token-{client.id}",
-                "token_type": "bearer",
                 "age": age_profile.get("current_age"),
                 "age_decade": age_profile.get("age_decade"),
                 "age_segment": age_profile.get("age_segment"),
                 "age_group": age_profile.get("age_group"),
+                **issue_client_token_pair(client=client),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -318,6 +332,22 @@ class TrendView(APIView):
         client_id = _query_value(request, "client_id", "customer_id")
         client = get_object_or_404(Client, id=client_id) if client_id else None
         return Response(get_trend_recommendations(days=days, client=client))
+
+
+class RegenerateSimulationView(APIView):
+    @extend_schema(
+        summary="Regenerate simulation payload from vector-only snapshot",
+        request=RegenerateSimulationRequestSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        serializer = RegenerateSimulationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = regenerate_recommendation_simulation(**serializer.validated_data)
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
 
 
 class SelectionView(APIView):
