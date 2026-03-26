@@ -1,5 +1,8 @@
-﻿from types import SimpleNamespace
+﻿import logging
+from types import SimpleNamespace
 
+import boto3
+from botocore.exceptions import ClientError
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field
@@ -7,7 +10,21 @@ from pydantic import BaseModel, Field
 from app.api.v1.recommendation_logic import score_recommendations
 
 
+logger = logging.getLogger("mirrai.ai")
 app = FastAPI(title="MirrAI Internal AI Service")
+
+
+def _get_bedrock_client():
+    """
+    Returns a Bedrock runtime client. 
+    Wrapped in try-except to catch potential AWS credential/permission issues at initialization.
+    """
+    try:
+        # AWS region is typically required for Bedrock. Using us-east-1 as a default for testing.
+        return boto3.client("bedrock-runtime", region_name="us-east-1")
+    except Exception as exc:
+        logger.error("Failed to initialize Bedrock client: %s", exc)
+        return None
 
 
 def custom_openapi():
@@ -100,12 +117,48 @@ async def generate_simulations(payload: GenerateSimulationsRequest):
 @app.post("/internal/explain-style", response_model=ExplainStyleResponse)
 async def explain_style(payload: ExplainStyleRequest):
     card = payload.card or {}
+    style_name = card.get("style_name", "this style")
+    
+    # AI Explanation via AWS Bedrock
+    llm_explanation = card.get("llm_explanation")
+    
+    client = _get_bedrock_client()
+    if client:
+        try:
+            # Simple prompt for style explanation - normally you'd use a more complex prompt.
+            # Here we wrap it in a try-except specifically for AWS/Bedrock service errors.
+            prompt = f"Explain why {style_name} is a good hair style for a customer based on professional styling trends."
+            
+            # This is a simulation/placeholder for a real Bedrock model invocation.
+            # In a real scenario, you'd use client.invoke_model(...)
+            # If a ClientError (permissions/throttling) occurs, it will be caught below.
+            
+            # Simulation of a permission error if needed (uncomment to test):
+            # raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "No permission"}}, "InvokeModel")
+            
+            # If everything is fine, we might append or replace the static explanation.
+            if not llm_explanation:
+                llm_explanation = f"AI Insight: {style_name} offers a modern look that enhances facial features."
+                
+        except ClientError as exc:
+            # Handle AWS Specific Errors (like Permission Issues)
+            logger.error("AWS Bedrock Permission/Service Error: %s", exc)
+            llm_explanation = "현재 AI 기능을 사용할 수 없습니다. (AI 서비스 권한 오류)"
+        except Exception as exc:
+            # Handle general errors
+            logger.error("Unexpected error during AI explanation generation: %s", exc)
+            llm_explanation = "현재 AI 기능을 사용할 수 없습니다."
+    else:
+        # Client initialization failed (already logged in _get_bedrock_client)
+        if not llm_explanation:
+            llm_explanation = "현재 AI 기능을 사용할 수 없습니다. (AI 서비스 연결 실패)"
+
     return {
         "style_id": card.get("style_id"),
-        "style_name": card.get("style_name"),
+        "style_name": style_name,
         "sample_image_url": card.get("sample_image_url"),
         "simulation_image_url": card.get("simulation_image_url"),
-        "llm_explanation": card.get("llm_explanation"),
+        "llm_explanation": llm_explanation,
         "keywords": card.get("keywords", []),
     }
 

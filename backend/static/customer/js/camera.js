@@ -239,15 +239,34 @@
       const data = await response.json();
       console.log("Upload Success:", data);
       
-      updateStatus("분석이 시작되었습니다. 결과 페이지로 이동합니다.", "success");
+      // Handle navigation based on the 'nextAction' field (supporting both snake_case and camelCase)
+      const nextAction = data.nextAction || data.next_action;
+      let targetUrl = "/customer/result/"; // default
+      
+      if (nextAction === "dashboard") {
+        targetUrl = "/customer/dashboard/";
+      } else if (nextAction === "client_input") {
+        targetUrl = "/customer/survey/";
+      } else if (nextAction === "capture") {
+        targetUrl = "/customer/camera/"; // stay on camera if needed
+      }
+
+      updateStatus("분석이 시작되었습니다. 이동 중입니다...", "success");
       
       setTimeout(() => {
-        window.location.href = "/customer/result/";
-      }, 1500);
+        window.location.href = targetUrl;
+      }, 1000);
 
     } catch (error) {
       console.error("Upload Error:", error);
-      updateStatus("업로드 중 오류가 발생했습니다. 다시 시도해 주세요.", "error");
+      // Support for standardized error envelope
+      let errorMessage = "업로드 중 오류가 발생했습니다. 다시 시도해 주세요.";
+      if (error.response && error.response.data && error.response.data.detail) {
+          errorMessage = error.response.data.detail;
+      } else if (error.message) {
+          errorMessage = error.message;
+      }
+      updateStatus(errorMessage, "error");
       confirmBtn.disabled = false;
       retakeBtn.disabled = false;
     }
