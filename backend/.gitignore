@@ -22,6 +22,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 docs/
+.tmp_pdf/
 
 # Django
 local_settings.py
