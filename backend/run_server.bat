@@ -1,1 +1,17 @@
-"C:\Users\Playdata\AppData\Local\miniconda3\envs\mirrai\python.exe" manage.py runserver > server_log.txt 2>&1
+@echo off
+SETLOCAL EnableDelayedExpansion
+
+echo [1/4] Checking requirements...
+pip install -r requirements.txt --quiet
+
+echo [2/4] Applying migrations...
+python manage.py migrate --noinput
+
+echo [3/4] Starting FastAPI AI Service on port 8001...
+START /B "FastAPI AI" python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+echo [4/4] Starting Django Server on port 8000...
+echo Visit http://localhost:8000
+python manage.py runserver 0.0.0.0:8000
+
+ENDLOCAL

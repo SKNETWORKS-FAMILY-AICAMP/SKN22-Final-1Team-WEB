@@ -51,7 +51,7 @@ keys/
 
 # Local Scripts & Resources
 backend/seed_test_data.py
-semple/
+choi_sample/
 tasks/
 .agents/
 pm/
