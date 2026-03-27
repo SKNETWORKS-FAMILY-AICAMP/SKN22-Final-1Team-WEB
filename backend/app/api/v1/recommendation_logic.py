@@ -9,6 +9,37 @@ VECTOR_DIMENSION = 20
 
 
 @dataclass(frozen=True)
+class ScoringWeights:
+    face_weight: float
+    ratio_weight: float
+    preference_weight: float
+    profile: str
+
+    def as_dict(self) -> dict:
+        return {
+            "face_weight": self.face_weight,
+            "ratio_weight": self.ratio_weight,
+            "preference_weight": self.preference_weight,
+            "profile": self.profile,
+        }
+
+
+DEFAULT_SCORING_WEIGHTS = ScoringWeights(
+    face_weight=FACE_WEIGHT,
+    ratio_weight=RATIO_WEIGHT,
+    preference_weight=PREFERENCE_WEIGHT,
+    profile="initial",
+)
+
+RETRY_SCORING_WEIGHTS = ScoringWeights(
+    face_weight=20.0,
+    ratio_weight=10.0,
+    preference_weight=70.0,
+    profile="retry_preference_dominant",
+)
+
+
+@dataclass(frozen=True)
 class StyleProfile:
     style_id: int
     fallback_name: str
@@ -259,8 +290,15 @@ def ratio_message(score: float | None) -> str:
     return "A balanced silhouette is likely to feel more natural than a highly exposed line."
 
 
-def score_recommendations(*, survey, analysis, styles_by_id: dict[int, object] | None = None) -> list[dict]:
+def score_recommendations(
+    *,
+    survey,
+    analysis,
+    styles_by_id: dict[int, object] | None = None,
+    scoring_weights: ScoringWeights | None = None,
+) -> list[dict]:
     styles_by_id = styles_by_id or {}
+    scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
     face_shape = canonical_face_shape(getattr(analysis, "face_shape", None))
     ratio_score = getattr(analysis, "golden_ratio_score", None)
     ratio_mode = infer_ratio_mode(ratio_score)
@@ -274,8 +312,8 @@ def score_recommendations(*, survey, analysis, styles_by_id: dict[int, object] |
     results: list[dict] = []
 
     for profile in STYLE_CATALOG:
-        face_score = _score_face(face_shape, profile)
-        ratio_component = _score_ratio(ratio_mode, profile)
+        face_score = _score_face(face_shape, profile, scoring_weights=scoring_weights)
+        ratio_component = _score_ratio(ratio_mode, profile, scoring_weights=scoring_weights)
         preference_score, match_labels = _score_preference(
             length_tag=length_tag,
             vibe_tag=vibe_tag,
@@ -283,6 +321,7 @@ def score_recommendations(*, survey, analysis, styles_by_id: dict[int, object] |
             color_tag=color_tag,
             budget_tag=budget_tag,
             profile=profile,
+            scoring_weights=scoring_weights,
         )
         penalty = _score_penalty(
             length_tag=length_tag,
@@ -316,10 +355,18 @@ def score_recommendations(*, survey, analysis, styles_by_id: dict[int, object] |
                 "simulation_image_url": f"/media/synthetic/{client_key}_{profile.style_id}.jpg",
                 "synthetic_image_url": f"/media/synthetic/{client_key}_{profile.style_id}.jpg",
                 "llm_explanation": explanation,
-                "reasoning": f"face {face_score:.1f}/40 | ratio {ratio_component:.1f}/20 | preference {preference_score:.1f}/40"
+                "reasoning": (
+                    f"face {face_score:.1f}/{scoring_weights.face_weight:.0f} | "
+                    f"ratio {ratio_component:.1f}/{scoring_weights.ratio_weight:.0f} | "
+                    f"preference {preference_score:.1f}/{scoring_weights.preference_weight:.0f}"
+                )
                 + (f" | penalty -{penalty:.1f}" if penalty else ""),
                 "reasoning_snapshot": {
-                    "summary": f"face {face_score:.1f}/40 | ratio {ratio_component:.1f}/20 | preference {preference_score:.1f}/40"
+                    "summary": (
+                        f"face {face_score:.1f}/{scoring_weights.face_weight:.0f} | "
+                        f"ratio {ratio_component:.1f}/{scoring_weights.ratio_weight:.0f} | "
+                        f"preference {preference_score:.1f}/{scoring_weights.preference_weight:.0f}"
+                    )
                     + (f" | penalty -{penalty:.1f}" if penalty else ""),
                     "face_shape": face_shape,
                     "ratio_mode": ratio_mode,
@@ -330,6 +377,8 @@ def score_recommendations(*, survey, analysis, styles_by_id: dict[int, object] |
                     "total_score": total,
                     "matched_labels": match_labels,
                     "style_keywords": list(profile.keywords),
+                    "scoring_profile": scoring_weights.profile,
+                    "scoring_weights": scoring_weights.as_dict(),
                 },
                 "match_score": total,
             }
@@ -367,23 +416,23 @@ def build_llm_explanation(
     )
 
 
-def _score_face(face_shape: str, profile: StyleProfile) -> float:
-    baseline = 18.0
+def _score_face(face_shape: str, profile: StyleProfile, *, scoring_weights: ScoringWeights) -> float:
+    baseline = round(scoring_weights.face_weight * 0.45, 1)
     if face_shape == "unknown":
         return baseline
     if face_shape in profile.face_shapes:
-        return FACE_WEIGHT
+        return scoring_weights.face_weight
     if "oval" in profile.face_shapes:
-        return 22.0
+        return round(scoring_weights.face_weight * 0.55, 1)
     return baseline
 
 
-def _score_ratio(ratio_mode: str, profile: StyleProfile) -> float:
+def _score_ratio(ratio_mode: str, profile: StyleProfile, *, scoring_weights: ScoringWeights) -> float:
     if ratio_mode in profile.ratio_modes:
-        return RATIO_WEIGHT
+        return scoring_weights.ratio_weight
     if "balanced" in profile.ratio_modes:
-        return 12.0
-    return 8.0
+        return round(scoring_weights.ratio_weight * 0.6, 1)
+    return round(scoring_weights.ratio_weight * 0.4, 1)
 
 
 def _score_preference(
@@ -394,27 +443,29 @@ def _score_preference(
     color_tag: str,
     budget_tag: str,
     profile: StyleProfile,
+    scoring_weights: ScoringWeights,
 ) -> tuple[float, list[str]]:
     score = 0.0
     labels: list[str] = []
+    weight_scale = scoring_weights.preference_weight / PREFERENCE_WEIGHT
 
     if length_tag in profile.length_tags:
-        score += 14.0
+        score += 14.0 * weight_scale
         labels.append("length")
     if vibe_tag in profile.vibe_tags:
-        score += 12.0
+        score += 12.0 * weight_scale
         labels.append("vibe")
     if scalp_tag in profile.scalp_tags:
-        score += 6.0
+        score += 6.0 * weight_scale
         labels.append("condition")
     if color_tag in profile.color_tags:
-        score += 4.0
+        score += 4.0 * weight_scale
         labels.append("color")
     if budget_tag in profile.budget_tags:
-        score += 4.0
+        score += 4.0 * weight_scale
         labels.append("budget")
 
-    return min(PREFERENCE_WEIGHT, score), labels
+    return min(scoring_weights.preference_weight, round(score, 1)), labels
 
 
 def _score_penalty(*, length_tag: str, vibe_tag: str, profile: StyleProfile, preference_score: float) -> float:

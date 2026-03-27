@@ -30,6 +30,10 @@ class AdminLoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 
+class RefreshTokenSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField()
+
+
 class AdminClientSearchSerializer(serializers.Serializer):
     q = serializers.CharField(required=False, allow_blank=True)
 

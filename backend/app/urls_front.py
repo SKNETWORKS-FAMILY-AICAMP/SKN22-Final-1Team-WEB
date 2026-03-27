@@ -11,6 +11,8 @@ from app.front_views import (
     client_survey_page,
     health_check,
     home_page,
+    logout_page,
+    partner_verify,
 )
 
 
@@ -22,11 +24,13 @@ urlpatterns = [
     path("customer/survey/", client_survey_page, name="customer_survey"),
     path("customer/camera/", client_camera_page, name="customer_camera"),
     path("customer/recommendations/", client_recommendation_page, name="customer_result"),
-    path("customer/logout/", lambda r: render(r, "index.html"), name="customer_logout"),
+    path("customer/result/", client_recommendation_page, name="customer_result_legacy"),
+    path("customer/logout/", logout_page, name="customer_logout"),
     path("demo/discovery/", lambda r: render(r, "demo/discovery.html"), name="demo_discovery"),
     path("partner/", admin_login_page, name="partner_index"),
     path("partner/login/", admin_login_page, name="partner_login"),
     path("partner/signup/", admin_signup_page, name="partner_signup"),
+    path("partner/verify/", partner_verify, name="partner_verify"),
     path("partner/dashboard/", admin_dashboard_page, name="partner_dashboard"),
     # Legacy aliases kept for older links and docs.
     path("client/login/", client_login_page, name="client-login-shell"),

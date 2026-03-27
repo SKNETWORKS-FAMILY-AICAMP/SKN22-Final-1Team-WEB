@@ -6,7 +6,11 @@ from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 
-from app.api.v1.recommendation_logic import STYLE_CATALOG, build_preference_vector
+from app.api.v1.recommendation_logic import (
+    RETRY_SCORING_WEIGHTS,
+    STYLE_CATALOG,
+    build_preference_vector,
+)
 from app.models_django import (
     CaptureRecord,
     ConsultationRequest,
@@ -21,9 +25,38 @@ from app.models_django import (
 from app.services.age_profile import build_client_age_profile, client_matches_age_profile
 from app.services.ai_facade import generate_recommendation_batch, simulate_face_analysis
 from app.services.storage_service import resolve_storage_reference
+from app.trend_pipeline.style_collection import load_hairstyles
 
 
 logger = logging.getLogger(__name__)
+
+
+REGENERATION_MAX_ATTEMPTS = 1
+REGENERATION_POLICY = {
+    "mode": "single_retry",
+    "seed_strategy": "vary_seed",
+    "selection_bias": "face_ratio_preference_boost",
+    "trend_bias": "reduced",
+}
+
+RETRY_RECOMMENDATION_MAX_ATTEMPTS = 1
+RETRY_RECOMMENDATION_POLICY = {
+    "mode": "single_retry",
+    "trend_included": False,
+    "preference_weight": 70,
+    "face_shape_weight": 20,
+    "ratio_weight": 10,
+    "face_total_weight": 30,
+    "selection_bias": "preference_dominant",
+}
+
+
+def _seed_trend_styles(limit: int = 5) -> list[dict]:
+    try:
+        styles = load_hairstyles()
+    except FileNotFoundError:
+        return []
+    return styles[:limit]
 
 
 def build_default_survey_context(client_id: int) -> SimpleNamespace:
@@ -116,11 +149,19 @@ def build_recommendation_regeneration_snapshot(
     survey,
     analysis: FaceAnalysis | None,
     source: str,
+    capture_record: CaptureRecord | None = None,
+    recommendation_stage: str = "initial",
 ) -> dict:
     return {
         "version": "vector-only-v1",
         "source": source,
         "client_id": client.id,
+        "recommendation_stage": recommendation_stage,
+        "context": {
+            "capture_record_id": (capture_record.id if capture_record else None),
+            "survey_id": getattr(survey, "id", None),
+            "analysis_id": (analysis.id if analysis else None),
+        },
         "survey_data": {
             "target_length": getattr(survey, "target_length", None),
             "target_vibe": getattr(survey, "target_vibe", None),
@@ -170,6 +211,7 @@ def persist_generated_batch(
     capture_record: CaptureRecord | None,
     survey,
     analysis: FaceAnalysis,
+    recommendation_stage: str = "initial",
 ) -> tuple[str, list[FormerRecommendation]]:
     styles_by_id = ensure_catalog_styles()
     survey_payload = {
@@ -186,20 +228,26 @@ def persist_generated_batch(
             "face_shape": analysis.face_shape,
             "golden_ratio_score": analysis.golden_ratio_score,
             "image_url": resolve_storage_reference(analysis.image_url),
+            "landmark_snapshot": analysis.landmark_snapshot,
         },
         styles_by_id=styles_by_id,
+        scoring_weights=(RETRY_SCORING_WEIGHTS if recommendation_stage == "retry" else None),
     )
     regeneration_snapshot = build_recommendation_regeneration_snapshot(
         client=client,
         survey=survey,
         analysis=analysis,
         source="generated",
+        capture_record=capture_record,
+        recommendation_stage=recommendation_stage,
     )
 
     batch_id = uuid.uuid4()
     rows: list[FormerRecommendation] = []
     for item in items:
         style = styles_by_id.get(item["style_id"])
+        reasoning_snapshot = dict(item.get("reasoning_snapshot") or {})
+        reasoning_snapshot["recommendation_stage"] = recommendation_stage
         rows.append(
             FormerRecommendation(
                 client=client,
@@ -215,7 +263,7 @@ def persist_generated_batch(
                 simulation_image_url=None,
                 regeneration_snapshot=regeneration_snapshot,
                 llm_explanation=item.get("llm_explanation"),
-                reasoning_snapshot=item.get("reasoning_snapshot"),
+                reasoning_snapshot=reasoning_snapshot,
                 match_score=item.get("match_score"),
                 rank=item.get("rank", 0),
             )
@@ -231,8 +279,22 @@ def serialize_recommendation_row(row: FormerRecommendation) -> dict:
         styles_by_id=({row.style_id_snapshot: row.style} if row.style else None),
     )
     uses_vector_only_policy = bool(row.regeneration_snapshot)
+    regeneration_attempts_used = int(reasoning_snapshot.get("regeneration_attempts_used") or 0)
+    regeneration_attempts_allowed = (
+        REGENERATION_MAX_ATTEMPTS if uses_vector_only_policy else 0
+    )
+    regeneration_remaining_count = max(0, regeneration_attempts_allowed - regeneration_attempts_used)
+    can_regenerate_simulation = uses_vector_only_policy and regeneration_remaining_count > 0
     sample_image_url = style_reference["sample_image_url"] or resolve_storage_reference(row.sample_image_url)
     simulation_image_url = None if uses_vector_only_policy else resolve_storage_reference(row.simulation_image_url)
+    reference_images = []
+    if sample_image_url:
+        reference_images.append(
+            {
+                "image_url": sample_image_url,
+                "description": row.style_description_snapshot or style_reference["style_description"],
+            }
+        )
     return {
         "recommendation_id": row.id,
         "batch_id": row.batch_id,
@@ -242,6 +304,7 @@ def serialize_recommendation_row(row: FormerRecommendation) -> dict:
         "style_description": row.style_description_snapshot or style_reference["style_description"],
         "keywords": row.keywords or style_reference["keywords"],
         "sample_image_url": sample_image_url,
+        "reference_images": reference_images,
         "simulation_image_url": simulation_image_url,
         "synthetic_image_url": simulation_image_url,
         "llm_explanation": row.llm_explanation or "",
@@ -251,13 +314,53 @@ def serialize_recommendation_row(row: FormerRecommendation) -> dict:
         "rank": row.rank,
         "is_chosen": row.is_chosen,
         "image_policy": ("vector_only" if uses_vector_only_policy else "legacy_asset_store"),
-        "can_regenerate_simulation": uses_vector_only_policy,
+        "can_regenerate_simulation": can_regenerate_simulation,
+        "regeneration_remaining_count": regeneration_remaining_count,
+        "regeneration_policy": (
+            {
+                **REGENERATION_POLICY,
+                "attempts_allowed": regeneration_attempts_allowed,
+                "attempts_used": regeneration_attempts_used,
+            }
+            if uses_vector_only_policy
+            else None
+        ),
         "created_at": row.created_at,
     }
 
 
 def _serialize_row(row: FormerRecommendation) -> dict:
     return serialize_recommendation_row(row)
+
+
+def _get_recommendation_stage(rows: list[FormerRecommendation]) -> str:
+    if not rows:
+        return "initial"
+    snapshot = rows[0].reasoning_snapshot or {}
+    return str(snapshot.get("recommendation_stage") or "initial")
+
+
+def _build_retry_recommendation_meta(*, rows: list[FormerRecommendation], has_active_consultation: bool) -> dict:
+    recommendation_stage = _get_recommendation_stage(rows)
+    attempts_used = 1 if recommendation_stage == "retry" else 0
+    can_retry = bool(rows) and recommendation_stage == "initial" and not has_active_consultation
+    remaining_count = max(0, RETRY_RECOMMENDATION_MAX_ATTEMPTS - attempts_used) if can_retry else 0
+    return {
+        "recommendation_stage": recommendation_stage,
+        "can_retry_recommendations": can_retry,
+        "retry_recommendations_remaining_count": remaining_count,
+        "retry_recommendations_policy": {
+            **RETRY_RECOMMENDATION_POLICY,
+            "attempts_allowed": RETRY_RECOMMENDATION_MAX_ATTEMPTS,
+            "attempts_used": attempts_used,
+        },
+    }
+
+
+def _scoring_weights_for_stage(recommendation_stage: str):
+    if recommendation_stage == "retry":
+        return RETRY_SCORING_WEIGHTS
+    return None
 
 
 def _build_empty_response(*, source: str, message: str, next_action: str | None = None, next_actions: list[str] | None = None) -> dict:
@@ -291,6 +394,131 @@ def serialize_capture_status(record: CaptureRecord) -> dict:
     if record.status in {"NEEDS_RETAKE", "FAILED"}:
         payload["next_action"] = "capture"
     return payload
+
+
+def regenerate_recommendation_simulation(
+    *,
+    recommendation_id: int | None = None,
+    regeneration_snapshot: dict | None = None,
+    style_id: int | None = None,
+) -> dict:
+    selected_row = None
+    if recommendation_id is not None:
+        selected_row = FormerRecommendation.objects.filter(id=recommendation_id).first()
+        if not selected_row:
+            raise ValueError("The selected recommendation could not be found.")
+        regeneration_snapshot = regeneration_snapshot or selected_row.regeneration_snapshot
+        style_id = style_id or selected_row.style_id_snapshot
+        attempts_used = int((selected_row.reasoning_snapshot or {}).get("regeneration_attempts_used") or 0)
+        if attempts_used >= REGENERATION_MAX_ATTEMPTS:
+            raise ValueError("This recommendation has already used its one allowed regeneration.")
+
+    if not regeneration_snapshot:
+        raise ValueError("No regeneration snapshot is available for this recommendation.")
+    if style_id is None:
+        raise ValueError("Style information is required to regenerate the simulation.")
+
+    survey_data = dict(regeneration_snapshot.get("survey_data") or {})
+    analysis_data = dict(regeneration_snapshot.get("analysis_data") or {})
+    client_id = int(regeneration_snapshot.get("client_id") or 0)
+    recommendation_stage = str(regeneration_snapshot.get("recommendation_stage") or "initial")
+    if client_id <= 0:
+        raise ValueError("The regeneration snapshot is missing client context.")
+
+    styles_by_id = ensure_catalog_styles()
+    generated_items = generate_recommendation_batch(
+        client_id=client_id,
+        survey_data=survey_data,
+        analysis_data=analysis_data,
+        styles_by_id=styles_by_id,
+        scoring_weights=_scoring_weights_for_stage(recommendation_stage),
+    )
+    regenerated_card = next(
+        (item for item in generated_items if int(item.get("style_id", -1)) == int(style_id)),
+        None,
+    )
+    if regenerated_card is None:
+        raise ValueError("Could not regenerate the requested style from the current snapshot.")
+
+    if selected_row is not None:
+        reasoning_snapshot = dict(selected_row.reasoning_snapshot or {})
+        attempts_used = int(reasoning_snapshot.get("regeneration_attempts_used") or 0) + 1
+        reasoning_snapshot["regenerated"] = True
+        reasoning_snapshot["regeneration_source"] = regeneration_snapshot.get("source")
+        reasoning_snapshot["regeneration_attempts_used"] = attempts_used
+        reasoning_snapshot["regeneration_attempts_allowed"] = REGENERATION_MAX_ATTEMPTS
+        reasoning_snapshot["regeneration_remaining_count"] = max(0, REGENERATION_MAX_ATTEMPTS - attempts_used)
+        reasoning_snapshot["regeneration_policy"] = dict(REGENERATION_POLICY)
+
+        selected_row.reasoning_snapshot = reasoning_snapshot
+        selected_row.match_score = regenerated_card.get("match_score") or selected_row.match_score
+        selected_row.llm_explanation = regenerated_card.get("llm_explanation") or selected_row.llm_explanation
+        selected_row.save(update_fields=["reasoning_snapshot", "match_score", "llm_explanation"])
+        card = serialize_recommendation_row(selected_row)
+    else:
+        style_reference = _style_reference(int(style_id), styles_by_id=styles_by_id)
+        card = {
+            "recommendation_id": None,
+            "batch_id": None,
+            "source": "generated",
+            "style_id": int(style_id),
+            "style_name": regenerated_card.get("style_name") or style_reference["style_name"],
+            "style_description": regenerated_card.get("style_description") or style_reference["style_description"],
+            "keywords": regenerated_card.get("keywords") or style_reference["keywords"],
+            "sample_image_url": regenerated_card.get("sample_image_url") or style_reference["sample_image_url"],
+            "reference_images": [],
+            "simulation_image_url": None,
+            "synthetic_image_url": None,
+            "llm_explanation": regenerated_card.get("llm_explanation") or "",
+            "reasoning": regenerated_card.get("reasoning") or "",
+            "reasoning_snapshot": {
+                **(regenerated_card.get("reasoning_snapshot") or {}),
+                "regenerated": True,
+                "regeneration_source": regeneration_snapshot.get("source"),
+                "regeneration_attempts_used": 1,
+                "regeneration_attempts_allowed": REGENERATION_MAX_ATTEMPTS,
+                "regeneration_remaining_count": 0,
+                "regeneration_policy": dict(REGENERATION_POLICY),
+            },
+            "image_policy": "vector_only",
+            "can_regenerate_simulation": False,
+            "regeneration_remaining_count": 0,
+            "regeneration_policy": {
+                **REGENERATION_POLICY,
+                "attempts_allowed": REGENERATION_MAX_ATTEMPTS,
+                "attempts_used": 1,
+            },
+            "match_score": regenerated_card.get("match_score") or 0.0,
+            "rank": regenerated_card.get("rank") or 1,
+            "is_chosen": False,
+            "created_at": timezone.now(),
+        }
+
+    card["simulation_image_url"] = regenerated_card.get("simulation_image_url")
+    card["synthetic_image_url"] = regenerated_card.get("synthetic_image_url")
+    card["image_policy"] = "vector_only"
+    card["can_regenerate_simulation"] = False
+    card["regeneration_remaining_count"] = 0
+    card["reasoning"] = regenerated_card.get("reasoning") or card.get("reasoning") or ""
+    card["llm_explanation"] = regenerated_card.get("llm_explanation") or card.get("llm_explanation") or ""
+
+    return {
+        "status": "success",
+        "recommendation_id": (selected_row.id if selected_row else None),
+        "style_id": int(style_id),
+        "image_policy": "vector_only",
+        "can_regenerate_simulation": False,
+        "regeneration_remaining_count": 0,
+        "regeneration_policy": {
+            **REGENERATION_POLICY,
+            "attempts_allowed": REGENERATION_MAX_ATTEMPTS,
+            "attempts_used": 1,
+        },
+        "simulation_image_url": card.get("simulation_image_url"),
+        "synthetic_image_url": card.get("synthetic_image_url"),
+        "card": card,
+        "message": "A regenerated simulation payload is ready.",
+    }
 
 
 def get_former_recommendations(client: Client) -> dict:
@@ -411,16 +639,88 @@ def get_current_recommendations(client: Client) -> dict:
             next_action="capture",
         )
 
+    has_active_consultation = ConsultationRequest.objects.filter(client=client, is_active=True).exists()
+    retry_meta = _build_retry_recommendation_meta(
+        rows=rows,
+        has_active_consultation=has_active_consultation,
+    )
     message = "The latest Top-5 recommendations were generated from the most recent capture and analysis."
     if latest_survey is None:
         message = "The latest Top-5 recommendations were generated from face analysis only because survey data is not available."
+    elif retry_meta["recommendation_stage"] == "retry":
+        message = "The recommendations were regenerated once with preference-first scoring and no trend influence."
 
-    return {
+    payload = {
         "status": "ready",
         "source": "current_recommendations",
         "batch_id": batch_id,
         "message": message,
         "items": [_serialize_row(row) for row in rows],
+    }
+    payload.update(retry_meta)
+    payload["next_actions"] = (
+        ["retry_recommendations", "consultation"]
+        if retry_meta["can_retry_recommendations"]
+        else ["consultation"]
+    )
+    return payload
+
+
+def retry_current_recommendations(client: Client) -> dict:
+    latest_capture = get_latest_capture(client)
+    latest_analysis = get_latest_analysis(client)
+    latest_survey = get_latest_survey(client)
+    if not latest_capture or not latest_analysis:
+        raise ValueError("A completed capture and face analysis are required before retrying recommendations.")
+
+    latest_batch = (
+        FormerRecommendation.objects.filter(client=client, source="generated")
+        .order_by("-created_at")
+        .first()
+    )
+    if latest_batch is None:
+        raise ValueError("Retry is available only after the initial recommendation batch has been generated.")
+    if latest_batch.created_at < latest_capture.created_at or latest_batch.created_at < latest_analysis.created_at:
+        raise ValueError("Retry is available only for the latest initial recommendation batch. Refresh current recommendations first.")
+    if latest_survey is not None and latest_batch.created_at < latest_survey.created_at:
+        raise ValueError("Retry is available only for the latest initial recommendation batch. Refresh current recommendations first.")
+
+    rows = list(
+        FormerRecommendation.objects.filter(client=client, batch_id=latest_batch.batch_id).order_by("rank", "id")
+    )
+    if not rows:
+        raise ValueError("Initial recommendations must be ready before retry is available.")
+
+    if ConsultationRequest.objects.filter(client=client, is_active=True).exists():
+        raise ValueError("Retry is not available after the consultation flow has started.")
+
+    current_stage = _get_recommendation_stage(rows)
+    if current_stage != "initial":
+        raise ValueError("Retry recommendations are only available once after the initial recommendation batch.")
+
+    if any(row.is_chosen for row in rows):
+        raise ValueError("Retry is not available after a recommendation has already been selected.")
+
+    survey_context = latest_survey or build_default_survey_context(client.id)
+    new_batch_id, new_rows = persist_generated_batch(
+        client=client,
+        capture_record=latest_capture,
+        survey=survey_context,
+        analysis=latest_analysis,
+        recommendation_stage="retry",
+    )
+    retry_meta = _build_retry_recommendation_meta(
+        rows=new_rows,
+        has_active_consultation=False,
+    )
+    return {
+        "status": "ready",
+        "source": "current_recommendations",
+        "batch_id": new_batch_id,
+        "message": "A one-time retry recommendation batch has been generated with preference-first scoring.",
+        "items": [_serialize_row(row) for row in new_rows],
+        "next_actions": ["consultation"],
+        **retry_meta,
     }
 
 
@@ -494,6 +794,43 @@ def get_trend_recommendations(*, days: int = 30, client: Client | None = None) -
                 "is_chosen": False,
             }
         )
+
+    if not items:
+        seed_styles = _seed_trend_styles(limit=5)
+        seeded_names = [str(item.get("style_name") or "").strip() for item in seed_styles if str(item.get("style_name") or "").strip()]
+        db_seeded = {style.name: style for style in Style.objects.filter(name__in=seeded_names)}
+
+        for rank, seed in enumerate(seed_styles, start=1):
+            style = db_seeded.get(str(seed.get("style_name") or "").strip())
+            if not style:
+                continue
+            items.append(
+                {
+                    "source": "trend",
+                    "style_id": style.id,
+                    "style_name": style.name,
+                    "style_description": style.description or str(seed.get("description") or ""),
+                    "keywords": list(seed.get("keywords") or ([style.vibe] if style.vibe else [])),
+                    "sample_image_url": resolve_storage_reference(style.image_url),
+                    "simulation_image_url": resolve_storage_reference(style.image_url),
+                    "synthetic_image_url": resolve_storage_reference(style.image_url),
+                    "llm_explanation": style.description or str(seed.get("description") or ""),
+                    "reasoning": "fallback trend catalog synced from refreshed seed data",
+                    "reasoning_snapshot": {
+                        "summary": "fallback trend catalog synced from refreshed seed data",
+                        "selection_count": 0,
+                        "days": days,
+                        "source": "trend",
+                        "trend_scope": trend_scope,
+                        "age_profile": target_age_profile,
+                        "seed_source": str(seed.get("source") or ""),
+                        "seed_last_updated": str(seed.get("last_updated") or ""),
+                    },
+                    "match_score": float(seed.get("freshness_score") or 0.0),
+                    "rank": rank,
+                    "is_chosen": False,
+                }
+            )
 
     if not items:
         styles_by_id = ensure_catalog_styles()

@@ -29,6 +29,19 @@ services:
     depends_on:
       - db
 
+  scheduler:
+    build: .
+    command: python manage.py run_scheduler_daemon
+    volumes:
+      - .:/app
+      - storage_data:/app/storage
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-key-from-compose
+      - DATABASE_URL=postgres://mirrai_user:mirrai_pass@db:5432/mirrai_db
+    depends_on:
+      - db
+
 volumes:
   postgres_data:
   storage_data:

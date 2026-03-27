@@ -74,10 +74,61 @@ def _apply_weight_scaling(vector: np.ndarray) -> np.ndarray:
     return scaled
 
 
-def _load_hairstyles(path: Path | None = None) -> list[dict[str, Any]]:
+def load_hairstyles(path: Path | None = None) -> list[dict[str, Any]]:
     source = path or STYLE_SEED_FILE
     with source.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _style_vibe(style: dict[str, Any]) -> str:
+    moods = style.get("mood") or []
+    if moods:
+        return str(moods[0]).title()
+    return "Trendy"
+
+
+def sync_seed_styles_to_db(styles: list[dict[str, Any]] | None = None) -> dict[str, int]:
+    from app.models_django import Style
+
+    source_styles = styles or load_hairstyles()
+    created_count = 0
+    updated_count = 0
+
+    for style in source_styles:
+        defaults = {
+            "vibe": _style_vibe(style),
+            "description": str(style.get("description") or "").strip(),
+        }
+        style_name = str(style.get("style_name") or "").strip()
+        record = Style.objects.filter(name=style_name).order_by("id").first()
+        if record is None:
+            record = Style.objects.create(name=style_name, **defaults)
+            created = True
+        else:
+            created = False
+            changed = False
+            for field, value in defaults.items():
+                if getattr(record, field) != value:
+                    setattr(record, field, value)
+                    changed = True
+            if changed:
+                record.save(update_fields=list(defaults.keys()))
+
+        if created:
+            created_count += 1
+        else:
+            updated_count += 1
+
+        image_url = str(style.get("image_url") or style.get("sample_image_url") or "").strip()
+        if image_url and record.image_url != image_url:
+            record.image_url = image_url
+            record.save(update_fields=["image_url"])
+
+    return {
+        "style_count": len(source_styles),
+        "created_count": created_count,
+        "updated_count": updated_count,
+    }
 
 
 def build_style_collection(client=None):
@@ -100,7 +151,7 @@ def build_style_collection(client=None):
         },
     )
 
-    styles = _load_hairstyles()
+    styles = load_hairstyles()
     ids: list[str] = []
     embeddings: list[list[float]] = []
     metadatas: list[dict[str, Any]] = []

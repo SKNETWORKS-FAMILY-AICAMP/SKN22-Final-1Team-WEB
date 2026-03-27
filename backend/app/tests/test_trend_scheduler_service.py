@@ -56,10 +56,14 @@ class TrendSchedulerServiceTests(SimpleTestCase):
                 steps=["crawl", "refine", "llm_refine", "vectorize"],
             )
 
-            with patch(
-                "app.services.trend_scheduler.trigger_runpod_trend_refresh_with_archive",
-                return_value={"runpod_response": {"success": True}},
-            ) as mock_trigger:
+            with (
+                patch("app.services.trend_scheduler.try_acquire_scheduler_lock", return_value=True),
+                patch("app.services.trend_scheduler.release_scheduler_lock", return_value=None),
+                patch(
+                    "app.services.trend_scheduler.trigger_runpod_trend_refresh_with_archive",
+                    return_value={"runpod_response": {"success": True}},
+                ) as mock_trigger,
+            ):
                 record = execute_scheduled_refresh(
                     config,
                     run_type="test",
@@ -69,3 +73,23 @@ class TrendSchedulerServiceTests(SimpleTestCase):
             self.assertTrue(record["success"])
             self.assertTrue(log_path.exists())
             mock_trigger.assert_called_once()
+
+    def test_execute_scheduled_refresh_skips_when_lock_not_acquired(self):
+        with TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "trend_scheduler_runs.jsonl"
+            config = TrendSchedulerConfig(log_path=log_path)
+
+            with (
+                patch("app.services.trend_scheduler.try_acquire_scheduler_lock", return_value=False),
+                patch("app.services.trend_scheduler.trigger_runpod_trend_refresh_with_archive") as mock_trigger,
+            ):
+                record = execute_scheduled_refresh(
+                    config,
+                    run_type="weekly",
+                    scheduled_for=datetime(2026, 3, 27, 8, 0, tzinfo=ZoneInfo("Asia/Seoul")),
+                )
+
+        self.assertTrue(record["success"])
+        self.assertTrue(record["skipped"])
+        self.assertEqual(record["reason"], "scheduler_lock_not_acquired")
+        mock_trigger.assert_not_called()

@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 import logging
 import time
+import zlib
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+from django.db import connection
 
 from app.services.trend_refresh import parse_refresh_steps, trigger_runpod_trend_refresh_with_archive
 from app.trend_pipeline.paths import RAG_DIR
@@ -24,8 +28,9 @@ WEEKDAY_TO_INT = {
     "sat": 5,
     "sun": 6,
 }
-DEFAULT_STEPS = ["crawl", "refine", "llm_refine", "vectorize"]
+DEFAULT_STEPS = ["crawl", "refine", "llm_refine", "vectorize", "rebuild_styles"]
 DEFAULT_LOG_PATH = RAG_DIR / "logs" / "trend_scheduler_runs.jsonl"
+SCHEDULER_LOCK_NAMESPACE = 143
 
 
 @dataclass(slots=True)
@@ -92,60 +97,116 @@ def choose_next_run(
     return "weekly", weekly_run
 
 
+def _scheduler_lock_key(*, run_type: str, scheduled_for: datetime) -> int:
+    lock_value = f"{run_type}:{scheduled_for.astimezone(ZoneInfo('UTC')).isoformat()}"
+    return zlib.crc32(lock_value.encode("utf-8")) & 0x7FFFFFFF
+
+
+def try_acquire_scheduler_lock(*, run_type: str, scheduled_for: datetime) -> bool:
+    if connection.vendor != "postgresql":
+        return True
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_try_advisory_lock(%s, %s)",
+            [SCHEDULER_LOCK_NAMESPACE, _scheduler_lock_key(run_type=run_type, scheduled_for=scheduled_for)],
+        )
+        row = cursor.fetchone()
+    return bool(row and row[0])
+
+
+def release_scheduler_lock(*, run_type: str, scheduled_for: datetime) -> None:
+    if connection.vendor != "postgresql":
+        return
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_unlock(%s, %s)",
+            [SCHEDULER_LOCK_NAMESPACE, _scheduler_lock_key(run_type=run_type, scheduled_for=scheduled_for)],
+        )
+
+
+@contextmanager
+def scheduler_execution_guard(*, run_type: str, scheduled_for: datetime):
+    acquired = try_acquire_scheduler_lock(run_type=run_type, scheduled_for=scheduled_for)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            release_scheduler_lock(run_type=run_type, scheduled_for=scheduled_for)
+
+
 def execute_scheduled_refresh(config: TrendSchedulerConfig, *, run_type: str, scheduled_for: datetime) -> dict[str, Any]:
     started_at = datetime.now(ZoneInfo(config.timezone_name))
-    print(
-        f"[trend_scheduler] starting run_type={run_type} "
-        f"scheduled_for={scheduled_for.isoformat()} "
-        f"steps={','.join(config.normalized_steps())}"
-    )
-    logger.info(
-        "[trend_scheduler] run_type=%s scheduled_for=%s steps=%s include_ncs=%s include_styles=%s",
-        run_type,
-        scheduled_for.isoformat(),
-        ",".join(config.normalized_steps()),
-        config.include_ncs,
-        config.include_styles,
-    )
+    with scheduler_execution_guard(run_type=run_type, scheduled_for=scheduled_for) as lock_acquired:
+        if not lock_acquired:
+            ended_at = datetime.now(ZoneInfo(config.timezone_name))
+            record = {
+                "run_type": run_type,
+                "scheduled_for": scheduled_for.isoformat(),
+                "started_at": started_at.isoformat(),
+                "ended_at": ended_at.isoformat(),
+                "success": True,
+                "skipped": True,
+                "reason": "scheduler_lock_not_acquired",
+            }
+            append_scheduler_record(record, config.log_path)
+            print(f"[trend_scheduler] skipped run_type={run_type} reason=scheduler_lock_not_acquired")
+            logger.info("[trend_scheduler] skipped run_type=%s because advisory lock was not acquired", run_type)
+            return record
 
-    try:
-        result = trigger_runpod_trend_refresh_with_archive(
-            build_locally=True,
-            steps=config.normalized_steps(),
-            include_ncs=config.include_ncs,
-            include_styles=config.include_styles,
-            sync=True,
-            wait=True,
-            timeout=config.runpod_timeout,
-            poll_interval=config.runpod_poll_interval,
+        print(
+            f"[trend_scheduler] starting run_type={run_type} "
+            f"scheduled_for={scheduled_for.isoformat()} "
+            f"steps={','.join(config.normalized_steps())}"
         )
-        ended_at = datetime.now(ZoneInfo(config.timezone_name))
-        record = {
-            "run_type": run_type,
-            "scheduled_for": scheduled_for.isoformat(),
-            "started_at": started_at.isoformat(),
-            "ended_at": ended_at.isoformat(),
-            "success": True,
-            "result": result,
-        }
-        append_scheduler_record(record, config.log_path)
-        print(f"[trend_scheduler] completed run_type={run_type} success=true")
-        logger.info("[trend_scheduler] completed run_type=%s", run_type)
-        return record
-    except Exception as exc:
-        ended_at = datetime.now(ZoneInfo(config.timezone_name))
-        record = {
-            "run_type": run_type,
-            "scheduled_for": scheduled_for.isoformat(),
-            "started_at": started_at.isoformat(),
-            "ended_at": ended_at.isoformat(),
-            "success": False,
-            "error": f"{type(exc).__name__}: {exc}",
-        }
-        append_scheduler_record(record, config.log_path)
-        print(f"[trend_scheduler] completed run_type={run_type} success=false error={type(exc).__name__}: {exc}")
-        logger.exception("[trend_scheduler] failed run_type=%s", run_type)
-        raise
+        logger.info(
+            "[trend_scheduler] run_type=%s scheduled_for=%s steps=%s include_ncs=%s include_styles=%s",
+            run_type,
+            scheduled_for.isoformat(),
+            ",".join(config.normalized_steps()),
+            config.include_ncs,
+            config.include_styles,
+        )
+
+        try:
+            result = trigger_runpod_trend_refresh_with_archive(
+                build_locally=True,
+                steps=config.normalized_steps(),
+                include_ncs=config.include_ncs,
+                include_styles=config.include_styles,
+                sync=True,
+                wait=True,
+                timeout=config.runpod_timeout,
+                poll_interval=config.runpod_poll_interval,
+            )
+            ended_at = datetime.now(ZoneInfo(config.timezone_name))
+            record = {
+                "run_type": run_type,
+                "scheduled_for": scheduled_for.isoformat(),
+                "started_at": started_at.isoformat(),
+                "ended_at": ended_at.isoformat(),
+                "success": True,
+                "result": result,
+            }
+            append_scheduler_record(record, config.log_path)
+            print(f"[trend_scheduler] completed run_type={run_type} success=true")
+            logger.info("[trend_scheduler] completed run_type=%s", run_type)
+            return record
+        except Exception as exc:
+            ended_at = datetime.now(ZoneInfo(config.timezone_name))
+            record = {
+                "run_type": run_type,
+                "scheduled_for": scheduled_for.isoformat(),
+                "started_at": started_at.isoformat(),
+                "ended_at": ended_at.isoformat(),
+                "success": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            append_scheduler_record(record, config.log_path)
+            print(f"[trend_scheduler] completed run_type={run_type} success=false error={type(exc).__name__}: {exc}")
+            logger.exception("[trend_scheduler] failed run_type=%s", run_type)
+            raise
 
 
 def append_scheduler_record(record: dict[str, Any], log_path: Path) -> None:

@@ -9,14 +9,17 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from django.core.management import call_command
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
+from app.api.v1.services_django import get_trend_recommendations
+from app.models_django import Style
 from app.services.trend_refresh import (
     build_chromadb_archive,
     run_local_refresh_trends_pipeline,
     trigger_runpod_trend_refresh,
     trigger_runpod_trend_refresh_with_archive,
 )
+from app.trend_pipeline.style_collection import sync_seed_styles_to_db
 
 
 class TrendRefreshServiceTests(SimpleTestCase):
@@ -211,3 +214,78 @@ class TrendRefreshServiceTests(SimpleTestCase):
         parsed = json.loads(rendered)
         self.assertEqual(parsed["request_mode"], "runpod_archive")
         self.assertEqual(parsed["runpod_response"]["success"], True)
+
+
+class TrendRefreshDatabaseSyncTests(TestCase):
+    def test_sync_seed_styles_to_db_creates_or_updates_style_rows(self):
+        result = sync_seed_styles_to_db(
+            styles=[
+                {
+                    "style_name": "Soft Wolf Cut",
+                    "description": "Layered wolf cut synced from trend seed.",
+                    "mood": ["trendy"],
+                },
+                {
+                    "style_name": "Curtain Bob",
+                    "description": "Jaw-length bob synced from trend seed.",
+                    "mood": ["classic"],
+                },
+            ]
+        )
+
+        self.assertEqual(result["style_count"], 2)
+        self.assertEqual(Style.objects.filter(name="Soft Wolf Cut").count(), 1)
+        self.assertEqual(Style.objects.get(name="Curtain Bob").vibe, "Classic")
+
+    def test_trend_fallback_prefers_synced_seed_styles(self):
+        sync_seed_styles_to_db(
+            styles=[
+                {
+                    "style_name": "Soft Wolf Cut",
+                    "description": "Layered wolf cut synced from trend seed.",
+                    "keywords": ["wolf cut", "layered"],
+                    "mood": ["trendy"],
+                    "freshness_score": 0.88,
+                    "source": "test_seed",
+                    "last_updated": "2026-03-27",
+                },
+                {
+                    "style_name": "Curtain Bob",
+                    "description": "Jaw-length bob synced from trend seed.",
+                    "keywords": ["bob", "curtain"],
+                    "mood": ["classic"],
+                    "freshness_score": 0.72,
+                    "source": "test_seed",
+                    "last_updated": "2026-03-27",
+                },
+            ]
+        )
+
+        with patch(
+            "app.api.v1.services_django.load_hairstyles",
+            return_value=[
+                {
+                    "style_name": "Soft Wolf Cut",
+                    "description": "Layered wolf cut synced from trend seed.",
+                    "keywords": ["wolf cut", "layered"],
+                    "freshness_score": 0.88,
+                    "source": "test_seed",
+                    "last_updated": "2026-03-27",
+                },
+                {
+                    "style_name": "Curtain Bob",
+                    "description": "Jaw-length bob synced from trend seed.",
+                    "keywords": ["bob", "curtain"],
+                    "freshness_score": 0.72,
+                    "source": "test_seed",
+                    "last_updated": "2026-03-27",
+                },
+            ],
+        ):
+            payload = get_trend_recommendations(days=30, client=None)
+
+        self.assertEqual(payload["items"][0]["style_name"], "Soft Wolf Cut")
+        self.assertEqual(
+            payload["items"][0]["reasoning_snapshot"]["summary"],
+            "fallback trend catalog synced from refreshed seed data",
+        )

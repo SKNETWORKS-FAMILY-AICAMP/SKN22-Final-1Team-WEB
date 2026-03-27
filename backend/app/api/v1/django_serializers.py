@@ -93,6 +93,8 @@ class FormerRecommendationSerializer(serializers.ModelSerializer):
     reasoning_snapshot = serializers.JSONField(read_only=True)
     image_policy = serializers.SerializerMethodField()
     can_regenerate_simulation = serializers.SerializerMethodField()
+    regeneration_remaining_count = serializers.SerializerMethodField()
+    regeneration_policy = serializers.SerializerMethodField()
 
     def get_reasoning(self, obj):
         snapshot = obj.reasoning_snapshot or {}
@@ -102,7 +104,25 @@ class FormerRecommendationSerializer(serializers.ModelSerializer):
         return "vector_only" if obj.regeneration_snapshot else "legacy_asset_store"
 
     def get_can_regenerate_simulation(self, obj):
-        return bool(obj.regeneration_snapshot)
+        attempts_used = int((obj.reasoning_snapshot or {}).get("regeneration_attempts_used") or 0)
+        return bool(obj.regeneration_snapshot) and attempts_used < 1
+
+    def get_regeneration_remaining_count(self, obj):
+        attempts_used = int((obj.reasoning_snapshot or {}).get("regeneration_attempts_used") or 0)
+        return max(0, 1 - attempts_used) if obj.regeneration_snapshot else 0
+
+    def get_regeneration_policy(self, obj):
+        if not obj.regeneration_snapshot:
+            return None
+        attempts_used = int((obj.reasoning_snapshot or {}).get("regeneration_attempts_used") or 0)
+        return {
+            "mode": "single_retry",
+            "seed_strategy": "vary_seed",
+            "selection_bias": "face_ratio_preference_boost",
+            "trend_bias": "reduced",
+            "attempts_allowed": 1,
+            "attempts_used": attempts_used,
+        }
 
     class Meta:
         model = FormerRecommendation
@@ -122,6 +142,8 @@ class FormerRecommendationSerializer(serializers.ModelSerializer):
             "reasoning_snapshot",
             "image_policy",
             "can_regenerate_simulation",
+            "regeneration_remaining_count",
+            "regeneration_policy",
             "match_score",
             "rank",
             "is_chosen",
@@ -145,6 +167,8 @@ class RecommendationCardSerializer(serializers.Serializer):
     reasoning_snapshot = serializers.JSONField(required=False)
     image_policy = serializers.CharField(required=False)
     can_regenerate_simulation = serializers.BooleanField(required=False)
+    regeneration_remaining_count = serializers.IntegerField(required=False)
+    regeneration_policy = serializers.JSONField(required=False)
     match_score = serializers.FloatField(required=False)
     rank = serializers.IntegerField(required=False)
     is_chosen = serializers.BooleanField(required=False)
@@ -159,9 +183,42 @@ class RecommendationListResponseSerializer(serializers.Serializer):
     trend_scope = serializers.CharField(required=False)
     age_profile = serializers.JSONField(required=False)
     message = serializers.CharField(required=False)
+    recommendation_stage = serializers.CharField(required=False)
+    can_retry_recommendations = serializers.BooleanField(required=False)
+    retry_recommendations_remaining_count = serializers.IntegerField(required=False)
+    retry_recommendations_policy = serializers.JSONField(required=False)
     next_action = serializers.CharField(required=False)
     next_actions = serializers.ListField(child=serializers.CharField(), required=False)
     items = RecommendationCardSerializer(many=True)
+
+
+class RetryRecommendationRequestSerializer(serializers.Serializer):
+    client_id = serializers.IntegerField(required=False)
+    customer_id = serializers.IntegerField(required=False)
+
+
+class RegenerateSimulationRequestSerializer(serializers.Serializer):
+    recommendation_id = serializers.IntegerField(required=False)
+    regeneration_snapshot = serializers.JSONField(required=False)
+    style_id = serializers.IntegerField(required=False)
+
+    def validate(self, attrs):
+        recommendation_id = attrs.get("recommendation_id")
+        regeneration_snapshot = attrs.get("regeneration_snapshot")
+        style_id = attrs.get("style_id")
+        if recommendation_id is None and regeneration_snapshot is None:
+            raise serializers.ValidationError(
+                {"recommendation_id": "Provide recommendation_id or regeneration_snapshot."}
+            )
+        if recommendation_id is None and style_id is None:
+            raise serializers.ValidationError(
+                {"style_id": "style_id is required when regeneration_snapshot is provided directly."}
+            )
+        return attrs
+
+
+class TokenRefreshSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField()
 
 
 class ConsultationRequestSerializer(serializers.ModelSerializer):

@@ -17,7 +17,7 @@ def refresh_trends(steps: list[str] | None = None) -> dict[str, Any]:
 
     invalid = [step for step in steps if step not in VALID_STEPS]
     if invalid:
-        return {"error": f"잘못된 단계: {invalid}. 가능한 값: {VALID_STEPS}"}
+        return {"error": f"Unsupported step(s): {invalid}. Valid steps: {VALID_STEPS}"}
 
     results: dict[str, Any] = {
         "steps_requested": steps,
@@ -29,13 +29,13 @@ def refresh_trends(steps: list[str] | None = None) -> dict[str, Any]:
 
     for step in steps:
         step_started_at = time.time()
-        logger.info("[refresh_trends] === %s 시작 ===", step)
+        logger.info("[refresh_trends] === %s started ===", step)
         try:
             detail = _run_step(step)
             elapsed = round(time.time() - step_started_at, 2)
             results["steps_completed"].append(step)
             results["details"][step] = {"status": "ok", "elapsed_seconds": elapsed, **detail}
-            logger.info("[refresh_trends] === %s 완료 (%ss) ===", step, elapsed)
+            logger.info("[refresh_trends] === %s completed (%ss) ===", step, elapsed)
         except Exception as exc:
             elapsed = round(time.time() - step_started_at, 2)
             results["steps_failed"].append(step)
@@ -44,7 +44,7 @@ def refresh_trends(steps: list[str] | None = None) -> dict[str, Any]:
                 "error": f"{type(exc).__name__}: {exc}",
                 "elapsed_seconds": elapsed,
             }
-            logger.exception("[refresh_trends] === %s 실패 ===", step)
+            logger.exception("[refresh_trends] === %s failed ===", step)
 
     results["total_elapsed_seconds"] = round(time.time() - started_at, 2)
     results["success"] = len(results["steps_failed"]) == 0
@@ -56,42 +56,44 @@ def _run_step(step: str) -> dict[str, Any]:
         from .universal_crawler import UniversalCrawler
 
         UniversalCrawler().crawl()
-        return {"description": "트렌드 웹 크롤링 완료"}
+        return {"description": "Trend crawl completed."}
 
     if step == "refine":
         from .data_refiner import DataRefiner
 
         DataRefiner().refine()
-        return {"description": "크롤링 데이터 정제 완료"}
+        return {"description": "Refined raw trend data."}
 
     if step == "llm_refine":
         from .llm_refiner import LLMRefiner
 
         LLMRefiner().refine_with_llm()
-        return {"description": "LLM 기반 정제 완료"}
+        return {"description": "Completed LLM-based normalization."}
 
     if step == "vectorize":
         from .vectorize_chromadb import build_collection
 
         collection = build_collection()
         return {
-            "description": "ChromaDB 트렌드 벡터DB 갱신 완료",
+            "description": "Updated ChromaDB trend vectors.",
             "document_count": (collection.count() if collection else 0),
         }
 
     if step == "rebuild_styles":
-        from .style_collection import build_style_collection
+        from .style_collection import build_style_collection, sync_seed_styles_to_db
 
         collection = build_style_collection()
+        sync_result = sync_seed_styles_to_db()
         return {
-            "description": "스타일 추천 컬렉션 리빌드 완료",
+            "description": "Rebuilt style collection and synced backend style records.",
             "style_count": (collection.count() if collection else 0),
+            "db_sync": sync_result,
         }
 
     if step == "analyze":
         from .analyze_trends import KeywordAnalyzer
 
         KeywordAnalyzer().analyze_and_visualize()
-        return {"description": "키워드 분석 완료"}
+        return {"description": "Trend keyword analysis completed."}
 
     return {}
