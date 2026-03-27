@@ -15,6 +15,8 @@ env = environ.Env(
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
+environ.Env.read_env(os.path.join(PROJECT_ROOT, ".env"))
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-mock-key-for-dev")
@@ -129,3 +131,24 @@ SPECTACULAR_SETTINGS = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+RUNPOD_BASE_URL = env("RUNPOD_BASE_URL", default="https://api.runpod.ai/v2").rstrip("/")
+RUNPOD_API_KEY = env("RUNPOD_API_KEY", default="")
+RUNPOD_TRENDS_ENDPOINT_ID = env(
+    "RUNPOD_TRENDS_ENDPOINT_ID",
+    default=env("RUNPOD_ENDPOINT_ID", default=""),
+)
+GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
+TREND_REFINER_MODEL = env("TREND_REFINER_MODEL", default="gemini-2.5-flash")
+TREND_SCHEDULER_ENABLED = env.bool("ENABLE_TREND_SCHEDULER", default=False)
+TREND_SCHEDULER_TIMEZONE = env("TREND_SCHEDULER_TIMEZONE", default="Asia/Seoul")
+TREND_SCHEDULER_WEEKLY_DAY = env("TREND_SCHEDULER_WEEKLY_DAY", default="fri")
+TREND_SCHEDULER_WEEKLY_HOUR = env.int("TREND_SCHEDULER_WEEKLY_HOUR", default=8)
+TREND_SCHEDULER_WEEKLY_MINUTE = env.int("TREND_SCHEDULER_WEEKLY_MINUTE", default=0)
+TREND_SCHEDULER_STEPS = env("TREND_SCHEDULER_STEPS", default="crawl,refine,llm_refine,vectorize")
+TREND_SCHEDULER_INCLUDE_NCS = env.bool("TREND_SCHEDULER_INCLUDE_NCS", default=False)
+TREND_SCHEDULER_INCLUDE_STYLES = env.bool("TREND_SCHEDULER_INCLUDE_STYLES", default=False)
+TREND_SCHEDULER_TIMEOUT = env.int("TREND_SCHEDULER_TIMEOUT", default=1800)
+TREND_SCHEDULER_POLL_INTERVAL = env.float("TREND_SCHEDULER_POLL_INTERVAL", default=5.0)
+TREND_SCHEDULER_SLEEP_INTERVAL = env.float("TREND_SCHEDULER_SLEEP_INTERVAL", default=15.0)
+TREND_SCHEDULER_TEST_AT = env("TREND_SCHEDULER_TEST_AT", default="")
