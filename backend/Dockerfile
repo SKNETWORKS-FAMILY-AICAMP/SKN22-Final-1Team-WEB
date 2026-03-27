@@ -43,6 +43,9 @@ RUN mkdir -p storage/captures storage/processed storage/synthetic
 # 컨테이너가 사용할 포트 번호 명시
 EXPOSE 8000
 
+# Gunicorn 서버 실행
+# mirrai_project 패키지 및 app 모듈을 원활하게 찾기 위해 --pythonpath /app 옵션을 추가합니다.
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--pythonpath", "/app", "mirrai_project.wsgi:application"]
 # 스케줄러(선택)와 Gunicorn 서버 실행
 # mirrai_project 폴더 안의 wsgi.py를 실행 파일로 지정합니다.
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
