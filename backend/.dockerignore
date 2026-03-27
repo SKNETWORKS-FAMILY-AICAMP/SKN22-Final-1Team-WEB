@@ -12,7 +12,6 @@ storage/
 .pytest_cache/
 alembic/
 alembic.ini
-app/
 main.py
 simulate_flow.py
 test_via_client.py
