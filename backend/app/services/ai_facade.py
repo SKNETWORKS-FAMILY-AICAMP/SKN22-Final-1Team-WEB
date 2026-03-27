@@ -9,6 +9,8 @@ from urllib import error, request
 import requests
 
 from app.api.v1.recommendation_logic import (
+    DEFAULT_SCORING_WEIGHTS,
+    ScoringWeights,
     canonical_budget,
     canonical_length,
     canonical_scalp,
@@ -300,7 +302,9 @@ def generate_recommendation_batch(
     survey_data: dict | None,
     analysis_data: dict,
     styles_by_id: dict[int, object] | None = None,
+    scoring_weights: ScoringWeights | None = None,
 ) -> list[dict]:
+    scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
     if _ai_provider() == "service":
         remote = _post_json(
             "/internal/generate-simulations",
@@ -308,6 +312,7 @@ def generate_recommendation_batch(
                 "client_id": client_id,
                 "survey_data": survey_data or {},
                 "analysis_data": analysis_data,
+                "scoring_weights": scoring_weights.as_dict(),
             },
         )
         if remote and isinstance(remote.get("items"), list):
@@ -315,7 +320,12 @@ def generate_recommendation_batch(
 
     survey = SimpleNamespace(client_id=client_id, **(survey_data or {}))
     analysis = SimpleNamespace(**analysis_data)
-    items = score_recommendations(survey=survey, analysis=analysis, styles_by_id=styles_by_id)
+    items = score_recommendations(
+        survey=survey,
+        analysis=analysis,
+        styles_by_id=styles_by_id,
+        scoring_weights=scoring_weights,
+    )
     return _augment_items_with_runpod(items=items, survey_data=survey_data, analysis_data=analysis_data)
 
 

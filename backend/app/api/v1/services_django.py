@@ -6,7 +6,11 @@ from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 
-from app.api.v1.recommendation_logic import STYLE_CATALOG, build_preference_vector
+from app.api.v1.recommendation_logic import (
+    RETRY_SCORING_WEIGHTS,
+    STYLE_CATALOG,
+    build_preference_vector,
+)
 from app.models_django import (
     CaptureRecord,
     ConsultationRequest,
@@ -32,6 +36,17 @@ REGENERATION_POLICY = {
     "seed_strategy": "vary_seed",
     "selection_bias": "face_ratio_preference_boost",
     "trend_bias": "reduced",
+}
+
+RETRY_RECOMMENDATION_MAX_ATTEMPTS = 1
+RETRY_RECOMMENDATION_POLICY = {
+    "mode": "single_retry",
+    "trend_included": False,
+    "preference_weight": 70,
+    "face_shape_weight": 20,
+    "ratio_weight": 10,
+    "face_total_weight": 30,
+    "selection_bias": "preference_dominant",
 }
 
 
@@ -125,11 +140,19 @@ def build_recommendation_regeneration_snapshot(
     survey,
     analysis: FaceAnalysis | None,
     source: str,
+    capture_record: CaptureRecord | None = None,
+    recommendation_stage: str = "initial",
 ) -> dict:
     return {
         "version": "vector-only-v1",
         "source": source,
         "client_id": client.id,
+        "recommendation_stage": recommendation_stage,
+        "context": {
+            "capture_record_id": (capture_record.id if capture_record else None),
+            "survey_id": getattr(survey, "id", None),
+            "analysis_id": (analysis.id if analysis else None),
+        },
         "survey_data": {
             "target_length": getattr(survey, "target_length", None),
             "target_vibe": getattr(survey, "target_vibe", None),
@@ -179,6 +202,7 @@ def persist_generated_batch(
     capture_record: CaptureRecord | None,
     survey,
     analysis: FaceAnalysis,
+    recommendation_stage: str = "initial",
 ) -> tuple[str, list[FormerRecommendation]]:
     styles_by_id = ensure_catalog_styles()
     survey_payload = {
@@ -198,18 +222,23 @@ def persist_generated_batch(
             "landmark_snapshot": analysis.landmark_snapshot,
         },
         styles_by_id=styles_by_id,
+        scoring_weights=(RETRY_SCORING_WEIGHTS if recommendation_stage == "retry" else None),
     )
     regeneration_snapshot = build_recommendation_regeneration_snapshot(
         client=client,
         survey=survey,
         analysis=analysis,
         source="generated",
+        capture_record=capture_record,
+        recommendation_stage=recommendation_stage,
     )
 
     batch_id = uuid.uuid4()
     rows: list[FormerRecommendation] = []
     for item in items:
         style = styles_by_id.get(item["style_id"])
+        reasoning_snapshot = dict(item.get("reasoning_snapshot") or {})
+        reasoning_snapshot["recommendation_stage"] = recommendation_stage
         rows.append(
             FormerRecommendation(
                 client=client,
@@ -225,7 +254,7 @@ def persist_generated_batch(
                 simulation_image_url=None,
                 regeneration_snapshot=regeneration_snapshot,
                 llm_explanation=item.get("llm_explanation"),
-                reasoning_snapshot=item.get("reasoning_snapshot"),
+                reasoning_snapshot=reasoning_snapshot,
                 match_score=item.get("match_score"),
                 rank=item.get("rank", 0),
             )
@@ -295,6 +324,36 @@ def _serialize_row(row: FormerRecommendation) -> dict:
     return serialize_recommendation_row(row)
 
 
+def _get_recommendation_stage(rows: list[FormerRecommendation]) -> str:
+    if not rows:
+        return "initial"
+    snapshot = rows[0].reasoning_snapshot or {}
+    return str(snapshot.get("recommendation_stage") or "initial")
+
+
+def _build_retry_recommendation_meta(*, rows: list[FormerRecommendation], has_active_consultation: bool) -> dict:
+    recommendation_stage = _get_recommendation_stage(rows)
+    attempts_used = 1 if recommendation_stage == "retry" else 0
+    can_retry = bool(rows) and recommendation_stage == "initial" and not has_active_consultation
+    remaining_count = max(0, RETRY_RECOMMENDATION_MAX_ATTEMPTS - attempts_used) if can_retry else 0
+    return {
+        "recommendation_stage": recommendation_stage,
+        "can_retry_recommendations": can_retry,
+        "retry_recommendations_remaining_count": remaining_count,
+        "retry_recommendations_policy": {
+            **RETRY_RECOMMENDATION_POLICY,
+            "attempts_allowed": RETRY_RECOMMENDATION_MAX_ATTEMPTS,
+            "attempts_used": attempts_used,
+        },
+    }
+
+
+def _scoring_weights_for_stage(recommendation_stage: str):
+    if recommendation_stage == "retry":
+        return RETRY_SCORING_WEIGHTS
+    return None
+
+
 def _build_empty_response(*, source: str, message: str, next_action: str | None = None, next_actions: list[str] | None = None) -> dict:
     payload = {
         "status": "empty",
@@ -353,6 +412,7 @@ def regenerate_recommendation_simulation(
     survey_data = dict(regeneration_snapshot.get("survey_data") or {})
     analysis_data = dict(regeneration_snapshot.get("analysis_data") or {})
     client_id = int(regeneration_snapshot.get("client_id") or 0)
+    recommendation_stage = str(regeneration_snapshot.get("recommendation_stage") or "initial")
     if client_id <= 0:
         raise ValueError("The regeneration snapshot is missing client context.")
 
@@ -362,6 +422,7 @@ def regenerate_recommendation_simulation(
         survey_data=survey_data,
         analysis_data=analysis_data,
         styles_by_id=styles_by_id,
+        scoring_weights=_scoring_weights_for_stage(recommendation_stage),
     )
     regenerated_card = next(
         (item for item in generated_items if int(item.get("style_id", -1)) == int(style_id)),
@@ -569,16 +630,88 @@ def get_current_recommendations(client: Client) -> dict:
             next_action="capture",
         )
 
+    has_active_consultation = ConsultationRequest.objects.filter(client=client, is_active=True).exists()
+    retry_meta = _build_retry_recommendation_meta(
+        rows=rows,
+        has_active_consultation=has_active_consultation,
+    )
     message = "The latest Top-5 recommendations were generated from the most recent capture and analysis."
     if latest_survey is None:
         message = "The latest Top-5 recommendations were generated from face analysis only because survey data is not available."
+    elif retry_meta["recommendation_stage"] == "retry":
+        message = "The recommendations were regenerated once with preference-first scoring and no trend influence."
 
-    return {
+    payload = {
         "status": "ready",
         "source": "current_recommendations",
         "batch_id": batch_id,
         "message": message,
         "items": [_serialize_row(row) for row in rows],
+    }
+    payload.update(retry_meta)
+    payload["next_actions"] = (
+        ["retry_recommendations", "consultation"]
+        if retry_meta["can_retry_recommendations"]
+        else ["consultation"]
+    )
+    return payload
+
+
+def retry_current_recommendations(client: Client) -> dict:
+    latest_capture = get_latest_capture(client)
+    latest_analysis = get_latest_analysis(client)
+    latest_survey = get_latest_survey(client)
+    if not latest_capture or not latest_analysis:
+        raise ValueError("A completed capture and face analysis are required before retrying recommendations.")
+
+    latest_batch = (
+        FormerRecommendation.objects.filter(client=client, source="generated")
+        .order_by("-created_at")
+        .first()
+    )
+    if latest_batch is None:
+        raise ValueError("Retry is available only after the initial recommendation batch has been generated.")
+    if latest_batch.created_at < latest_capture.created_at or latest_batch.created_at < latest_analysis.created_at:
+        raise ValueError("Retry is available only for the latest initial recommendation batch. Refresh current recommendations first.")
+    if latest_survey is not None and latest_batch.created_at < latest_survey.created_at:
+        raise ValueError("Retry is available only for the latest initial recommendation batch. Refresh current recommendations first.")
+
+    rows = list(
+        FormerRecommendation.objects.filter(client=client, batch_id=latest_batch.batch_id).order_by("rank", "id")
+    )
+    if not rows:
+        raise ValueError("Initial recommendations must be ready before retry is available.")
+
+    if ConsultationRequest.objects.filter(client=client, is_active=True).exists():
+        raise ValueError("Retry is not available after the consultation flow has started.")
+
+    current_stage = _get_recommendation_stage(rows)
+    if current_stage != "initial":
+        raise ValueError("Retry recommendations are only available once after the initial recommendation batch.")
+
+    if any(row.is_chosen for row in rows):
+        raise ValueError("Retry is not available after a recommendation has already been selected.")
+
+    survey_context = latest_survey or build_default_survey_context(client.id)
+    new_batch_id, new_rows = persist_generated_batch(
+        client=client,
+        capture_record=latest_capture,
+        survey=survey_context,
+        analysis=latest_analysis,
+        recommendation_stage="retry",
+    )
+    retry_meta = _build_retry_recommendation_meta(
+        rows=new_rows,
+        has_active_consultation=False,
+    )
+    return {
+        "status": "ready",
+        "source": "current_recommendations",
+        "batch_id": new_batch_id,
+        "message": "A one-time retry recommendation batch has been generated with preference-first scoring.",
+        "items": [_serialize_row(row) for row in new_rows],
+        "next_actions": ["consultation"],
+        **retry_meta,
     }
 
 

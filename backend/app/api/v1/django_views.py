@@ -17,6 +17,7 @@ from app.api.v1.django_serializers import (
     ClientRegisterSerializer,
     RegenerateSimulationRequestSerializer,
     RecommendationListResponseSerializer,
+    RetryRecommendationRequestSerializer,
     SurveySerializer,
     TokenRefreshSerializer,
 )
@@ -27,6 +28,7 @@ from app.api.v1.services_django import (
     get_former_recommendations,
     get_trend_recommendations,
     regenerate_recommendation_simulation,
+    retry_current_recommendations,
     run_mirrai_analysis_pipeline,
     serialize_capture_status,
     upsert_survey,
@@ -345,6 +347,26 @@ class RegenerateSimulationView(APIView):
         serializer.is_valid(raise_exception=True)
         try:
             payload = regenerate_recommendation_simulation(**serializer.validated_data)
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
+
+class RetryRecommendationView(APIView):
+    @extend_schema(
+        summary="Retry the current recommendation batch once with preference-first scoring",
+        request=RetryRecommendationRequestSerializer,
+        responses={200: RecommendationListResponseSerializer, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        serializer = RetryRecommendationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id")
+        if not client_id:
+            return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
+        client = get_object_or_404(Client, id=client_id)
+        try:
+            payload = retry_current_recommendations(client)
         except ValueError as exc:
             return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
         return Response(payload)

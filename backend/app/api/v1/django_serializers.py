@@ -183,9 +183,18 @@ class RecommendationListResponseSerializer(serializers.Serializer):
     trend_scope = serializers.CharField(required=False)
     age_profile = serializers.JSONField(required=False)
     message = serializers.CharField(required=False)
+    recommendation_stage = serializers.CharField(required=False)
+    can_retry_recommendations = serializers.BooleanField(required=False)
+    retry_recommendations_remaining_count = serializers.IntegerField(required=False)
+    retry_recommendations_policy = serializers.JSONField(required=False)
     next_action = serializers.CharField(required=False)
     next_actions = serializers.ListField(child=serializers.CharField(), required=False)
     items = RecommendationCardSerializer(many=True)
+
+
+class RetryRecommendationRequestSerializer(serializers.Serializer):
+    client_id = serializers.IntegerField(required=False)
+    customer_id = serializers.IntegerField(required=False)
 
 
 class RegenerateSimulationRequestSerializer(serializers.Serializer):

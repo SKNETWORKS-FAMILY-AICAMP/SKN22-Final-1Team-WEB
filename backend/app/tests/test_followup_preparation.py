@@ -133,6 +133,153 @@ class RegenerateSimulationEndpointTests(APITestCase):
         self.assertEqual(response.data["regeneration_remaining_count"], 0)
 
 
+class RetryRecommendationFlowTests(APITestCase):
+    @mock.patch.dict(os.environ, {"MIRRAI_AI_PROVIDER": "local"}, clear=False)
+    def test_current_recommendations_expose_single_retry_before_consultation(self):
+        client = Client.objects.create(name="Retry Ready", phone="01091919191", gender="F")
+        survey = Survey.objects.create(
+            client=client,
+            target_length="long",
+            target_vibe="natural",
+            scalp_type="waved",
+            hair_colour="brown",
+            budget_range="10-15",
+            preference_vector=[0.5] * 20,
+        )
+        capture = CaptureRecord.objects.create(
+            client=client,
+            status="DONE",
+            face_count=1,
+            privacy_snapshot={"storage_policy": "vector_only"},
+        )
+        analysis = FaceAnalysis.objects.create(
+            client=client,
+            face_shape="Oval",
+            golden_ratio_score=0.9,
+            image_url=None,
+            landmark_snapshot={"version": "coarse-v1"},
+        )
+        persist_generated_batch(
+            client=client,
+            capture_record=capture,
+            survey=survey,
+            analysis=analysis,
+        )
+
+        response = self.client.get(f"/api/v1/analysis/recommendations/?client_id={client.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["recommendation_stage"], "initial")
+        self.assertTrue(response.data["can_retry_recommendations"])
+        self.assertEqual(response.data["retry_recommendations_remaining_count"], 1)
+        self.assertIn("retry_recommendations", response.data["next_actions"])
+
+    @mock.patch.dict(os.environ, {"MIRRAI_AI_PROVIDER": "local"}, clear=False)
+    def test_retry_recommendations_creates_retry_batch_and_disables_second_retry(self):
+        client = Client.objects.create(name="Retry Flow", phone="01092929292", gender="F")
+        survey = Survey.objects.create(
+            client=client,
+            target_length="long",
+            target_vibe="natural",
+            scalp_type="waved",
+            hair_colour="brown",
+            budget_range="10-15",
+            preference_vector=[0.5] * 20,
+        )
+        capture = CaptureRecord.objects.create(
+            client=client,
+            status="DONE",
+            face_count=1,
+            privacy_snapshot={"storage_policy": "vector_only"},
+        )
+        analysis = FaceAnalysis.objects.create(
+            client=client,
+            face_shape="Round",
+            golden_ratio_score=0.78,
+            image_url=None,
+            landmark_snapshot={"version": "coarse-v1"},
+        )
+        persist_generated_batch(
+            client=client,
+            capture_record=capture,
+            survey=survey,
+            analysis=analysis,
+        )
+
+        response = self.client.post(
+            "/api/v1/analysis/retry-recommendations/",
+            {"client_id": client.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["recommendation_stage"], "retry")
+        self.assertFalse(response.data["can_retry_recommendations"])
+        self.assertEqual(response.data["retry_recommendations_remaining_count"], 0)
+        self.assertEqual(response.data["retry_recommendations_policy"]["preference_weight"], 70)
+        self.assertEqual(response.data["retry_recommendations_policy"]["face_total_weight"], 30)
+        self.assertEqual(response.data["next_actions"], ["consultation"])
+        self.assertEqual(response.data["items"][0]["reasoning_snapshot"]["scoring_profile"], "retry_preference_dominant")
+
+        second_response = self.client.post(
+            "/api/v1/analysis/retry-recommendations/",
+            {"client_id": client.id},
+            format="json",
+        )
+        self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @mock.patch.dict(os.environ, {"MIRRAI_AI_PROVIDER": "local"}, clear=False)
+    def test_retry_recommendations_is_blocked_after_consultation_starts(self):
+        client = Client.objects.create(name="Retry Locked", phone="01093939393", gender="F")
+        survey = Survey.objects.create(
+            client=client,
+            target_length="medium",
+            target_vibe="chic",
+            scalp_type="straight",
+            hair_colour="black",
+            budget_range="10-15",
+            preference_vector=[0.5] * 20,
+        )
+        capture = CaptureRecord.objects.create(
+            client=client,
+            status="DONE",
+            face_count=1,
+            privacy_snapshot={"storage_policy": "vector_only"},
+        )
+        analysis = FaceAnalysis.objects.create(
+            client=client,
+            face_shape="Oval",
+            golden_ratio_score=0.88,
+            image_url=None,
+            landmark_snapshot={"version": "coarse-v1"},
+        )
+        _, rows = persist_generated_batch(
+            client=client,
+            capture_record=capture,
+            survey=survey,
+            analysis=analysis,
+        )
+
+        consult_response = self.client.post(
+            "/api/v1/analysis/confirm/",
+            {
+                "client_id": client.id,
+                "direct_consultation": True,
+                "recommendation_id": rows[0].id,
+                "source": "current_recommendations",
+            },
+            format="json",
+        )
+        self.assertEqual(consult_response.status_code, status.HTTP_200_OK)
+
+        retry_response = self.client.post(
+            "/api/v1/analysis/retry-recommendations/",
+            {"client_id": client.id},
+            format="json",
+        )
+        self.assertEqual(retry_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class RefreshTokenEndpointTests(APITestCase):
     def test_client_refresh_endpoint_returns_new_tokens(self):
         client = Client.objects.create(name="Client Refresh", phone="01056565656", gender="F")
