@@ -30,5 +30,17 @@ def admin_login_page(request):
     return render(request, "admin/login.html")
 
 
+def admin_signup_page(request):
+    return render(request, "admin/signup.html")
+
+
 def admin_dashboard_page(request):
     return render(request, "admin/index.html")
+
+
+def page_not_found_view(request, exception):
+    return render(request, "errors/error.html", {"error_code": "404"}, status=404)
+
+
+def server_error_view(request):
+    return render(request, "errors/error.html", {"error_code": "500"}, status=500)
