@@ -14,3 +14,8 @@ class AppConfig(DjangoAppConfig):
         self.models = django_apps.all_models[self.label]
         if module_has_submodule(self.module, "models_django"):
             self.models_module = import_module(f"{self.name}.models_django")
+
+    def ready(self):
+        import sys
+        if "migrate" in sys.argv or "makemigrations" in sys.argv or "test" in sys.argv:
+            return

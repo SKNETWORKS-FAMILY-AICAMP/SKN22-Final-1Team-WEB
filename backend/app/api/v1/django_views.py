@@ -10,11 +10,16 @@ from rest_framework.views import APIView
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
+from app.api.v1.admin_auth import issue_client_token_pair, refresh_client_access_token
+from app.api.v1.response_helpers import detail_response
 from app.api.v1.django_serializers import (
     ClientCheckSerializer,
     ClientRegisterSerializer,
+    RegenerateSimulationRequestSerializer,
     RecommendationListResponseSerializer,
+    RetryRecommendationRequestSerializer,
     SurveySerializer,
+    TokenRefreshSerializer,
 )
 from app.api.v1.services_django import (
     cancel_style_selection,
@@ -22,6 +27,8 @@ from app.api.v1.services_django import (
     get_current_recommendations,
     get_former_recommendations,
     get_trend_recommendations,
+    regenerate_recommendation_simulation,
+    retry_current_recommendations,
     run_mirrai_analysis_pipeline,
     serialize_capture_status,
     upsert_survey,
@@ -31,6 +38,22 @@ from app.services.age_profile import build_client_age_profile
 from app.services.capture_validation import sanitize_original_upload, validate_capture_image
 from app.services.face_processing import build_deidentified_capture, extract_landmark_snapshot
 from app.services.storage_service import store_capture_assets
+
+
+def _request_value(request, *keys: str):
+    for key in keys:
+        value = request.data.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _query_value(request, *keys: str):
+    for key in keys:
+        value = request.query_params.get(key)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 class LoginView(APIView):
@@ -47,24 +70,35 @@ class LoginView(APIView):
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
         if not phone:
-            return Response({"detail": "Phone number is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return detail_response("Phone number is required.", status_code=status.HTTP_400_BAD_REQUEST)
 
         client = Client.objects.filter(phone=phone).first()
         if not client:
-            return Response({"detail": "Client not found."}, status=status.HTTP_404_NOT_FOUND)
+            return detail_response("Client not found.", status_code=status.HTTP_404_NOT_FOUND)
 
         age_profile = build_client_age_profile(client) or {}
         return Response(
             {
-                "access_token": f"mock-token-{client.id}",
-                "token_type": "bearer",
                 "client_id": client.id,
                 "age": age_profile.get("current_age"),
                 "age_decade": age_profile.get("age_decade"),
                 "age_segment": age_profile.get("age_segment"),
                 "age_group": age_profile.get("age_group"),
+                **issue_client_token_pair(client=client),
             }
         )
+
+
+class ClientRefreshView(APIView):
+    @extend_schema(summary="Refresh client token", request=TokenRefreshSerializer, responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
+    def post(self, request):
+        serializer = TokenRefreshSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = refresh_client_access_token(refresh_token=serializer.validated_data["refresh_token"])
+        except Exception as exc:
+            return detail_response(str(exc), status_code=status.HTTP_401_UNAUTHORIZED)
+        return Response(payload)
 
 
 class ClientCheckView(APIView):
@@ -95,7 +129,10 @@ class RegisterView(APIView):
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
         if Client.objects.filter(phone=phone).exists():
-            return Response({"detail": "This phone number is already registered."}, status=status.HTTP_400_BAD_REQUEST)
+            return detail_response(
+                "This phone number is already registered.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         serializer = ClientRegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -106,12 +143,11 @@ class RegisterView(APIView):
             {
                 "status": "success",
                 "client_id": client.id,
-                "access_token": f"mock-token-{client.id}",
-                "token_type": "bearer",
                 "age": age_profile.get("current_age"),
                 "age_decade": age_profile.get("age_decade"),
                 "age_segment": age_profile.get("age_segment"),
                 "age_group": age_profile.get("age_group"),
+                **issue_client_token_pair(client=client),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -120,7 +156,7 @@ class RegisterView(APIView):
 class SurveyView(APIView):
     @extend_schema(summary="Submit client survey", request=SurveySerializer, responses={200: SurveySerializer})
     def post(self, request):
-        client_id = request.data.get("client") or request.data.get("client_id")
+        client_id = _request_value(request, "client", "client_id", "customer_id")
         client = get_object_or_404(Client, id=client_id)
         survey = upsert_survey(client, request.data)
         return Response(SurveySerializer(survey).data)
@@ -144,11 +180,11 @@ class CaptureUploadView(APIView):
         responses={200: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = request.data.get("client_id")
+        client_id = _request_value(request, "client_id", "customer_id")
         client = get_object_or_404(Client, id=client_id)
         file_obj = request.FILES.get("file")
         if not file_obj:
-            return Response({"detail": "Image file is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return detail_response("Image file is required.", status_code=status.HTTP_400_BAD_REQUEST)
 
         original_bytes = file_obj.read()
         original_ext = "." + file_obj.name.split(".")[-1] if "." in file_obj.name else ".jpg"
@@ -163,7 +199,7 @@ class CaptureUploadView(APIView):
                 image.convert("RGB").save(processed_buffer, "JPEG")
                 processed_bytes = processed_buffer.getvalue()
         except OSError:
-            return Response({"detail": "Unsupported or invalid image file."}, status=status.HTTP_400_BAD_REQUEST)
+            return detail_response("Unsupported or invalid image file.", status_code=status.HTTP_400_BAD_REQUEST)
 
         validation = validate_capture_image(processed_bytes=processed_bytes)
         landmark_snapshot = extract_landmark_snapshot(processed_bytes=processed_bytes)
@@ -261,9 +297,12 @@ class FormerRecommendationView(APIView):
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = request.query_params.get("client_id")
+        client_id = _query_value(request, "client_id", "customer_id")
         client = get_object_or_404(Client, id=client_id)
-        return Response(get_former_recommendations(client))
+        payload = get_former_recommendations(client)
+        if request.query_params.get("customer_id"):
+            return Response(payload.get("items", []))
+        return Response(payload)
 
 
 class RecommendationView(APIView):
@@ -273,9 +312,12 @@ class RecommendationView(APIView):
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = request.query_params.get("client_id")
+        client_id = _query_value(request, "client_id", "customer_id")
         client = get_object_or_404(Client, id=client_id)
-        return Response(get_current_recommendations(client))
+        payload = get_current_recommendations(client)
+        if request.query_params.get("customer_id"):
+            return Response(payload.get("items", []))
+        return Response(payload)
 
 
 class TrendView(APIView):
@@ -289,9 +331,80 @@ class TrendView(APIView):
     )
     def get(self, request):
         days = int(request.query_params.get("days", 30))
-        client_id = request.query_params.get("client_id")
+        client_id = _query_value(request, "client_id", "customer_id")
         client = get_object_or_404(Client, id=client_id) if client_id else None
         return Response(get_trend_recommendations(days=days, client=client))
+
+
+class RegenerateSimulationView(APIView):
+    @extend_schema(
+        summary="Regenerate simulation payload from vector-only snapshot",
+        request=RegenerateSimulationRequestSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        serializer = RegenerateSimulationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            payload = regenerate_recommendation_simulation(**serializer.validated_data)
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
+
+class RetryRecommendationView(APIView):
+    @extend_schema(
+        summary="Retry the current recommendation batch once with preference-first scoring",
+        request=RetryRecommendationRequestSerializer,
+        responses={200: RecommendationListResponseSerializer, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        serializer = RetryRecommendationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id")
+        if not client_id:
+            return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
+        client = get_object_or_404(Client, id=client_id)
+        try:
+            payload = retry_current_recommendations(client)
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
+
+class SelectionView(APIView):
+    @extend_schema(
+        summary="Legacy selection staging endpoint",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "client_id": {"type": "integer"},
+                    "customer_id": {"type": "integer"},
+                    "style_id": {"type": "integer"},
+                },
+                "required": ["style_id"],
+            }
+        },
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        client_id = _request_value(request, "client_id", "customer_id")
+        style_id = _request_value(request, "style_id")
+        if not client_id or not style_id:
+            return detail_response(
+                "Both client_id and style_id are required.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        client = get_object_or_404(Client, id=client_id)
+        return Response(
+            {
+                "status": "selected",
+                "client_id": client.id,
+                "style_id": int(style_id),
+                "message": "Selection has been staged for the follow-up consult request.",
+            }
+        )
 
 
 class ConfirmView(APIView):
@@ -314,18 +427,19 @@ class ConfirmView(APIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client = get_object_or_404(Client, id=request.data.get("client_id"))
+        client_id = _request_value(request, "client_id", "customer_id")
+        client = get_object_or_404(Client, id=client_id)
         try:
             payload = confirm_style_selection(
                 client=client,
-                recommendation_id=request.data.get("recommendation_id"),
-                style_id=request.data.get("style_id"),
+                recommendation_id=_request_value(request, "recommendation_id"),
+                style_id=_request_value(request, "style_id"),
                 admin_id=request.data.get("admin_id"),
                 source=request.data.get("source", "current_recommendations"),
                 direct_consultation=bool(request.data.get("direct_consultation", False)),
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
         return Response(payload)
 
 
@@ -346,15 +460,16 @@ class CancelView(APIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client = get_object_or_404(Client, id=request.data.get("client_id"))
+        client_id = _request_value(request, "client_id", "customer_id")
+        client = get_object_or_404(Client, id=client_id)
         try:
             payload = cancel_style_selection(
                 client=client,
-                recommendation_id=request.data.get("recommendation_id"),
+                recommendation_id=_request_value(request, "recommendation_id"),
                 source=request.data.get("source", "current_recommendations"),
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
         return Response(payload)
 
 

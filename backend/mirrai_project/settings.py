@@ -9,6 +9,9 @@ env = environ.Env(
     SUPABASE_USE_REMOTE_DB=(bool, False),
     SUPABASE_USE_REMOTE_STORAGE=(bool, False),
     MIRRAI_PERSIST_CAPTURE_IMAGES=(bool, False),
+    TREND_REFRESH_ENABLED=(bool, False),
+    TREND_REFRESH_INTERVAL_MINUTES=(int, 0),
+    TREND_REFRESH_SOURCES=(list, []),
     SUPABASE_BUCKET_PUBLIC=(bool, False),
     SUPABASE_SIGNED_URL_EXPIRES_IN=(int, 3600),
     SUPABASE_BUCKET_FILE_SIZE_LIMIT=(int, 10 * 1024 * 1024),
@@ -43,6 +46,10 @@ SUPABASE_SIGNED_URL_EXPIRES_IN = env.int("SUPABASE_SIGNED_URL_EXPIRES_IN", defau
 SUPABASE_BUCKET_FILE_SIZE_LIMIT = env.int("SUPABASE_BUCKET_FILE_SIZE_LIMIT", default=10 * 1024 * 1024)
 SUPABASE_ALLOWED_MIME_TYPES = [item.strip() for item in env.list("SUPABASE_ALLOWED_MIME_TYPES", default=["image/jpeg", "image/png", "image/webp"]) if item.strip()]
 MIRRAI_PERSIST_CAPTURE_IMAGES = env.bool("MIRRAI_PERSIST_CAPTURE_IMAGES", default=False)
+TREND_REFRESH_ENABLED = env.bool("TREND_REFRESH_ENABLED", default=False)
+TREND_REFRESH_INTERVAL_MINUTES = env.int("TREND_REFRESH_INTERVAL_MINUTES", default=0)
+TREND_REFRESH_SOURCE = env("TREND_REFRESH_SOURCE", default="ai_repo_refresh_trends")
+TREND_REFRESH_SOURCES = [item.strip() for item in env.list("TREND_REFRESH_SOURCES", default=[]) if item.strip()]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -145,7 +152,7 @@ TREND_SCHEDULER_TIMEZONE = env("TREND_SCHEDULER_TIMEZONE", default="Asia/Seoul")
 TREND_SCHEDULER_WEEKLY_DAY = env("TREND_SCHEDULER_WEEKLY_DAY", default="fri")
 TREND_SCHEDULER_WEEKLY_HOUR = env.int("TREND_SCHEDULER_WEEKLY_HOUR", default=8)
 TREND_SCHEDULER_WEEKLY_MINUTE = env.int("TREND_SCHEDULER_WEEKLY_MINUTE", default=0)
-TREND_SCHEDULER_STEPS = env("TREND_SCHEDULER_STEPS", default="crawl,refine,llm_refine,vectorize")
+TREND_SCHEDULER_STEPS = env("TREND_SCHEDULER_STEPS", default="crawl,refine,llm_refine,vectorize,rebuild_styles")
 TREND_SCHEDULER_INCLUDE_NCS = env.bool("TREND_SCHEDULER_INCLUDE_NCS", default=False)
 TREND_SCHEDULER_INCLUDE_STYLES = env.bool("TREND_SCHEDULER_INCLUDE_STYLES", default=False)
 TREND_SCHEDULER_TIMEOUT = env.int("TREND_SCHEDULER_TIMEOUT", default=1800)
