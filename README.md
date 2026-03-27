@@ -56,6 +56,13 @@ pip install -r requirements.txt
 python manage.py migrate
 ```
 
+트렌드 크롤링/정제/LLM 정제/ChromaDB 생성까지 로컬에서 같이 돌릴 경우:
+```bash
+cd backend
+pip install -r requirements-trends.txt
+playwright install chromium
+```
+
 ### 2) 테스트 데이터 생성 (선택 사항)
 로컬 테스트를 위한 관리자 및 고객 데이터를 자동으로 생성합니다.
 ```bash
@@ -67,6 +74,36 @@ python seed_test_data.py
 python manage.py runserver
 # 또는 run_server.bat 실행
 ```
+
+### 4) 주간 트렌드 최신화 실행
+금요일 08:00 스케줄러에서는 Django management command만 호출하면 됩니다.
+```bash
+cd backend
+python manage.py refresh_trends --mode runpod-pipeline
+python manage.py refresh_trends --mode runpod-archive --build-local
+python manage.py refresh_trends --mode runpod-archive --build-local --dry-run
+```
+
+`runpod-archive --build-local`은 로컬에서
+`crawl -> refine -> llm_refine -> vectorize -> rebuild_styles`
+를 먼저 수행한 뒤 ChromaDB 디렉터리를 tar.gz로 묶어 RunPod에 전달합니다.
+
+프로젝트 내부 스케줄러를 별도 프로세스로 띄우려면:
+```bash
+cd backend
+python manage.py run_trend_scheduler
+```
+
+오늘 한 번만 테스트하려면:
+```bash
+cd backend
+python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-test
+```
+
+기본 스케줄은 `매주 금요일 08:00 Asia/Seoul`이며, 기본 작업은
+`crawl -> refine -> llm_refine -> vectorize -> runpod archive upload`입니다.
+같은 이미지에서 웹 서버와 함께 실행하려면 `.env`에 `ENABLE_TREND_SCHEDULER=true`를 넣으면 됩니다.
+운영 환경에 앱 인스턴스가 여러 대면 스케줄러는 한 인스턴스에만 켜야 중복 실행되지 않습니다.
 
 ---
 
