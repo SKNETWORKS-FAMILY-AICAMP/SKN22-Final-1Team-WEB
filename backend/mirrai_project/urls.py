@@ -18,6 +18,9 @@ urlpatterns = [
     path("api/v1/", include("app.api.v1.urls_django")),
 ]
 
+handler404 = "app.front_views.page_not_found_view"
+handler500 = "app.front_views.server_error_view"
+
 if HAS_SPECTACULAR:
     urlpatterns += [
         path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
