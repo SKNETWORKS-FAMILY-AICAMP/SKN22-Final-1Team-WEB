@@ -1,0 +1,11 @@
+-r requirements.txt
+
+# Optional local dependencies for `manage.py refresh_trends --mode runpod-archive --build-local`
+# These power the internal backend trend pipeline without pulling the full RunPod/SD stack.
+beautifulsoup4>=4.12,<5.0
+playwright>=1.49,<2.0
+google-genai>=1.0,<2.0
+pydantic>=2.8,<3.0
+chromadb>=0.5,<0.7
+sentence-transformers>=3.0,<4.0
+numpy>=1.26,<2.0
