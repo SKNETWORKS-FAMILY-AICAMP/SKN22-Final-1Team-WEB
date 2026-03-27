@@ -1,8 +1,6 @@
 import os
 from pathlib import Path
-
 import environ
-
 
 env = environ.Env(
     DEBUG=(bool, False),
@@ -24,7 +22,21 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-mock-key-for-dev")
 DEBUG = env.bool("DEBUG", default=False)
-ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+
+# ★ 수정: 배포 환경의 도메인 및 AWS Elastic Beanstalk 주소 허용
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[
+    "localhost", 
+    "127.0.0.1", 
+    "mirrai.shop",
+    "www.mirrai.shop", 
+    ".elasticbeanstalk.com"
+])
+
+# ★ 추가: CSRF 보안 설정 (배포 환경에서 폼 전송/로그인 에러 방지)
+CSRF_TRUSTED_ORIGINS = [
+    "https://mirrai.shop",
+    "https://*.elasticbeanstalk.com"
+]
 
 SUPABASE_DB_URL = env("SUPABASE_DB_URL", default="")
 LOCAL_DATABASE_URL = env("LOCAL_DATABASE_URL", default="sqlite:///db.sqlite3")
@@ -66,7 +78,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware", # Static 서빙 최적화
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
