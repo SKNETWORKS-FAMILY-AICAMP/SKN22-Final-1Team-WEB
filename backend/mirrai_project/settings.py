@@ -20,8 +20,8 @@ environ.Env.read_env(os.path.join(PROJECT_ROOT, ".env"))
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 SECRET_KEY = env("SECRET_KEY", default="django-insecure-mock-key-for-dev")
-DEBUG = env("DEBUG")
-ALLOWED_HOSTS = ["*"]
+DEBUG = env.bool("DEBUG", default=False)
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
 SUPABASE_DB_URL = env("SUPABASE_DB_URL", default="")
 LOCAL_DATABASE_URL = env("LOCAL_DATABASE_URL", default="sqlite:///db.sqlite3")
