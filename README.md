@@ -76,6 +76,7 @@ python manage.py runserver
 - **고객 서비스**: [http://localhost:8000/customer/](http://localhost:8000/customer/)
 - **파트너 센터**: [http://localhost:8000/partner/login/](http://localhost:8000/partner/login/)
 - **API 문서**: [http://localhost:8000/docs/](http://localhost:8000/docs/)
+- **에러 페이지**: [http://localhost:8000/404/](http://localhost:8000/404/) (테스트용 존재하지 않는 경로)
 
 ---
 
@@ -99,3 +100,21 @@ python manage.py runserver
 - **Middleware**: WhiteNoise (Static serving)
 - **Database**: Supabase (PostgreSQL), SQLite (Local)
 - **Infra**: AWS Elastic Beanstalk, ECR, S3, GitHub Actions
+
+---
+
+## 🔑 로컬 테스트 계정 정보 (Local Test Accounts)
+
+로컬 환경(`seed_test_data.py` 실행 시 생성됨)에서 테스트에 사용할 수 있는 계정 정보입니다.
+
+### **1. 파트너/관리자 (Partner/Admin)**
+- **접속 경로**: [http://localhost:8000/partner/](http://localhost:8000/partner/)
+- **계정 1**: `01012345678` / `partner1234` (기본 관리자)
+- **계정 2**: `01011112222` / `testpartner123` (테스트 파트너)
+- **역할**: 대시보드 관리, 상담 신청 확인, 스타일 통계 리포트 조회
+
+### **2. 고객 (Customer)**
+- **접속 경로**: [http://localhost:8000/customer/](http://localhost:8000/customer/)
+- **테스트 고객 1**: `01099998888` (홍길동)
+- **테스트 고객 2**: `01033334444` (김철수)
+- **설명**: 전화번호 입력 기반으로 접근하며, 설문조사 및 카메라 분석 기능을 테스트할 수 있습니다.

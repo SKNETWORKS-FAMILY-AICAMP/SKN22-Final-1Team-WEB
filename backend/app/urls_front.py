@@ -4,6 +4,7 @@ from django.urls import path
 from app.front_views import (
     admin_dashboard_page,
     admin_login_page,
+    admin_signup_page,
     client_camera_page,
     client_login_page,
     client_recommendation_page,
@@ -28,7 +29,7 @@ urlpatterns = [
     path("demo/discovery/", lambda r: render(r, "demo/discovery.html"), name="demo_discovery"),
     path("partner/", admin_login_page, name="partner_index"),
     path("partner/login/", admin_login_page, name="partner_login"),
-    path("partner/signup/", admin_login_page, name="partner_signup"),
+    path("partner/signup/", admin_signup_page, name="partner_signup"),
     path("partner/verify/", partner_verify, name="partner_verify"),
     path("partner/dashboard/", admin_dashboard_page, name="partner_dashboard"),
     # Legacy aliases kept for older links and docs.
