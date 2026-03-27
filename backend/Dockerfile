@@ -24,13 +24,18 @@ RUN apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/*
 
 # 파이썬 라이브러리 설치
-# 레이어 캐싱을 위해 requirements.txt를 먼저 복사하고 설치합니다.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 트렌드 크롤링/정제 파이프라인 의존성까지 함께 설치합니다.
+COPY requirements.txt requirements-trends.txt ./
+RUN pip install --no-cache-dir -r requirements-trends.txt
+
+# 트렌드 크롤링용 Playwright 브라우저 설치
+RUN python -m playwright install --with-deps chromium
 
 # 프로젝트 소스 코드 복사
 # 현재 로컬의 backend 폴더 내용을 컨테이너의 /app으로 모두 복사합니다.
 COPY . .
+
+RUN chmod +x /app/docker-entrypoint.sh
 
 # 미디어 파일 및 AI 처리 결과를 저장할 디렉토리 생성
 RUN mkdir -p storage/captures storage/processed storage/synthetic
@@ -41,3 +46,7 @@ EXPOSE 8000
 # Gunicorn 서버 실행
 # mirrai_project 패키지 및 app 모듈을 원활하게 찾기 위해 --pythonpath /app 옵션을 추가합니다.
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--pythonpath", "/app", "mirrai_project.wsgi:application"]
+# 스케줄러(선택)와 Gunicorn 서버 실행
+# mirrai_project 폴더 안의 wsgi.py를 실행 파일로 지정합니다.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "mirrai_project.wsgi:application"]

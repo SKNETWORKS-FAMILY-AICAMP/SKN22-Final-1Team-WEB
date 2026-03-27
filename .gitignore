@@ -39,6 +39,7 @@ terraform/.terraform/
 *.db
 backend/mirrai.db
 backend/storage/
+backend/data/rag/
 backend/server_log.txt
 backend/.tmp_pdf/
 PDF/
