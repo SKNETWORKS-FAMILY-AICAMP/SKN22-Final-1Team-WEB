@@ -195,6 +195,7 @@ class RecommendationListResponseSerializer(serializers.Serializer):
 class RetryRecommendationRequestSerializer(serializers.Serializer):
     client_id = serializers.IntegerField(required=False)
     customer_id = serializers.IntegerField(required=False)
+    customer = serializers.IntegerField(required=False)
 
 
 class RegenerateSimulationRequestSerializer(serializers.Serializer):

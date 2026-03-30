@@ -1,19 +1,22 @@
+import io
 import os
 from unittest import mock
 
 from django.contrib.auth.hashers import make_password
-from django.test import SimpleTestCase
+from PIL import Image
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from app.api.v1.admin_auth import build_admin_refresh_token, build_client_refresh_token, get_admin_auth_policy_snapshot
+from app.api.v1.admin_services import get_admin_trend_report, get_style_report
+from app.api.v1.admin_auth import build_admin_refresh_token, build_admin_token, build_client_refresh_token, get_admin_auth_policy_snapshot
 from app.api.v1.response_helpers import get_error_contract_snapshot
 from app.api.v1.services_django import persist_generated_batch
 from app.models_django import AdminAccount, CaptureRecord, Client, FaceAnalysis, Survey
+from app.services.face_processing import build_deidentified_capture
 from app.services.storage_service import build_storage_snapshot
 
 
-class ContractPreparationSnapshotTests(SimpleTestCase):
+class ContractPreparationSnapshotTests(APITestCase):
     def test_error_contract_snapshot_reports_current_compat_mode(self):
         payload = get_error_contract_snapshot()
 
@@ -42,6 +45,64 @@ class ContractPreparationSnapshotTests(SimpleTestCase):
         self.assertEqual(payload["path_count"], 3)
         self.assertTrue(payload["has_required_capture_assets"])
         self.assertIn("captures/original.jpg", payload["resolved_urls"]["original_path"])
+
+    def test_deidentified_capture_applies_mirrai_watermark(self):
+        buffer = io.BytesIO()
+        Image.new("RGB", (640, 640), "white").save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+        landmark_snapshot = {
+            "face_bbox": {"x": 160, "y": 150, "width": 240, "height": 260},
+            "landmarks": {
+                "left_eye": {"point": {"x": 230, "y": 250}},
+                "right_eye": {"point": {"x": 360, "y": 252}},
+            },
+        }
+
+        deidentified_bytes, privacy_snapshot = build_deidentified_capture(
+            processed_bytes=image_bytes,
+            landmark_snapshot=landmark_snapshot,
+        )
+
+        self.assertIsNotNone(deidentified_bytes)
+        self.assertTrue(privacy_snapshot["watermark_applied"])
+        self.assertEqual(privacy_snapshot["watermark_text"], "MirrAI")
+        self.assertTrue(privacy_snapshot["eye_bar_applied"])
+
+    def test_admin_trend_report_exposes_report_snapshot(self):
+        payload = get_admin_trend_report(days=7, filters={"store_name": "MirrAI"})
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertIn("report_snapshot", payload)
+        self.assertEqual(payload["report_snapshot"]["days"], 7)
+        self.assertEqual(payload["report_snapshot"]["filters"]["store_name"], "MirrAI")
+        self.assertIn("message", payload)
+
+    def test_style_report_exposes_report_snapshot(self):
+        payload = get_style_report(style_id=101, days=7)
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertIn("report_snapshot", payload)
+        self.assertEqual(payload["report_snapshot"]["style_id"], 101)
+        self.assertEqual(payload["report_snapshot"]["days"], 7)
+
+    def test_admin_trend_report_endpoint_exposes_report_snapshot(self):
+        admin = AdminAccount.objects.create(
+            name="Trend Admin",
+            store_name="MirrAI Trend",
+            role="owner",
+            phone="01090909090",
+            business_number="1234567890",
+            password_hash=make_password("plain-password"),
+        )
+
+        response = self.client.get(
+            "/api/v1/admin/trend-report/?days=7",
+            HTTP_AUTHORIZATION=f"Bearer {build_admin_token(admin=admin)}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("report_snapshot", response.data)
+        self.assertEqual(response.data["report_snapshot"]["days"], 7)
 
 
 class RegenerateSimulationEndpointTests(APITestCase):

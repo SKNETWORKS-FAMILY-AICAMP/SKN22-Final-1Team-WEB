@@ -12,6 +12,7 @@ env = environ.Env(
     TREND_REFRESH_SOURCES=(list, []),
     SUPABASE_BUCKET_PUBLIC=(bool, False),
     SUPABASE_SIGNED_URL_EXPIRES_IN=(int, 3600),
+    MIRRAI_WATERMARK_TEXT=(str, "MirrAI"),
     SUPABASE_BUCKET_FILE_SIZE_LIMIT=(int, 10 * 1024 * 1024),
 )
 
@@ -56,6 +57,7 @@ SUPABASE_BUCKET = env("SUPABASE_BUCKET", default="mirrai-assets")
 SUPABASE_USE_REMOTE_STORAGE = env.bool("SUPABASE_USE_REMOTE_STORAGE", default=False)
 SUPABASE_BUCKET_PUBLIC = env.bool("SUPABASE_BUCKET_PUBLIC", default=False)
 SUPABASE_SIGNED_URL_EXPIRES_IN = env.int("SUPABASE_SIGNED_URL_EXPIRES_IN", default=3600)
+MIRRAI_WATERMARK_TEXT = env("MIRRAI_WATERMARK_TEXT", default="MirrAI")
 SUPABASE_BUCKET_FILE_SIZE_LIMIT = env.int("SUPABASE_BUCKET_FILE_SIZE_LIMIT", default=10 * 1024 * 1024)
 SUPABASE_ALLOWED_MIME_TYPES = [item.strip() for item in env.list("SUPABASE_ALLOWED_MIME_TYPES", default=["image/jpeg", "image/png", "image/webp"]) if item.strip()]
 MIRRAI_PERSIST_CAPTURE_IMAGES = env.bool("MIRRAI_PERSIST_CAPTURE_IMAGES", default=False)

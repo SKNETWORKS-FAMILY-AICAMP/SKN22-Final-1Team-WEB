@@ -343,11 +343,32 @@ def _get_recommendation_stage(rows: list[FormerRecommendation]) -> str:
 def _build_retry_recommendation_meta(*, rows: list[FormerRecommendation], has_active_consultation: bool) -> dict:
     recommendation_stage = _get_recommendation_stage(rows)
     attempts_used = 1 if recommendation_stage == "retry" else 0
-    can_retry = bool(rows) and recommendation_stage == "initial" and not has_active_consultation
+    has_selection = any(row.is_chosen for row in rows)
+    can_retry = bool(rows) and recommendation_stage == "initial" and not has_active_consultation and not has_selection
     remaining_count = max(0, RETRY_RECOMMENDATION_MAX_ATTEMPTS - attempts_used) if can_retry else 0
+
+    if not rows:
+        retry_state = "not_ready"
+        retry_block_reason = "initial_recommendations_missing"
+    elif has_active_consultation:
+        retry_state = "consultation_locked"
+        retry_block_reason = "consultation_started"
+    elif has_selection:
+        retry_state = "selection_locked"
+        retry_block_reason = "recommendation_already_selected"
+    elif recommendation_stage == "retry":
+        retry_state = "retry_consumed"
+        retry_block_reason = "retry_already_used"
+    else:
+        retry_state = "available"
+        retry_block_reason = None
+
     return {
         "recommendation_stage": recommendation_stage,
         "can_retry_recommendations": can_retry,
+        "retry_state": retry_state,
+        "consultation_locked": has_active_consultation,
+        "retry_block_reason": retry_block_reason,
         "retry_recommendations_remaining_count": remaining_count,
         "retry_recommendations_policy": {
             **RETRY_RECOMMENDATION_POLICY,
@@ -1099,6 +1120,19 @@ def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None =
             record.status = "PROCESSING"
             record.save(update_fields=["status", "updated_at"])
 
+        storage_snapshot = build_storage_snapshot(
+            original_path=record.original_path,
+            processed_path=record.processed_path,
+            deidentified_path=record.deidentified_path,
+        )
+        logger.info(
+            "[PIPELINE START] Record %s storage_mode=%s bucket=%s path_count=%s",
+            record_id,
+            storage_snapshot["storage_mode"],
+            storage_snapshot["bucket_name"],
+            storage_snapshot["path_count"],
+        )
+
         analysis_input_url = resolve_storage_reference(record.processed_path)
         simulated = simulate_face_analysis(
             image_url=analysis_input_url,
@@ -1117,7 +1151,7 @@ def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None =
 
         record.status = "DONE"
         record.save(update_fields=["status", "updated_at"])
-        logger.info("[PIPELINE SUCCESS] Record %s processed.", record_id)
+        logger.info("[PIPELINE SUCCESS] Record %s processed. storage_mode=%s", record_id, storage_snapshot["storage_mode"])
 
     except Exception as exc:
         logger.error("[PIPELINE ERROR] Record %s: %s", record_id, exc)

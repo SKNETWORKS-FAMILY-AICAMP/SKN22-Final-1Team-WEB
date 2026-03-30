@@ -4,6 +4,7 @@ import math
 
 import cv2
 import numpy as np
+from django.conf import settings
 
 
 _FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -48,6 +49,29 @@ def _point_payload(
         "source": source,
         "confidence": round(float(confidence), 3),
     }
+
+
+def _apply_text_watermark(image: np.ndarray, text: str | None) -> tuple[np.ndarray, bool]:
+    if not text:
+        return image, False
+
+    height, width = image.shape[:2]
+    overlay = image.copy()
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = max(0.85, min(width, height) / 900.0)
+    thickness = max(2, int(round(min(width, height) / 280.0)))
+    positions = [
+        (int(width * 0.06), int(height * 0.18)),
+        (int(width * 0.42), int(height * 0.55)),
+        (int(width * 0.12), int(height * 0.88)),
+    ]
+
+    for x, y in positions:
+        cv2.putText(overlay, text, (x + 2, y + 2), font, font_scale, (0, 0, 0), thickness + 2, cv2.LINE_AA)
+        cv2.putText(overlay, text, (x, y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+    blended = cv2.addWeighted(overlay, 0.28, image, 0.72, 0)
+    return blended, True
 
 
 def _detect_eyes(roi_gray, *, face_x: int, face_y: int, face_width: int, face_height: int) -> list[tuple[float, float]]:
@@ -320,6 +344,9 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         cv2.rectangle(decoded, (bar_start_x, bar_start_y), (bar_end_x, bar_end_y), (0, 0, 0), thickness=-1)
         eye_bar_applied = True
 
+    watermark_text = getattr(settings, "MIRRAI_WATERMARK_TEXT", "MirrAI")
+    decoded, watermark_applied = _apply_text_watermark(decoded, watermark_text)
+
     success, encoded = cv2.imencode(".jpg", decoded, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
     if not success:
         return None, {
@@ -334,6 +361,8 @@ def build_deidentified_capture(*, processed_bytes: bytes, landmark_snapshot: dic
         "deidentification_applied": True,
         "method": "pixelate_face_region",
         "eye_bar_applied": eye_bar_applied,
+        "watermark_applied": watermark_applied,
+        "watermark_text": watermark_text if watermark_applied else None,
         "masked_region": {
             "x": start_x,
             "y": start_y,

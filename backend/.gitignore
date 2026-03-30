@@ -23,6 +23,8 @@ share/python-wheels/
 MANIFEST
 docs/
 .tmp_pdf/
+tests/
+app/tests/
 
 # Django
 local_settings.py

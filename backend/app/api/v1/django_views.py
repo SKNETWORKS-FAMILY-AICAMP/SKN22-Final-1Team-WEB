@@ -1,5 +1,6 @@
 ﻿import io
 import threading
+import logging
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -38,6 +39,9 @@ from app.services.age_profile import build_client_age_profile
 from app.services.capture_validation import sanitize_original_upload, validate_capture_image
 from app.services.face_processing import build_deidentified_capture, extract_landmark_snapshot
 from app.services.storage_service import build_storage_snapshot, store_capture_assets
+
+
+logger = logging.getLogger(__name__)
 
 
 def _request_value(request, *keys: str):
@@ -180,7 +184,7 @@ class CaptureUploadView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         file_obj = request.FILES.get("file")
         if not file_obj:
@@ -245,6 +249,20 @@ class CaptureUploadView(CompatEnvelopeAPIView):
             error_note=(None if validation["is_valid"] else validation["message"]),
         )
 
+        storage_snapshot = build_storage_snapshot(
+            original_path=original_path,
+            processed_path=processed_path,
+            deidentified_path=deidentified_path,
+        )
+
+        logger.info(
+            "[capture_upload] client_id=%s status=%s storage_mode=%s has_required_assets=%s",
+            client.id,
+            validation["status"],
+            storage_snapshot["storage_mode"],
+            storage_snapshot["has_required_capture_assets"],
+        )
+
         if not validation["is_valid"]:
             return Response(
                 {
@@ -255,11 +273,7 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                     "message": validation["message"],
                     "next_action": "capture",
                     "privacy_snapshot": privacy_snapshot,
-                    "storage_snapshot": build_storage_snapshot(
-                        original_path=original_path,
-                        processed_path=processed_path,
-                        deidentified_path=deidentified_path,
-                    ),
+                    "storage_snapshot": storage_snapshot,
                 }
             )
 
@@ -280,11 +294,7 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                 "face_count": validation["face_count"],
                 "message": validation["message"],
                 "privacy_snapshot": privacy_snapshot,
-                "storage_snapshot": build_storage_snapshot(
-                    original_path=original_path,
-                    processed_path=processed_path,
-                    deidentified_path=deidentified_path,
-                ),
+                "storage_snapshot": storage_snapshot,
             }
         )
 
@@ -307,10 +317,10 @@ class FormerRecommendationView(CompatEnvelopeAPIView):
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = _query_value(request, "client_id", "customer_id")
+        client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         payload = get_former_recommendations(client)
-        if request.query_params.get("customer_id"):
+        if request.query_params.get("customer_id") or request.query_params.get("customer"):
             return Response(payload.get("items", []))
         return Response(payload)
 
@@ -322,10 +332,10 @@ class RecommendationView(CompatEnvelopeAPIView):
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = _query_value(request, "client_id", "customer_id")
+        client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         payload = get_current_recommendations(client)
-        if request.query_params.get("customer_id"):
+        if request.query_params.get("customer_id") or request.query_params.get("customer"):
             return Response(payload.get("items", []))
         return Response(payload)
 
@@ -341,7 +351,7 @@ class TrendView(CompatEnvelopeAPIView):
     )
     def get(self, request):
         days = int(request.query_params.get("days", 30))
-        client_id = _query_value(request, "client_id", "customer_id")
+        client_id = _query_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id) if client_id else None
         return Response(get_trend_recommendations(days=days, client=client))
 
@@ -371,7 +381,7 @@ class RetryRecommendationView(CompatEnvelopeAPIView):
     def post(self, request):
         serializer = RetryRecommendationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id")
+        client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id") or serializer.validated_data.get("customer")
         if not client_id:
             return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
         client = get_object_or_404(Client, id=client_id)
@@ -399,7 +409,7 @@ class SelectionView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         style_id = _request_value(request, "style_id")
         if not client_id or not style_id:
             return detail_response(
@@ -437,7 +447,7 @@ class ConfirmView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         try:
             payload = confirm_style_selection(
@@ -470,7 +480,7 @@ class CancelView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
-        client_id = _request_value(request, "client_id", "customer_id")
+        client_id = _request_value(request, "client_id", "customer_id", "customer")
         client = get_object_or_404(Client, id=client_id)
         try:
             payload = cancel_style_selection(

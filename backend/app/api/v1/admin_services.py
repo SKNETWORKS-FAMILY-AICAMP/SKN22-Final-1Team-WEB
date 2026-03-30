@@ -1,4 +1,5 @@
 ﻿import json
+import logging
 import os
 import re
 from collections import Counter
@@ -15,6 +16,9 @@ from app.models_django import AdminAccount, CaptureRecord, ConsultationRequest, 
 from app.services.age_profile import build_client_age_profile
 from app.services.ai_facade import get_ai_health
 from app.services.storage_service import build_storage_snapshot, resolve_storage_reference
+
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_phone(value: str) -> str:
@@ -564,6 +568,29 @@ def _selection_matches_snapshot(selection: StyleSelection, filters: dict) -> boo
     return True
 
 
+def _build_trend_report_snapshot(*, days: int, filters: dict, admin: AdminAccount | None, total_records: int, filtered_records: int, ranking_count: int, unique_clients: int) -> dict:
+    return {
+        "days": days,
+        "filters": filters,
+        "admin_scoped": admin is not None,
+        "total_records": total_records,
+        "filtered_records": filtered_records,
+        "ranking_count": ranking_count,
+        "unique_clients": unique_clients,
+    }
+
+
+def _build_style_report_snapshot(*, style_id: int, days: int, admin: AdminAccount | None, recent_count: int, chosen_count: int, related_count: int) -> dict:
+    return {
+        "style_id": style_id,
+        "days": days,
+        "admin_scoped": admin is not None,
+        "recent_selection_count": recent_count,
+        "chosen_count": chosen_count,
+        "related_style_count": related_count,
+    }
+
+
 def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin: AdminAccount | None = None) -> dict:
     filters = filters or {}
     cutoff = timezone.now() - timezone.timedelta(days=days)
@@ -608,6 +635,23 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         if profile.get("age_group"):
             age_group_counter[profile["age_group"]] += 1
     unique_clients = len({row.client_id for row in filtered})
+    report_snapshot = _build_trend_report_snapshot(
+        days=days,
+        filters=filters,
+        admin=admin,
+        total_records=len(selections),
+        filtered_records=len(filtered),
+        ranking_count=len(ranking),
+        unique_clients=unique_clients,
+    )
+    logger.info(
+        "[trend_report] days=%s total=%s filtered=%s ranking=%s admin_scoped=%s",
+        days,
+        len(selections),
+        len(filtered),
+        len(ranking),
+        admin is not None,
+    )
     return {
         "status": "ready",
         "days": days,
@@ -627,6 +671,12 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
             {"age_group": key, "selection_count": count}
             for key, count in age_group_counter.most_common()
         ],
+        "report_snapshot": report_snapshot,
+        "message": (
+            "Trend report generated successfully."
+            if filtered
+            else "No trend selections were found for the requested period."
+        ),
     }
 
 
@@ -656,6 +706,23 @@ def get_style_report(*, style_id: int, days: int = 7, admin: AdminAccount | None
         for _, related_style_id in sorted(scored, key=lambda item: (-item[0], item[1]))[:5]:
             related.append(_style_snapshot(related_style_id))
 
+    report_snapshot = _build_style_report_snapshot(
+        style_id=style_id,
+        days=days,
+        admin=admin,
+        recent_count=recent_count,
+        chosen_count=chosen_count,
+        related_count=len(related),
+    )
+    logger.info(
+        "[style_report] style_id=%s days=%s recent=%s chosen=%s related=%s admin_scoped=%s",
+        style_id,
+        days,
+        recent_count,
+        chosen_count,
+        len(related),
+        admin is not None,
+    )
     return {
         "status": "ready",
         "style": {
@@ -664,5 +731,6 @@ def get_style_report(*, style_id: int, days: int = 7, admin: AdminAccount | None
             "chosen_count": chosen_count,
         },
         "related_styles": related,
+        "report_snapshot": report_snapshot,
     }
 
