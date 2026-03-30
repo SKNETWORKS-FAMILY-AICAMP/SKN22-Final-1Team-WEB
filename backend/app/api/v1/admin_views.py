@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
 from app.api.v1.admin_auth import AdminTokenAuthentication, IsAuthenticatedAdmin, refresh_admin_access_token
-from app.api.v1.response_helpers import detail_response
+from app.api.v1.response_helpers import CompatEnvelopeAPIView, detail_response
 from app.api.v1.admin_serializers import (
     AdminLoginSerializer,
     AdminRegisterSerializer,
@@ -47,12 +47,12 @@ def _legacy_admin_required(request):
     return admin, None
 
 
-class AdminProtectedAPIView(APIView):
+class AdminProtectedAPIView(CompatEnvelopeAPIView):
     authentication_classes = [AdminTokenAuthentication]
     permission_classes = [IsAuthenticatedAdmin]
 
 
-class AdminRegisterView(APIView):
+class AdminRegisterView(CompatEnvelopeAPIView):
     @extend_schema(summary="Register admin", request=AdminRegisterSerializer, responses={201: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = AdminRegisterSerializer(data=request.data)
@@ -64,7 +64,7 @@ class AdminRegisterView(APIView):
         return Response(payload, status=status.HTTP_201_CREATED)
 
 
-class AdminLoginView(APIView):
+class AdminLoginView(CompatEnvelopeAPIView):
     @extend_schema(summary="Login admin", request=AdminLoginSerializer, responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = AdminLoginSerializer(data=request.data)
@@ -76,7 +76,7 @@ class AdminLoginView(APIView):
         return Response(payload)
 
 
-class AdminRefreshView(APIView):
+class AdminRefreshView(CompatEnvelopeAPIView):
     @extend_schema(summary="Refresh admin token", request=RefreshTokenSerializer, responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = RefreshTokenSerializer(data=request.data)
@@ -116,7 +116,7 @@ class AllClientsView(AdminProtectedAPIView):
         return Response(get_all_clients(query=request.query_params.get("q", ""), admin=request.user))
 
 
-class LegacyAllClientsView(APIView):
+class LegacyAllClientsView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Legacy customer list for template dashboard",
         parameters=[OpenApiParameter("q", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False)],
@@ -154,7 +154,7 @@ class AdminClientDetailView(AdminProtectedAPIView):
             return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
 
 
-class LegacyAdminClientDetailView(APIView):
+class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Legacy customer detail for template dashboard",
         responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
@@ -260,7 +260,7 @@ class AdminTrendReportView(AdminProtectedAPIView):
         return Response(get_admin_trend_report(days=days, filters=data, admin=request.user))
 
 
-class LegacyAdminTrendReportView(APIView):
+class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
     @extend_schema(summary="Legacy trend report for template dashboard", responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def get(self, request):
         admin, error_response = _legacy_admin_required(request)

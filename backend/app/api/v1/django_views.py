@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
 from app.api.v1.admin_auth import issue_client_token_pair, refresh_client_access_token
-from app.api.v1.response_helpers import detail_response
+from app.api.v1.response_helpers import CompatEnvelopeAPIView, detail_response
 from app.api.v1.django_serializers import (
     ClientCheckSerializer,
     ClientRegisterSerializer,
@@ -56,7 +56,7 @@ def _query_value(request, *keys: str):
     return None
 
 
-class LoginView(APIView):
+class LoginView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Log in client",
         request={
@@ -89,7 +89,7 @@ class LoginView(APIView):
         )
 
 
-class ClientRefreshView(APIView):
+class ClientRefreshView(CompatEnvelopeAPIView):
     @extend_schema(summary="Refresh client token", request=TokenRefreshSerializer, responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = TokenRefreshSerializer(data=request.data)
@@ -101,7 +101,7 @@ class ClientRefreshView(APIView):
         return Response(payload)
 
 
-class ClientCheckView(APIView):
+class ClientCheckView(CompatEnvelopeAPIView):
     @extend_schema(summary="Check existing client", request=ClientCheckSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
@@ -124,7 +124,7 @@ class ClientCheckView(APIView):
         )
 
 
-class RegisterView(APIView):
+class RegisterView(CompatEnvelopeAPIView):
     @extend_schema(summary="Register new client", request=ClientRegisterSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         phone = request.data.get("phone", "").replace("-", "").strip()
@@ -153,7 +153,7 @@ class RegisterView(APIView):
         )
 
 
-class SurveyView(APIView):
+class SurveyView(CompatEnvelopeAPIView):
     @extend_schema(summary="Submit client survey", request=SurveySerializer, responses={200: SurveySerializer})
     def post(self, request):
         client_id = _request_value(request, "client", "client_id", "customer_id")
@@ -162,7 +162,7 @@ class SurveyView(APIView):
         return Response(SurveySerializer(survey).data)
 
 
-class CaptureUploadView(APIView):
+class CaptureUploadView(CompatEnvelopeAPIView):
     parser_classes = (parsers.MultiPartParser, parsers.FormParser)
 
     @extend_schema(
@@ -279,7 +279,7 @@ class CaptureUploadView(APIView):
         )
 
 
-class CaptureStatusView(APIView):
+class CaptureStatusView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get capture processing status",
         parameters=[OpenApiParameter("record_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
@@ -290,7 +290,7 @@ class CaptureStatusView(APIView):
         return Response(serialize_capture_status(record))
 
 
-class FormerRecommendationView(APIView):
+class FormerRecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get former recommendation history",
         parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
@@ -305,7 +305,7 @@ class FormerRecommendationView(APIView):
         return Response(payload)
 
 
-class RecommendationView(APIView):
+class RecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get current recommendations",
         parameters=[OpenApiParameter("client_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
@@ -320,7 +320,7 @@ class RecommendationView(APIView):
         return Response(payload)
 
 
-class TrendView(APIView):
+class TrendView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Get trend-based style recommendations",
         parameters=[
@@ -336,7 +336,7 @@ class TrendView(APIView):
         return Response(get_trend_recommendations(days=days, client=client))
 
 
-class RegenerateSimulationView(APIView):
+class RegenerateSimulationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Regenerate simulation payload from vector-only snapshot",
         request=RegenerateSimulationRequestSerializer,
@@ -352,7 +352,7 @@ class RegenerateSimulationView(APIView):
         return Response(payload)
 
 
-class RetryRecommendationView(APIView):
+class RetryRecommendationView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Retry the current recommendation batch once with preference-first scoring",
         request=RetryRecommendationRequestSerializer,
@@ -372,7 +372,7 @@ class RetryRecommendationView(APIView):
         return Response(payload)
 
 
-class SelectionView(APIView):
+class SelectionView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Legacy selection staging endpoint",
         request={
@@ -407,7 +407,7 @@ class SelectionView(APIView):
         )
 
 
-class ConfirmView(APIView):
+class ConfirmView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Confirm selected style and hand off to admin",
         request={
@@ -443,7 +443,7 @@ class ConfirmView(APIView):
         return Response(payload)
 
 
-class CancelView(APIView):
+class CancelView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Cancel selected style and return to client input",
         request={

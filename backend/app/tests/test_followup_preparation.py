@@ -13,12 +13,13 @@ from app.models_django import AdminAccount, CaptureRecord, Client, FaceAnalysis,
 
 
 class ContractPreparationSnapshotTests(SimpleTestCase):
-    def test_error_contract_snapshot_reports_current_detail_mode(self):
+    def test_error_contract_snapshot_reports_current_compat_mode(self):
         payload = get_error_contract_snapshot()
 
-        self.assertEqual(payload["mode"], "drf_detail")
-        self.assertEqual(payload["fields"], ["detail"])
-        self.assertFalse(payload["envelope_supported"])
+        self.assertEqual(payload["mode"], "compat_envelope")
+        self.assertEqual(payload["fields"], ["detail", "message", "error_code"])
+        self.assertTrue(payload["envelope_supported"])
+        self.assertTrue(payload["detail_backward_compatible"])
 
     def test_admin_auth_policy_snapshot_reports_refresh_support(self):
         payload = get_admin_auth_policy_snapshot()
@@ -319,3 +320,39 @@ class RefreshTokenEndpointTests(APITestCase):
         self.assertIn("access_token", response.data)
         self.assertIn("refresh_token", response.data)
         self.assertGreater(response.data["refresh_expires_in"], response.data["expires_in"])
+
+    def test_client_refresh_validation_error_uses_compat_envelope(self):
+        response = self.client.post(
+            "/api/v1/auth/refresh/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "validation_error")
+        self.assertEqual(response.data["message"], "Validation failed.")
+        self.assertIn("refresh_token", response.data["detail"])
+
+    def test_client_refresh_invalid_token_uses_compat_envelope(self):
+        response = self.client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh_token": "invalid-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.data["error_code"], "unauthorized")
+        self.assertIn("message", response.data)
+        self.assertIn("detail", response.data)
+
+    def test_admin_login_validation_error_uses_compat_envelope(self):
+        response = self.client.post(
+            "/api/v1/admin/auth/login/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "validation_error")
+        self.assertEqual(response.data["message"], "Validation failed.")
+        self.assertIsInstance(response.data["detail"], dict)
