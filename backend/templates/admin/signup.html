@@ -4,70 +4,222 @@
 {% block page_title %}MirrAI | Partner Sign-up{% endblock %}
 
 {% block hero_content %}
-<div style="max-width: 1200px; margin: 0 auto; width: 100%;">
-  <p class="brand-sub" style="margin-bottom: 16px; color: var(--accent-neon);">Join the Future of Styling</p>
-  <h2 class="hero-title">MirrAI와 함께할<br /><span>새로운</span> 파트너를 찾습니다</h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); max-width: 600px; margin-bottom: 0;">
-    최첨단 AI 분석 솔루션으로 매장의 가치를 높이세요.<br />
-    간단한 가입을 통해 MirrAI 파트너십의 모든 기능을 이용할 수 있습니다.
-  </p>
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">파트너 <span>가입 신청</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">MirrAI와 함께 스마트한 매장을 운영하세요.</p>
 </div>
 {% endblock %}
 
 {% block content %}
-<div style="display: grid; grid-template-columns: 1fr 360px; gap: 48px; align-items: start;">
-  <div class="panel">
-    <h3 class="section-title" style="margin-bottom: 32px;">파트너 가입 정보 입력</h3>
-    <form id="signupForm" class="stack" style="gap: 24px;" action="/api/v1/admin/auth/register/" method="post">
+<style>
+  /* 파트너 가입 전용 스타일 (고객 페이지와 통일) */
+  .signup-card {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 32px !important;
+    border-radius: 24px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
+  }
+
+  .section-title.compact {
+    font-size: 22px !important;
+    margin-bottom: 24px !important;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-title.compact::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 20px;
+    background: var(--bg-dark);
+    border-radius: 2px;
+  }
+
+  .input-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .agree-container {
+    margin: 20px 0;
+    padding: 16px;
+    background: var(--bg-light);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+  }
+
+  .action-row .btn {
+    flex: 1;
+    height: 52px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .btn-outline {
+    background: white;
+    color: var(--bg-dark);
+    border: 1.5px solid var(--line) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .info-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    opacity: 0.8;
+  }
+
+  .field-error {
+    color: var(--status-red);
+    font-size: 11px;
+    margin-top: 4px;
+    font-weight: 600;
+    display: none;
+  }
+
+  .form-input.is-invalid {
+    border-color: var(--status-red) !important;
+    background-color: rgba(252, 129, 129, 0.05);
+  }
+
+  /* Modal Styles */
+  .modal {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center; z-index: 2000;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+  }
+  .modal.show { opacity: 1; pointer-events: auto; }
+  .modal-content { width: 90%; background: white; border-radius: 16px; position: relative; }
+</style>
+
+<div class="customer-layout" style="display: block;">
+  <div class="panel signup-card">
+    <h3 class="section-title compact">파트너 가입 정보</h3>
+    
+    <!-- Error Summary -->
+    <div id="errorSummary" class="panel" style="display: none; background: rgba(252, 129, 129, 0.1); border: 1px solid var(--status-red); padding: 12px 16px; margin-bottom: 20px; border-radius: 12px;">
+      <p style="color: var(--status-red); font-size: 13px; font-weight: 600; margin: 0;"></p>
+    </div>
+
+    <form id="signupForm" action="/api/v1/admin/auth/register/" method="post" novalidate>
       {% csrf_token %}
       
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-        {% include "components/form_field.html" with label="성함 (대표자)" name="name" placeholder="실명을 입력해 주세요" required="1" %}
-        {% include "components/form_field.html" with label="관리자 전화번호" name="phone" input_type="tel" placeholder="01012345678" required="1" %}
+      <!-- 1열: 성함 & 연락처 -->
+      <div class="input-grid">
+        <div class="form-field">
+          <label class="form-label">대표자 성함</label>
+          <input type="text" name="name" class="form-input" placeholder="성함 입력" required>
+          <p class="field-error" id="error_name"></p>
+        </div>
+        <div class="form-field">
+          <label class="form-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+            <span>관리자 연락처</span>
+            <span style="font-size: 11px; color: var(--status-teal); font-weight: 600;">※ 아이디로 사용됩니다.</span>
+          </label>
+          <input type="tel" name="phone" class="form-input" placeholder="010-0000-0000" required>
+          <p class="field-error" id="error_phone"></p>
+        </div>
       </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-        {% include "components/form_field.html" with label="매장명" name="store_name" placeholder="운영 중인 매장 이름" required="1" %}
-        {% include "components/form_field.html" with label="사업자 등록번호" name="business_number" placeholder="10자리 숫자만 입력" required="1" %}
+      <!-- 2열: 매장명 & 사업자번호 -->
+      <div class="input-grid">
+        <div class="form-field">
+          <label class="form-label">매장명</label>
+          <input type="text" name="store_name" class="form-input" placeholder="매장 이름 입력" required>
+          <p class="field-error" id="error_store_name"></p>
+        </div>
+        <div class="form-field">
+          <label class="form-label">사업자 등록번호</label>
+          <input type="text" name="business_number" class="form-input" placeholder="10자리 숫자" required>
+          <p class="field-error" id="error_business_number"></p>
+        </div>
       </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-        {% include "components/form_field.html" with label="비밀번호" name="password" input_type="password" placeholder="8자 이상 입력" required="1" %}
-        {% include "components/form_field.html" with label="비밀번호 확인" name="password_confirm" input_type="password" placeholder="다시 한번 입력" required="1" %}
+      <!-- 3열: 비밀번호 -->
+      <div class="input-grid">
+        <div class="form-field">
+          <label class="form-label">비밀번호</label>
+          <input type="password" name="password" class="form-input" placeholder="8자 이상" required>
+          <p class="field-error" id="error_password"></p>
+        </div>
+        <div class="form-field">
+          <label class="form-label">비밀번호 확인</label>
+          <input type="password" name="password_confirm" class="form-input" placeholder="다시 입력" required>
+          <p class="field-error" id="error_password_confirm"></p>
+        </div>
       </div>
 
-      <div class="stack" style="gap: 12px; margin: 16px 0; padding: 20px; background: rgba(0,0,0,0.02); border-radius: 8px;">
-        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-          <input type="checkbox" name="agree_terms" required style="width: 18px; height: 18px;">
-          <span style="font-size: 14px;">[필수] 이용약관에 동의합니다.</span>
+      <!-- 약관 동의 (한 줄로 정리 + 팝업 연결) -->
+      <div class="agree-container" style="flex-direction: row; justify-content: flex-start; gap: 24px; padding: 12px 16px;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="agree_terms" required style="width: 16px; height: 16px;">
+          <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('termsModal', event)">[필수] 이용약관 및 서비스 이용 동의</span>
         </label>
-        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-          <input type="checkbox" name="agree_privacy" required style="width: 18px; height: 18px;">
-          <span style="font-size: 14px;">[필수] 개인정보 수집 및 이용에 동의합니다.</span>
-        </label>
-        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-          <input type="checkbox" name="agree_third_party_sharing" required style="width: 18px; height: 18px;">
-          <span style="font-size: 14px;">[필수] 제3자 정보 제공에 동의합니다.</span>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="agree_privacy" required style="width: 16px; height: 16px;">
+          <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('privacyModal', event)">[필수] 개인정보 수집 및 이용 동의</span>
         </label>
       </div>
-      
-      <div style="display: flex; gap: 16px; margin-top: 8px;">
-        <button type="submit" id="submitBtn" class="btn btn-primary" style="flex: 2;">회원가입 완료</button>
-        <a href="{% url 'partner_login' %}" class="btn btn-dark" style="flex: 1; background: white; color: var(--bg-dark); border: 1.5px solid var(--line);">이미 계정이 있나요?</a>
-      </div>
-    </form>
-  </div>
 
-  <div class="stack" style="gap: 24px;">
-    <h3 class="section-title" style="font-size: 18px;">가입 안내</h3>
-    <div class="stack" style="gap: 16px;">
-      <div class="panel" style="padding: 24px; border-radius: var(--radius-md); background: var(--bg-dark); color: white; border: none;">
-        <h4 style="color: var(--accent-neon); margin-bottom: 8px; font-size: 16px;">로그인 수단</h4>
-        <p style="font-size: 14px; opacity: 0.8; line-height: 1.5;">별도의 아이디 없이 가입 시 입력하신 <b>전화번호</b>가 로그인을 위한 고유 식별자로 사용됩니다.</p>
+      <div class="action-row">
+        <button type="submit" id="submitBtn" class="btn btn-primary">가입 완료</button>
+        <a href="{% url 'partner_login' %}" class="btn btn-outline">로그인으로</a>
       </div>
-      <div class="panel" style="padding: 24px; border-radius: var(--radius-md); background: white;">
-        <h4 style="color: var(--bg-dark); margin-bottom: 8px; font-size: 16px;">사업자 번호 확인</h4>
-        <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.5;">유효한 사업자 등록번호 10자리를 입력해 주세요. (하이픈 제외 숫자만 가능)</p>
+      </form>
+      </div>
+
+      <!-- 이용약관 모달 -->
+      <div id="termsModal" class="modal">
+      <div class="modal-content" style="max-width: 500px; padding: 32px;">
+      <h3 class="section-title" style="margin-bottom: 20px;">이용약관 및 서비스 규정</h3>
+      <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
+        <p><strong>제1조 (목적)</strong> 본 약관은 MirrAI가 제공하는 파트너 센터 서비스의 이용 조건 및 절차를 규정합니다.</p>
+        <p><strong>제2조 (서비스 제공)</strong> 회사는 파트너에게 고객 분석 데이터 및 매장 관리 대시보드 기능을 제공합니다.</p>
+        <p><strong>제3조 (파트너의 의무)</strong> 파트너는 고객의 개인정보를 보호할 의무가 있으며, 비정상적인 접근 시도를 하지 않아야 합니다.</p>
+      </div>
+      <button class="btn btn-primary" onclick="closeModal('termsModal', 'agree_terms')" style="width: 100%; margin-top: 24px;">확인하였습니다</button>
+      </div>
+      </div>
+
+      <!-- 개인정보 수집 모달 -->
+      <div id="privacyModal" class="modal">
+      <div class="modal-content" style="max-width: 500px; padding: 32px;">
+      <h3 class="section-title" style="margin-bottom: 20px;">개인정보 수집 및 이용 동의</h3>
+      <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
+        <p><strong>1. 수집 항목</strong>: 성명, 연락처, 매장명, 사업자 등록번호</p>
+        <p><strong>2. 수집 목적</strong>: 파트너 계정 관리 및 서비스 이용 권한 부여</p>
+        <p><strong>3. 보유 기간</strong>: 파트너 탈퇴 시까지 (단, 관계 법령에 따라 보존이 필요한 경우 해당 기간까지)</p>
+      </div>
+      <button class="btn btn-primary" onclick="closeModal('privacyModal', 'agree_privacy')" style="width: 100%; margin-top: 24px;">확인하였습니다</button>
+      </div>
+      </div>
+
+      <div style="max-width: 600px; margin: 24px auto 0; padding: 0 16px;">
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+      <div class="panel" style="padding: 20px; border-radius: 16px; border: none; background: white;">
+        <h4 style="font-size: 14px; margin-bottom: 8px;">💡 가입 안내</h4>
+        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">별도의 ID 없이 휴대폰 번호로 간편하게 로그인할 수 있습니다.</p>
+      </div>
+      <div class="panel" style="padding: 20px; border-radius: 16px; border: none; background: white;">
+        <h4 style="font-size: 14px; margin-bottom: 8px;">🔒 보안 가이드</h4>
+        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">비밀번호는 영문, 숫자, 특수문자를 조합하여 설정해 주세요.</p>
       </div>
     </div>
   </div>
@@ -76,19 +228,68 @@
 
 {% block page_scripts %}
 <script>
+  // Global Modal Control
+  function openModal(id, e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    document.getElementById(id).classList.add('show');
+  }
+  function closeModal(id, checkboxName) {
+    document.getElementById(id).classList.remove('show');
+    if (checkboxName) {
+      const cb = document.querySelector(`input[name="${checkboxName}"]`);
+      if (cb) cb.checked = true;
+    }
+  }
+
   (function() {
     'use strict';
     const form = document.getElementById('signupForm');
     const submitBtn = document.getElementById('submitBtn');
+    const errorSummary = document.getElementById('errorSummary');
+
+    function clearErrors() {
+      errorSummary.style.display = 'none';
+      errorSummary.querySelector('p').textContent = '';
+      form.querySelectorAll('.field-error').forEach(el => {
+        el.textContent = '';
+        el.style.display = 'none';
+      });
+      form.querySelectorAll('.form-input').forEach(el => {
+        el.classList.remove('is-invalid');
+      });
+    }
+
+    function showFieldError(field, message) {
+      const errorEl = document.getElementById(`error_${field}`);
+      const inputEl = form.querySelector(`[name="${field}"]`);
+      if (errorEl) {
+        errorEl.textContent = Array.isArray(message) ? message[0] : message;
+        errorEl.style.display = 'block';
+      }
+      if (inputEl) {
+        inputEl.classList.add('is-invalid');
+      }
+    }
+
+    // Close modals on outside click
+    window.addEventListener('click', (e) => {
+      if (e.target.classList.contains('modal')) {
+        e.target.classList.remove('show');
+      }
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      clearErrors();
       
       const password = form.querySelector('input[name="password"]').value;
       const confirm = form.querySelector('input[name="password_confirm"]').value;
       
       if (password !== confirm) {
-        alert("비밀번호가 일치하지 않습니다.");
+        showFieldError('password_confirm', "비밀번호가 일치하지 않습니다.");
         return;
       }
 
@@ -121,12 +322,23 @@
           alert("회원가입이 완료되었습니다! 로그인 페이지로 이동합니다.");
           window.location.href = "{% url 'partner_login' %}";
         } else {
-          throw new Error(data.message || data.error || "회원가입에 실패했습니다.");
+          // Handle field-specific errors if available
+          if (data.errors && typeof data.errors === 'object') {
+            Object.keys(data.errors).forEach(field => {
+              showFieldError(field, data.errors[field]);
+            });
+            errorSummary.querySelector('p').textContent = "입력한 정보를 다시 확인해 주세요.";
+            errorSummary.style.display = 'block';
+          } else {
+            errorSummary.querySelector('p').textContent = data.message || data.error || "회원가입에 실패했습니다.";
+            errorSummary.style.display = 'block';
+          }
+          throw new Error("Validation failed");
         }
       } catch (error) {
-        alert(error.message);
+        console.error(error);
         submitBtn.disabled = false;
-        submitBtn.textContent = "회원가입 완료";
+        submitBtn.textContent = "가입 완료";
       }
     });
   })();

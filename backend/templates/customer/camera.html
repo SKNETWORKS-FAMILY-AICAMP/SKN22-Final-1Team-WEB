@@ -3,32 +3,57 @@
 {% block page_title %}MirrAI | Facial Analysis{% endblock %}
 
 {% block hero_content %}
-<div style="max-width: 1200px; margin: 0 auto; width: 100%;">
-  <p class="brand-sub" style="margin-bottom: 16px; color: var(--accent-neon);">Step 02: AI Vision Scan</p>
-  <h2 class="hero-title">당신의 페이스 라인을<br /><span>정밀하게</span> 분석합니다</h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); max-width: 600px; margin-bottom: 0;">
-    가이드 라인에 맞춰 얼굴을 고정하면 분석이 자동으로 시작됩니다.<br />
-    가장 자연스러운 상태의 정면을 유지해 주세요.
-  </p>
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 02. <span>페이스 정밀 스캔</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">당신의 페이스 라인을 정밀하게 분석합니다.</p>
 </div>
 {% endblock %}
 
 {% block content %}
 <div style="display: grid; grid-template-columns: 1fr 320px; gap: 32px; align-items: start;">
   <div class="panel" style="padding: 12px;">
-    <div class="camera-shell" style="aspect-ratio: 4/3; width: 100%;">
-      <video id="cameraPreview" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
-      <div id="photoPreviewContainer" class="is-hidden" style="position: absolute; inset: 0; background: #000;">
-        <img id="photoPreview" src="" alt="Capture Preview" style="width: 100%; height: 100%; object-fit: cover;">
+    <div class="camera-shell" style="aspect-ratio: 3/4; width: 100%; max-width: 480px; margin: 0 auto; overflow: hidden; position: relative; background: #000; border-radius: var(--radius-lg);">
+      <!-- Portrait Mode: Background vs Subject -->
+      <div style="width: 100%; height: 100%; position: relative;">
+        <!-- Deep Background Blur (Simulating Removal) -->
+        <video id="cameraPreviewBlur" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); filter: blur(20px) brightness(0.4); opacity: 0.4; position: absolute; inset: 0;"></video>
+        
+        <!-- Focused Subject (Elliptical Mask) -->
+        <video id="cameraPreview" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); position: absolute; inset: 0; -webkit-mask-image: radial-gradient(ellipse 55% 75% at 50% 40%, black 40%, transparent 95%); mask-image: radial-gradient(ellipse 55% 75% at 50% 40%, black 40%, transparent 95%);"></video>
       </div>
-      <div class="camera-guide" id="cameraGuide" aria-hidden="true" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60%; aspect-ratio: 3/4; border: 2px dashed var(--accent-neon); border-radius: 120px; box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.6);"></div>
+
+      <div id="photoPreviewContainer" class="is-hidden" style="position: absolute; inset: 0; background: #000; z-index: 5;">
+        <img id="photoPreview" src="" alt="Capture Preview" style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);">
+      </div>
+      
+      <!-- Refined Anatomical Human Guide -->
+      <div id="cameraGuide" aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center;">
+        <svg width="100%" height="100%" viewBox="0 0 400 533" preserveAspectRatio="xMidYMid meet" style="width: 90%; height: 90%; opacity: 0.8;">
+          <!-- Human Bust Path -->
+          <path d="M60,533 
+                   C60,420 100,380 140,370 
+                   L145,340 
+                   C120,320 115,280 115,200 
+                   C115,80 285,80 285,200 
+                   C285,280 280,320 255,340 
+                   L260,370 
+                   C300,380 340,420 340,533" 
+                fill="none" stroke="var(--accent-neon)" stroke-width="2.5" stroke-dasharray="8,8" />
+          
+          <!-- Eye & Center Alignment -->
+          <line x1="200" y1="100" x2="200" y2="400" stroke="rgba(0, 255, 157, 0.2)" stroke-width="1" stroke-dasharray="4,4" />
+          <path d="M160,200 L240,200" fill="none" stroke="rgba(0, 255, 157, 0.3)" stroke-width="1" stroke-dasharray="4,4" />
+        </svg>
+        <!-- Center Focus Glow -->
+        <div style="position: absolute; width: 60%; height: 70%; top: 40%; left: 50%; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: 0 0 100px rgba(0, 255, 157, 0.1);"></div>
+      </div>
       <div id="cameraFallback" class="camera-fallback is-hidden" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; text-align: center;">
         <p>카메라 연결에 실패했습니다.<br />브라우저 설정을 확인해 주세요.</p>
       </div>
     </div>
     
     <div style="padding: 24px; display: flex; justify-content: space-between; align-items: center;">
-      <p id="cameraStatus" class="camera-status" style="font-weight: 600; color: var(--text-secondary);">카메라 준비 중...</p>
+      <p id="cameraStatus" class="camera-status" style="font-weight: 600; color: var(--text-secondary);">가이드 라인에 얼굴을 맞춰 주세요~</p>
       
       <div class="button-row" id="cameraControls" style="display: flex; gap: 12px;">
         <button id="cameraToggleBtn" class="btn btn-dark" type="button" style="height: 48px;">카메라 활성화</button>

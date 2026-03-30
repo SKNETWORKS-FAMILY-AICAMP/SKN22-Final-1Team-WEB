@@ -7,6 +7,7 @@
 
   // DOM Elements - Camera
   const videoEl = document.getElementById("cameraPreview");
+  const videoBlurEl = document.getElementById("cameraPreviewBlur");
   const statusEl = document.getElementById("cameraStatus");
   const toggleBtn = document.getElementById("cameraToggleBtn");
   const captureBtn = document.getElementById("captureBtn");
@@ -58,6 +59,9 @@
     });
 
     updateStatus("카메라를 활성화하여 페이스 스캔을 시작하세요.");
+    
+    // Auto-start camera on load
+    startCamera();
   }
 
   /**
@@ -79,6 +83,9 @@
     }
     if (videoEl) {
       videoEl.srcObject = null;
+    }
+    if (videoBlurEl) {
+      videoBlurEl.srcObject = null;
     }
     isCameraOn = false;
     toggleBtn.textContent = "카메라 활성화";
@@ -114,14 +121,18 @@
       if (stream) stopStream();
       stream = await navigator.mediaDevices.getUserMedia(constraints);
       videoEl.srcObject = stream;
+      if (videoBlurEl) {
+        videoBlurEl.srcObject = stream;
+      }
       
       videoEl.onloadedmetadata = () => {
         videoEl.play();
+        if (videoBlurEl) videoBlurEl.play();
         isCameraOn = true;
         toggleBtn.textContent = "카메라 끄기";
         captureBtn.classList.remove("is-hidden");
         fallbackEl.classList.add("is-hidden");
-        updateStatus("카메라가 활성화되었습니다. 정면을 응시해 주세요.", "success");
+        updateStatus("가이드 라인에 얼굴을 맞춰 주세요~", "success");
       };
     } catch (err) {
       handleError(err);
@@ -134,17 +145,31 @@
   function handleCapture() {
     if (!isCameraOn || !videoEl) return;
 
-    // Set canvas dimensions to match video
-    captureCanvas.width = videoEl.videoWidth;
-    captureCanvas.height = videoEl.videoHeight;
+    // We want a 3:4 portrait crop from the video stream
+    // Calculate dimensions based on video height (assuming landscape/4:3 stream)
+    const videoHeight = videoEl.videoHeight;
+    const videoWidth = videoEl.videoWidth;
+    
+    // Target ratio 3:4
+    const targetHeight = videoHeight;
+    const targetWidth = (videoHeight * 3) / 4;
+    
+    // Center crop coordinates
+    const sx = (videoWidth - targetWidth) / 2;
+    const sy = 0;
+
+    // Set canvas dimensions to 3:4
+    captureCanvas.width = targetWidth;
+    captureCanvas.height = targetHeight;
 
     const ctx = captureCanvas.getContext("2d");
     
-    // If front camera, horizontal flip might be needed for 'mirror' effect
-    // But usually we want the 'actual' photo saved. 
-    // If we want mirror effect: ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
-    
-    ctx.drawImage(videoEl, 0, 0, captureCanvas.width, captureCanvas.height);
+    // Draw the cropped area from the video
+    ctx.drawImage(
+      videoEl, 
+      sx, sy, targetWidth, targetHeight, // Source crop
+      0, 0, targetWidth, targetHeight    // Destination
+    );
 
     captureCanvas.toBlob((blob) => {
       if (blob) {

@@ -47,6 +47,7 @@ def home_page(request):
 def client_login_page(request):
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
+        gender = (request.POST.get("gender") or "").strip()
         phone = _normalize_phone(request.POST.get("phone", ""))
         birth_year_estimate = _birth_year_from_age(request.POST.get("age"))
         if not name or not phone:
@@ -56,6 +57,7 @@ def client_login_page(request):
             phone=phone,
             defaults={
                 "name": name,
+                "gender": gender,
                 "age_input": (
                     int(request.POST.get("age"))
                     if (request.POST.get("age") or "").isdigit()
@@ -65,15 +67,29 @@ def client_login_page(request):
             },
         )
         set_customer_session(request=request, client=client)
+        
+        # 성별에 따른 전용 URL로 리다이렉트
+        if gender == "male":
+            return redirect("customer_survey_male")
+        elif gender == "female":
+            return redirect("customer_survey_female")
         return redirect("customer_survey")
 
     return _render_customer_login(request)
 
 
-def client_survey_page(request):
-    if not get_session_customer(request=request):
+def client_survey_page(request, gender=None):
+    client = get_session_customer(request=request)
+    if not client:
         return redirect("customer_index")
-    return render(request, "customer/survey.html")
+    
+    # URL 파라미터로 받은 gender가 있다면 우선순위 적용 (수동 접근 대응)
+    display_gender = gender if gender else client.gender
+    
+    return render(request, "customer/survey.html", {
+        "client": client,
+        "display_gender": display_gender
+    })
 
 
 def client_camera_page(request):

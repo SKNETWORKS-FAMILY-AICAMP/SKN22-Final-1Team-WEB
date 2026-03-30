@@ -1,0 +1,65 @@
+<!-- MirrAI Admin Chatbot Widget -->
+<div id="mirraiChatbot">
+  <!-- Floating Trigger Button -->
+  <div class="chatbot-trigger" id="chatbotTrigger" title="시술 가이드 챗봇">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    </svg>
+  </div>
+
+  <!-- Chat Panel -->
+  <div class="chatbot-panel" id="chatbotPanel">
+    <header class="chat-header">
+      <div class="chat-header-info">
+        <div class="chat-status-dot"></div>
+        <div class="stack" style="gap: 2px;">
+          <strong style="font-size: 15px;">시술 가이드 AI</strong>
+          <span style="font-size: 11px; opacity: 0.7;">실시간 응대 중</span>
+        </div>
+      </div>
+      <button onclick="toggleChatbot()" style="background: transparent; border: none; color: white; cursor: pointer; padding: 4px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </header>
+
+    <div class="chat-messages" id="chatMessages">
+      <!-- Welcome Message -->
+      <div class="message bot">
+        안녕하세요! MirrAI 시술 가이드 AI입니다. 
+        특정 헤어스타일의 시술 순서나 주의사항이 궁금하시면 언제든 물어보세요.
+        <span class="time" id="chatStartTime"></span>
+      </div>
+      
+      <!-- Quick Chips -->
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+        <button class="badge" onclick="sendQuickMessage('C컬 펌 시술 순서 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">C컬 펌 순서</button>
+        <button class="badge" onclick="sendQuickMessage('손상모 염색 시 주의사항')" style="cursor: pointer; border: 1px solid var(--line);">손상모 주의사항</button>
+        <button class="badge" onclick="sendQuickMessage('레이어드 컷 가이드')" style="cursor: pointer; border: 1px solid var(--line);">레이어드 컷</button>
+      </div>
+    </div>
+
+    <!-- Typing Indicator (Hidden by default) -->
+    <div id="typingIndicator" class="is-hidden" style="padding: 0 24px 12px; background: #f8fafc;">
+      <div class="typing-indicator">
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+      </div>
+    </div>
+
+    <form class="chat-input-area" id="chatForm">
+      <input type="text" id="chatInput" class="chat-input" placeholder="질문을 입력하세요..." autocomplete="off">
+      <button type="submit" class="chat-send-btn">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </form>
+  </div>
+</div>
+
+<script src="/static/shared/js/chatbot.js"></script>

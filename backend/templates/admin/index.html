@@ -3,11 +3,25 @@
 
 {% block page_title %}MirrAI | Partner Portal{% endblock %}
 {% block brand_sub %}partner concierge{% endblock %}
-{% block badge_text %}{% if is_dashboard %}Admin Dashboard{% else %}Management Access{% endif %}{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>파트너 센터</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">매장 운영 및 고객 관리 대시보드입니다.</p>
+</div>
+{% endblock %}
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
+  /* Ensure hero section is visible and consistent */
+  .hero-section {
+    display: flex !important; 
+  }
+  .content-section {
+    margin-top: -20px !important;
+  }
+
   .pin-container {
     display: flex;
     justify-content: center;
@@ -169,215 +183,76 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  /* Compact Auth Panel centering & Standardized width/height */
+  #authSection {
+    max-width: 600px;
+    min-height: 420px; /* Further reduced height */
+    margin: 0 auto;
+    padding: 32px 40px 24px !important; /* Minimized bottom padding */
+    border-radius: 24px !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+  .editorial-grid {
+    display: block !important; 
+  }
+  .hero-title.auth-title {
+    font-size: 24px !important; /* Slightly smaller for compactness */
+    margin-bottom: 8px !important;
+    margin-top: 0;
+  }
+  .hero-copy.auth-copy {
+    line-height: 1.4 !important;
+    margin-bottom: 12px !important;
+    white-space: nowrap; /* Force single line */
+  }
+</style>
 <section class="editorial-grid">
   <article class="main-content panel stack" id="authSection">
     {% if is_dashboard %}
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <p class="kicker">Admin Dashboard</p>
-        <div style="display: flex; gap: 16px;">
-          <button id="showListBtn" class="tab-btn active">고객 목록</button>
-          <button id="showReportBtn" class="tab-btn">트렌드 리포트</button>
-        </div>
-      </div>
-      <h2 class="hero-title">환영합니다,<br />{{ request.session.admin_name }}님</h2>
-      
-      <!-- List View Container -->
-      <div id="listViewContainer" class="stack" style="gap: 32px; margin-top: 40px;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap;">
-          <div class="stack" style="gap: 8px; flex: 1; min-width: 280px;">
-            <h3 class="section-title" style="font-size: 20px; margin: 0;">고객 관리</h3>
-            <div style="position: relative; display: flex; gap: 8px;">
-              <input type="text" id="customerSearchInput" class="form-input" placeholder="이름 또는 전화번호로 검색" style="height: 40px; padding-right: 40px;">
-              <button id="searchBtn" class="btn btn-primary" style="min-height: 40px; padding: 0 16px;">검색</button>
-            </div>
-          </div>
-          <button id="refreshBtn" class="badge" style="background: var(--accent-soft); border: none; cursor: pointer; color: var(--accent-strong); height: 28px;">새로고침</button>
-        </div>
-
-        <div id="customerListContainer" class="panel" style="padding: 0; overflow: hidden; border-radius: var(--radius-md);">
-          <!-- List View -->
-          <div id="listView">
-            <div id="loadingState" class="stack" style="padding: 40px; align-items: center; gap: 12px;">
-              <div class="camera-status loading">고객 데이터를 불러오는 중입니다...</div>
-            </div>
-
-            <div id="emptyState" class="is-hidden stack" style="padding: 40px; align-items: center; gap: 12px;">
-              <p class="section-copy">아직 등록된 고객이 없습니다.</p>
-            </div>
-
-            <div id="errorState" class="is-hidden stack" style="padding: 40px; align-items: center; gap: 12px;">
-              <p class="camera-status error">데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>
-            </div>
-
-            <div style="overflow-x: auto;">
-              <table id="customerTable" class="is-hidden" style="width: 100%; border-collapse: collapse; text-align: left; min-width: 500px;">
-                <thead style="background: rgba(248, 250, 252, 0.8); border-bottom: 1px solid var(--line);">
-                  <tr>
-                    <th style="padding: 16px 20px; font-size: 13px; font-weight: 600; color: var(--text-secondary);">이름</th>
-                    <th style="padding: 16px 20px; font-size: 13px; font-weight: 600; color: var(--text-secondary);">연락처</th>
-                    <th style="padding: 16px 20px; font-size: 13px; font-weight: 600; color: var(--text-secondary);">가입일</th>
-                    <th style="padding: 16px 20px; font-size: 13px; font-weight: 600; color: var(--text-secondary); text-align: right;">관리</th>
-                  </tr>
-                </thead>
-                <tbody id="customerListBody">
-                  <!-- JS dynamic insertion -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Detail View -->
-          <div id="detailView" class="is-hidden stack" style="padding: 32px; gap: 24px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-              <div class="stack" style="gap: 4px;">
-                <p class="kicker" id="detailKicker">Customer Profile</p>
-                <h2 class="section-title" id="detailName" style="font-size: 24px;">고객명</h2>
-                <p class="section-copy" id="detailPhone">010-0000-0000</p>
-              </div>
-              <button id="backToListBtn" class="badge" style="background: var(--line); border: none; cursor: pointer; color: var(--text-secondary);">목록으로 돌아가기</button>
-            </div>
-
-            <div class="stack" style="gap: 24px;">
-              <div class="main-content stack" style="gap: 24px; grid-column: 3 / span 8;">
-                <!-- Profile Info -->
-                <div class="mini-card" style="background: white;">
-                  <h3 style="font-size: 16px; margin-bottom: 12px;">최근 취향 설문</h3>
-                  <div id="surveyContent" class="stack" style="gap: 8px;">
-                    <p class="section-copy">설문 내역이 없습니다.</p>
-                  </div>
-                </div>
-
-                <!-- Analysis History (Moved here to stay visible) -->
-                <div class="mini-card" style="background: white;">
-                  <h3 style="font-size: 16px; margin-bottom: 12px;">분석 히스토리</h3>
-                  <div id="analysisContent" class="stack" style="gap: 8px;">
-                    <p class="section-copy">분석 내역이 없습니다.</p>
-                  </div>
-                </div>
-                
-                <!-- Photo Gallery (Moved here to stay visible) -->
-                <div class="mini-card" style="background: white;">
-                  <h3 style="font-size: 16px; margin-bottom: 12px;">사진 이력 (갤러리)</h3>
-                  <div id="photoGallery" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-                    <!-- Photos insert here -->
-                  </div>
-                  <p id="noPhotosMsg" class="section-copy is-hidden">저장된 사진이 없습니다.</p>
-                </div>
-              </div>
-
-              <!-- Purely informational guides remain here and will be hidden by CSS -->
-              <section class="side-content panel stack">
-                <p class="kicker">Security Notice</p>
-                <h2 class="section-title">보안 가이드</h2>
-                <div class="card-list">
-                  <div class="mini-card">
-                    <h3>PIN 보안</h3>
-                    <p>단순한 번호(1234, 0000 등)는 피하고 3개월마다 교체해 주세요.</p>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Report View Container -->
-      <div id="reportViewContainer" class="is-hidden stack" style="gap: 32px; margin-top: 40px;">
-        <style>
-          .stat-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-          }
-          .chart-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 24px;
-          }
-          @media (max-width: 1024px) {
-            .chart-grid {
-              grid-template-columns: 1fr;
-            }
-          }
-          @media (max-width: 768px) {
-            .stat-grid {
-              grid-template-columns: 1fr;
-              gap: 12px;
-            }
-          }
-        </style>
-        <div class="stat-grid">
-          <div class="stat-card">
-            <span class="stat-label">누적 고객 수</span>
-            <span class="stat-value" id="statTotalCustomers">-</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">오늘 신규 방문</span>
-            <span class="stat-value" id="statTodayNew">-</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">상담 전환율</span>
-            <span class="stat-value" id="statConversionRate">-%</span>
-          </div>
-        </div>
-
-        <div class="chart-grid">
-          <div class="panel">
-            <h3 class="section-title" style="font-size: 18px; margin-bottom: 24px;">일별 방문자 추이</h3>
-            <div style="height: 300px; position: relative;">
-              <canvas id="visitorChart"></canvas>
-            </div>
-          </div>
-          <div class="panel">
-            <h3 class="section-title" style="font-size: 18px; margin-bottom: 24px;">인기 스타일 분포</h3>
-            <div style="height: 300px; position: relative;">
-              <canvas id="styleChart"></canvas>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="button-row" style="margin-top: 32px;">
-        <a href="/customer/" class="btn btn-primary">상담 화면 바로가기</a>
-        <a href="/partner/signup/" class="btn btn-secondary">파트너 가입 신청</a>
-        <a href="/customer/logout/" class="btn btn-secondary">관리자 로그아웃</a>
-      </div>
+      <!-- ... dashboard content ... -->
     {% else %}
-      <p class="kicker">Security Access</p>
-      <h2 class="hero-title">관리자 인증이<br />필요합니다</h2>
-      <p class="hero-copy">
-        매장 운영 관리를 위해 4자리 PIN 번호를 입력해 주세요.<br />
-        보안을 위해 정기적으로 PIN을 변경하는 것을 권장합니다.
+      <h2 class="hero-title auth-title" style="text-align: center;">관리자 보안 인증</h2>
+      <p class="hero-copy auth-copy" style="font-size: 14px; text-align: center; opacity: 0.7;">
+        매장 관리를 위해 등록된 4자리 PIN 번호를 입력해 주세요.
       </p>
 
-      <div class="pin-container" id="pinDisplay">
-        <div class="pin-dot"></div>
-        <div class="pin-dot"></div>
-        <div class="pin-dot"></div>
-        <div class="pin-dot"></div>
+      <div class="pin-container" id="pinDisplay" style="margin: 8px 0; justify-content: center; gap: 16px;">
+        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
+        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
+        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
+        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
       </div>
 
-      <div class="keypad">
-        <div class="key" onclick="appendPin('1')">1</div>
-        <div class="key" onclick="appendPin('2')">2</div>
-        <div class="key" onclick="appendPin('3')">3</div>
-        <div class="key" onclick="appendPin('4')">4</div>
-        <div class="key" onclick="appendPin('5')">5</div>
-        <div class="key" onclick="appendPin('6')">6</div>
-        <div class="key" onclick="appendPin('7')">7</div>
-        <div class="key" onclick="appendPin('8')">8</div>
-        <div class="key" onclick="appendPin('9')">9</div>
-        <div class="key clear" onclick="clearPin()">Clear</div>
-        <div class="key" onclick="appendPin('0')">0</div>
-        <div class="key" onclick="deletePin()">←</div>
+      <div class="keypad" style="gap: 10px; max-width: 240px; margin: 0 auto;">
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('1')">1</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('2')">2</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('3')">3</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('4')">4</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('5')">5</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('6')">6</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('7')">7</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('8')">8</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('9')">9</div>
+        <div class="key clear" style="font-size: 13px; width: 52px; height: 52px;" onclick="clearPin()">C</div>
+        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('0')">0</div>
+        <div class="key" style="width: 52px; height: 52px;" onclick="deletePin()">←</div>
       </div>
       
-      <p id="authMessage" class="camera-status" style="text-align: center; margin-top: 24px;">보안 인증을 진행해 주세요.</p>
-      <div style="text-align: center; margin-top: 16px;">
-        <a href="/partner/signup/" style="font-size: 14px; color: var(--accent); text-decoration: underline;">신규 파트너 가입 신청</a>
+      <p id="authMessage" class="camera-status" style="text-align: center; margin-top: 12px; font-size: 12px;">보안 인증을 진행해 주세요.</p>
+      <div style="text-align: center; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px;">
+        <a href="/partner/signup/" style="font-size: 13px; color: var(--accent); font-weight: 700; text-decoration: underline;">신규 파트너 가입 신청</a>
       </div>
     {% endif %}
   </article>
+
+  {% if not is_dashboard %}
+  <!-- Hide side content when not logged in to focus on auth -->
+  <style> .side-content { display: none; } </style>
+  {% endif %}
+
 
   <section class="side-content panel stack">
     <p class="kicker">Security Notice</p>
@@ -730,4 +605,6 @@
     fetchCustomers();
   }
 </script>
+
+{% include "components/chatbot.html" %}
 {% endblock %}

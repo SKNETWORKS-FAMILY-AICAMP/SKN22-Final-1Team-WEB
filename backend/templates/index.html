@@ -3,18 +3,11 @@
 {% block page_title %}MirrAI | AI Hair Styling Solution{% endblock %}
 
 {% block hero_content %}
-<div style="max-width: 1200px; margin: 0 auto; width: 100%;">
-  <p class="brand-sub" style="margin-bottom: 16px; color: var(--accent-neon);">AI-Powered Analysis</p>
-  <h2 class="hero-title">당신에게 가장<br /><span>완벽한</span> 헤어 스타일</h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); max-width: 600px; margin-bottom: 48px; font-size: 18px;">
-    MirrAI의 독자적인 AI 기술로 당신의 페이스 라인과 스타일을 분석합니다.<br />
-    이제 정교한 디지털 미러를 통해 새로운 당신을 발견하세요.
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">당신에게 <span>가장 완벽한</span> 헤어 스타일</h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">
+    MirrAI의 독자적인 AI 기술로 새로운 당신을 발견하세요.
   </p>
-  <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-    <a href="{{ start_url }}" class="btn btn-primary">분석 시작하기</a>
-    <a href="{% url 'demo_discovery' %}" class="btn btn-dark" style="border: 1px solid rgba(255, 255, 255, 0.2);">쇼케이스 보기</a>
-    <a href="{{ partner_url }}" class="btn btn-dark" style="border: 1px solid rgba(255, 255, 255, 0.2);">파트너 센터</a>
-  </div>
 </div>
 {% endblock %}
 
