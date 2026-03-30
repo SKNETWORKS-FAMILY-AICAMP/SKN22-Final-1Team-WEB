@@ -33,13 +33,14 @@
 ## 유지한 원칙
 
 - 새 아키텍처를 따로 만들지 않았습니다.
-- 기존 `refresh_trends` entrypoint를 유지하고, 스케줄 정책은 backend 밖에서 관리할 수 있게 분리했습니다.
+- 기존 `refresh_trends` entrypoint와 `run_trend_scheduler` 흐름을 유지했습니다.
 - 새 DB 모델 / versioning / history 구조는 추가하지 않았습니다.
 
 ## 검증
 
 - `manage.py check` 통과
 - `app.tests.test_trend_refresh_service` 통과
+- `app.tests.test_trend_scheduler_service` 통과
 - `app.tests.test_client_age_features` 통과
 
 ## 현재 판단

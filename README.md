@@ -88,6 +88,23 @@ python manage.py refresh_trends --mode runpod-archive --build-local --dry-run
 `crawl -> refine -> llm_refine -> vectorize -> rebuild_styles`
 를 먼저 수행한 뒤 ChromaDB 디렉터리를 tar.gz로 묶어 RunPod에 전달합니다.
 
+프로젝트 내부 스케줄러를 별도 프로세스로 띄우려면:
+```bash
+cd backend
+python manage.py run_trend_scheduler
+```
+
+오늘 한 번만 테스트하려면:
+```bash
+cd backend
+python manage.py run_trend_scheduler --test-at "2026-03-27 11:30" --exit-after-test
+```
+
+기본 스케줄은 `매주 금요일 08:00 Asia/Seoul`이며, 기본 작업은
+`crawl -> refine -> llm_refine -> vectorize -> runpod archive upload`입니다.
+같은 이미지에서 웹 서버와 함께 실행하려면 `.env`에 `ENABLE_TREND_SCHEDULER=true`를 넣으면 됩니다.
+운영 환경에 앱 인스턴스가 여러 대면 스케줄러는 한 인스턴스에만 켜야 중복 실행되지 않습니다.
+
 ---
 
 ## 🔗 주요 접속 경로 (Access Paths)
