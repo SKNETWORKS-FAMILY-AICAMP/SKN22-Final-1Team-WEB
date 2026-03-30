@@ -236,6 +236,35 @@ class TrendRefreshDatabaseSyncTests(TestCase):
         self.assertEqual(result["style_count"], 2)
         self.assertEqual(Style.objects.filter(name="Soft Wolf Cut").count(), 1)
         self.assertEqual(Style.objects.get(name="Curtain Bob").vibe, "Classic")
+        self.assertEqual(result["duplicate_count"], 0)
+        self.assertEqual(result["skipped_count"], 0)
+
+    def test_sync_seed_styles_to_db_skips_blank_names_and_duplicate_names(self):
+        result = sync_seed_styles_to_db(
+            styles=[
+                {
+                    "style_name": "Soft Wolf Cut",
+                    "description": "First row.",
+                    "mood": ["trendy"],
+                },
+                {
+                    "style_name": "Soft Wolf Cut",
+                    "description": "Duplicate row should be ignored.",
+                    "mood": ["classic"],
+                },
+                {
+                    "style_name": "   ",
+                    "description": "Blank names should not create DB rows.",
+                    "mood": ["natural"],
+                },
+            ]
+        )
+
+        self.assertEqual(result["style_count"], 1)
+        self.assertEqual(result["created_count"], 1)
+        self.assertEqual(result["duplicate_count"], 1)
+        self.assertEqual(result["skipped_count"], 1)
+        self.assertEqual(Style.objects.filter(name="Soft Wolf Cut").count(), 1)
 
     def test_trend_fallback_prefers_synced_seed_styles(self):
         sync_seed_styles_to_db(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import json
 import math
 from pathlib import Path
@@ -8,6 +9,9 @@ from typing import Any, Sequence
 import numpy as np
 
 from .paths import CHROMA_STYLES_DIR, STYLE_SEED_FILE, ensure_directories
+
+
+logger = logging.getLogger(__name__)
 
 
 FACE_SHAPES = ("oval", "round", "square", "heart", "oblong")
@@ -87,19 +91,44 @@ def _style_vibe(style: dict[str, Any]) -> str:
     return "Trendy"
 
 
+def _normalized_style_name(style: dict[str, Any]) -> str:
+    return str(style.get("style_name") or "").strip()
+
+
+def _dedupe_styles_by_name(styles: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, int]:
+    deduped: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    duplicate_count = 0
+    skipped_count = 0
+
+    for style in styles:
+        style_name = _normalized_style_name(style)
+        if not style_name:
+            skipped_count += 1
+            continue
+        if style_name in seen_names:
+            duplicate_count += 1
+            continue
+        seen_names.add(style_name)
+        deduped.append(style)
+
+    return deduped, duplicate_count, skipped_count
+
+
 def sync_seed_styles_to_db(styles: list[dict[str, Any]] | None = None) -> dict[str, int]:
     from app.models_django import Style
 
     source_styles = styles or load_hairstyles()
+    normalized_styles, duplicate_count, skipped_count = _dedupe_styles_by_name(source_styles)
     created_count = 0
     updated_count = 0
 
-    for style in source_styles:
+    for style in normalized_styles:
         defaults = {
             "vibe": _style_vibe(style),
             "description": str(style.get("description") or "").strip(),
         }
-        style_name = str(style.get("style_name") or "").strip()
+        style_name = _normalized_style_name(style)
         record = Style.objects.filter(name=style_name).order_by("id").first()
         if record is None:
             record = Style.objects.create(name=style_name, **defaults)
@@ -124,10 +153,21 @@ def sync_seed_styles_to_db(styles: list[dict[str, Any]] | None = None) -> dict[s
             record.image_url = image_url
             record.save(update_fields=["image_url"])
 
+    logger.info(
+        "[trend_style_sync] seed styles synced: total=%s created=%s updated=%s duplicate=%s skipped=%s",
+        len(normalized_styles),
+        created_count,
+        updated_count,
+        duplicate_count,
+        skipped_count,
+    )
+
     return {
-        "style_count": len(source_styles),
+        "style_count": len(normalized_styles),
         "created_count": created_count,
         "updated_count": updated_count,
+        "duplicate_count": duplicate_count,
+        "skipped_count": skipped_count,
     }
 
 
