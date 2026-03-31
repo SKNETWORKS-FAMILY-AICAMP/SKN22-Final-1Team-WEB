@@ -25,6 +25,9 @@ docs/
 .tmp_pdf/
 tests/
 app/tests/
+!app/tests/
+app/tests/*
+!app/tests/test_seed_test_accounts.py
 
 # Django
 local_settings.py

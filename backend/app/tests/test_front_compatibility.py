@@ -63,7 +63,7 @@ class FrontCompatibilityTests(APITestCase):
         self.assertIsNotNone(session.get("customer_id"))
         self.assertEqual(session.get("customer_name"), "Kim User")
 
-    def test_partner_verify_sets_admin_session(self):
+    def test_partner_verify_rejects_legacy_pin_only_login(self):
         admin = AdminAccount.objects.create(
             name="Owner Kim",
             store_name="MirrAI Salon",
@@ -80,10 +80,9 @@ class FrontCompatibilityTests(APITestCase):
 
         response = self.client.post("/partner/verify/", {"pin": "1234"})
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "success")
-        self.assertEqual(self.client.session.get("admin_id"), admin.id)
-        self.assertEqual(response.json()["session_type"], "admin")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["status"], "error")
+        self.assertEqual(self.client.session.get("admin_id"), None)
 
     @override_settings(
         DEBUG=True,
@@ -120,6 +119,7 @@ class FrontCompatibilityTests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "고객 목록")
+        self.assertContains(response, 'id="showReportBtn"', html=False)
 
     def test_partner_dashboard_redirects_designer_to_staff_dashboard(self):
         admin = AdminAccount.objects.create(
@@ -148,6 +148,12 @@ class FrontCompatibilityTests(APITestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response["Location"].endswith("/partner/staff/"))
+
+    def test_partner_dashboard_redirects_unauthenticated_user_to_partner_login(self):
+        response = self.client.get("/partner/dashboard/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].endswith("/partner/"))
 
     @override_settings(
         DEBUG=True,
@@ -181,6 +187,33 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "고객 목록")
         self.assertNotContains(response, 'id="showReportBtn"', html=False)
+
+    def test_partner_staff_dashboard_redirects_owner_to_owner_dashboard(self):
+        admin = AdminAccount.objects.create(
+            name="Dashboard Owner",
+            store_name="MirrAI Dashboard",
+            role="owner",
+            phone="01055556669",
+            business_number=build_valid_business_number("926456780"),
+            password_hash=make_password("pw1234!!"),
+            consent_snapshot={
+                "agree_terms": True,
+                "agree_privacy": True,
+                "agree_third_party_sharing": True,
+            },
+        )
+        self._set_admin_session(admin)
+
+        response = self.client.get("/partner/staff/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].endswith("/partner/dashboard/"))
+
+    def test_partner_staff_dashboard_redirects_unauthenticated_user_to_partner_login(self):
+        response = self.client.get("/partner/staff/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].endswith("/partner/"))
 
     def test_admin_panel_dashboard_redirects_to_partner_center(self):
         response = self.client.get("/admin-panel/dashboard/")
@@ -368,6 +401,10 @@ class FrontCompatibilityTests(APITestCase):
         response = self.client.get("/api/v1/analysis/report/")
 
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["message"],
+            "디자이너 세션에서는 매장 전체 트렌드 리포트에 접근할 수 없습니다.",
+        )
 
     def test_partner_verify_accepts_business_number_and_password_for_shop_login(self):
         admin = AdminAccount.objects.create(
@@ -398,7 +435,7 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(response.json()["next_step"], "designer_select")
         self.assertEqual(self.client.session.get("admin_id"), admin.id)
 
-    def test_partner_verify_accepts_designer_pin_and_sets_designer_session(self):
+    def test_partner_verify_accepts_designer_pin_after_shop_login(self):
         admin = AdminAccount.objects.create(
             name="Owner Kim",
             store_name="MirrAI Salon",
@@ -418,8 +455,12 @@ class FrontCompatibilityTests(APITestCase):
             phone="01044443333",
             pin_hash=make_password("1234"),
         )
+        self._set_admin_session(admin)
 
-        response = self.client.post("/partner/verify/", {"pin": "1234"})
+        response = self.client.post(
+            "/partner/verify/",
+            {"pin": "1234", "designer_id": designer.id},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "success")
@@ -427,6 +468,36 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(response.json()["redirect"], "/partner/staff/")
         self.assertEqual(self.client.session.get("admin_id"), admin.id)
         self.assertEqual(self.client.session.get("designer_id"), designer.id)
+
+    def test_partner_verify_requires_shop_session_before_designer_pin_login(self):
+        admin = AdminAccount.objects.create(
+            name="Owner Kim",
+            store_name="MirrAI Salon",
+            role="owner",
+            phone="01099997770",
+            business_number=build_valid_business_number("123456784"),
+            password_hash=make_password("9999"),
+            consent_snapshot={
+                "agree_terms": True,
+                "agree_privacy": True,
+                "agree_third_party_sharing": True,
+            },
+        )
+        designer = Designer.objects.create(
+            shop=admin,
+            name="Designer Lee",
+            phone="01044443334",
+            pin_hash=make_password("1234"),
+        )
+
+        response = self.client.post(
+            "/partner/verify/",
+            {"pin": "1234", "designer_id": designer.id},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["status"], "error")
+        self.assertEqual(self.client.session.get("designer_id"), None)
 
     def test_partner_verify_scopes_designer_login_to_active_shop(self):
         admin = AdminAccount.objects.create(
@@ -532,6 +603,11 @@ class FrontCompatibilityTests(APITestCase):
         response = self.client.get("/api/v1/designers/")
 
         self.assertEqual(response.status_code, 403)
+
+    def test_partner_designer_list_requires_shop_session(self):
+        response = self.client.get("/api/v1/designers/")
+
+        self.assertEqual(response.status_code, 401)
 
     def test_shop_can_manually_assign_pending_client_to_designer(self):
         admin = AdminAccount.objects.create(
