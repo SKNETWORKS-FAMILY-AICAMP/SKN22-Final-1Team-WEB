@@ -20,6 +20,8 @@ from app.api.v1.admin_serializers import (
     RefreshTokenSerializer,
 )
 from app.api.v1.admin_services import (
+    _scoped_client_queryset,
+    assign_client_to_designer,
     close_consultation_session,
     create_client_note,
     get_active_client_sessions,
@@ -78,6 +80,19 @@ def _legacy_staff_required(request):
     if admin is None:
         return None, detail_response("Admin login is required.", status_code=status.HTTP_401_UNAUTHORIZED)
     return (admin, designer), None
+
+
+def _legacy_shop_required(request):
+    staff, error_response = _legacy_staff_required(request)
+    if error_response:
+        return None, error_response
+    admin, designer = staff
+    if designer is not None:
+        return None, detail_response(
+            "디자이너 세션에서는 고객 배정을 변경할 수 없습니다.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    return admin, None
 
 
 class AdminProtectedAPIView(CompatEnvelopeAPIView):
@@ -191,6 +206,11 @@ class LegacyAllClientsView(CompatEnvelopeAPIView):
                 "name": item["name"],
                 "phone": item["phone"],
                 "created_at": item["created_at"],
+                "designer_id": item["designer_id"],
+                "designer_name": item["designer_name"],
+                "assigned_at": item["assigned_at"],
+                "assignment_source": item["assignment_source"],
+                "is_assignment_pending": item["is_assignment_pending"],
             }
             for item in payload["items"]
         ]
@@ -248,6 +268,38 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
                 ],
             }
         )
+
+
+class LegacyAdminClientAssignView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Assign a customer to a designer for the active shop session",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, pk: int):
+        admin, error_response = _legacy_shop_required(request)
+        if error_response:
+            return error_response
+
+        designer_id = request.data.get("designer_id")
+        if designer_id in (None, ""):
+            return detail_response("디자이너를 선택해 주세요.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            designer_id = int(designer_id)
+        except (TypeError, ValueError):
+            return detail_response("디자이너 정보가 올바르지 않습니다.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        client = get_object_or_404(Client, id=pk)
+        scoped_ids = set(_scoped_client_queryset(admin=admin).values_list("id", flat=True))
+        if client.id not in scoped_ids:
+            return detail_response("현재 매장 범위를 벗어난 고객입니다.", status_code=status.HTTP_404_NOT_FOUND)
+
+        try:
+            payload = assign_client_to_designer(client=client, designer_id=designer_id, admin=admin)
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
 
 
 class AdminClientRecommendationView(AdminProtectedAPIView):
@@ -327,14 +379,14 @@ class AdminTrendReportView(AdminProtectedAPIView):
 class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
     @extend_schema(summary="Legacy trend report for template dashboard", responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def get(self, request):
-        staff, error_response = _legacy_staff_required(request)
+        admin, error_response = _legacy_shop_required(request)
         if error_response:
             return error_response
-        admin, designer = staff
 
         days = int(request.query_params.get("days", 7))
-        trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=designer)
-        clients_payload = get_all_clients(admin=admin, designer=designer)
+        # Trend reporting is store-wide even when a designer session is active.
+        trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=None)
+        clients_payload = get_all_clients(admin=admin, designer=None)
         client_ids = [item["client_id"] for item in clients_payload["items"]]
         client_filter = {"client_id__in": client_ids} if client_ids else {}
         start_date = timezone.localdate() - timezone.timedelta(days=days - 1)

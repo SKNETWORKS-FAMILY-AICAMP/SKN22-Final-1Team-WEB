@@ -40,7 +40,8 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write("[Shop Admin]")
         self.stdout.write("  login page: /partner/login/")
-        self.stdout.write("  pin: 1234")
+        self.stdout.write(f"  business number: {shop.business_number}")
+        self.stdout.write("  password: 1234")
         self.stdout.write("  phone: 010-8000-1000")
         self.stdout.write("  store: MirrAI Test Shop")
         self.stdout.write("")
@@ -51,7 +52,8 @@ class Command(BaseCommand):
         self.stdout.write("[Sample Customers]")
         self.stdout.write("  Choi Hana / 010-9000-1001 / Kim Mina assigned")
         self.stdout.write("  Lee Dohoon / 010-9000-1002 / Park Joon assigned")
-        self.stdout.write("  Yoon Ara / 010-9000-1003 / auto assigned")
+        self.stdout.write("  Yoon Ara / 010-9000-1003 / Kim Mina assigned")
+        self.stdout.write("  Han Seo / 010-9000-1004 / assignment pending")
 
     def _upsert_shop(self) -> AdminAccount:
         business_number = _build_valid_business_number("101234567")
@@ -142,13 +144,29 @@ class Command(BaseCommand):
                 "age_input": 24,
                 "birth_year_estimate": timezone.localdate().year - 24,
                 "designer": designers[0],
-                "assignment_source": "auto_single_designer",
+                "assignment_source": "shop_manual_assignment",
                 "survey": {
                     "target_length": "medium",
                     "target_vibe": "natural",
                     "scalp_type": "unknown",
                     "hair_colour": "ash",
                     "budget_range": "5_10",
+                },
+            },
+            {
+                "phone": "01090001004",
+                "name": "한서",
+                "gender": "female",
+                "age_input": 31,
+                "birth_year_estimate": timezone.localdate().year - 31,
+                "designer": None,
+                "assignment_source": "shop_manual_assignment_pending",
+                "survey": {
+                    "target_length": "medium",
+                    "target_vibe": "clean",
+                    "scalp_type": "sensitive",
+                    "hair_colour": "dark_brown",
+                    "budget_range": "10_20",
                 },
             },
         ]
@@ -162,7 +180,7 @@ class Command(BaseCommand):
                     "gender": spec["gender"],
                     "shop": shop,
                     "designer": spec["designer"],
-                    "assigned_at": seeded_at,
+                    "assigned_at": (seeded_at if spec["designer"] is not None else None),
                     "assignment_source": spec["assignment_source"],
                     "age_input": spec["age_input"],
                     "birth_year_estimate": spec["birth_year_estimate"],

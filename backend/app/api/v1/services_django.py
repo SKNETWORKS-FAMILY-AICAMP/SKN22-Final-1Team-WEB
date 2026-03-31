@@ -2,6 +2,7 @@
 import uuid
 from types import SimpleNamespace
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
@@ -706,6 +707,67 @@ def _ensure_current_batch(client: Client) -> tuple[str | None, list[FormerRecomm
     return str(latest_batch.batch_id), rows, None
 
 
+def _build_local_mock_recommendations(*, client: Client, latest_survey, latest_analysis: FaceAnalysis | None) -> dict:
+    styles_by_id = ensure_catalog_styles()
+    mock_style_ids = [profile.style_id for profile in STYLE_CATALOG[:3]]
+    if not mock_style_ids:
+        return _build_empty_response(
+            source="local_mock",
+            message="Local mock recommendations are enabled, but no style catalog data is available yet.",
+            next_action="capture",
+        )
+
+    target_vibe = getattr(latest_survey, "target_vibe", None) or "natural"
+    target_length = getattr(latest_survey, "target_length", None) or "medium"
+    face_shape = getattr(latest_analysis, "face_shape", None) or "balanced"
+    items: list[dict] = []
+
+    for rank, style_id in enumerate(mock_style_ids, start=1):
+        reference = _style_reference(style_id, styles_by_id=styles_by_id)
+        image_url = reference["sample_image_url"]
+        items.append(
+            {
+                "recommendation_id": None,
+                "batch_id": None,
+                "source": "local_mock",
+                "style_id": style_id,
+                "style_name": reference["style_name"],
+                "style_description": reference["style_description"],
+                "keywords": reference["keywords"],
+                "sample_image_url": image_url,
+                "reference_images": (
+                    [{"image_url": image_url, "description": reference["style_description"]}] if image_url else []
+                ),
+                "simulation_image_url": image_url,
+                "synthetic_image_url": image_url,
+                "llm_explanation": "로컬 테스트용 예시 결과입니다. 실제 모델 결과가 연결되면 이 설명은 교체됩니다.",
+                "reasoning": f"로컬 테스트용 예시 결과입니다. {target_length} 길이감과 {target_vibe} 분위기, {face_shape} 인상을 기준으로 표시했습니다.",
+                "reasoning_snapshot": {
+                    "source": "local_mock",
+                    "is_mock": True,
+                    "client_id": client.id,
+                },
+                "image_policy": "local_mock",
+                "can_regenerate_simulation": False,
+                "regeneration_remaining_count": 0,
+                "regeneration_policy": None,
+                "match_score": float(max(70, 95 - ((rank - 1) * 7))),
+                "rank": rank,
+                "is_chosen": False,
+                "created_at": timezone.now(),
+            }
+        )
+
+    return {
+        "status": "ready",
+        "source": "local_mock",
+        "batch_id": None,
+        "message": "Local mock recommendations are being shown because the analysis result is not ready yet.",
+        "items": items,
+        "next_actions": ["consultation"],
+    }
+
+
 def get_current_recommendations(client: Client) -> dict:
     latest_capture_attempt = get_latest_capture_attempt(client)
     latest_survey = get_latest_survey(client)
@@ -735,6 +797,12 @@ def get_current_recommendations(client: Client) -> dict:
         }
 
     if not latest_capture or not latest_analysis:
+        if settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS and latest_capture:
+            return _build_local_mock_recommendations(
+                client=client,
+                latest_survey=latest_survey,
+                latest_analysis=latest_analysis,
+            )
         return {
             "status": "needs_capture",
             "source": "current_recommendations",
@@ -754,6 +822,12 @@ def get_current_recommendations(client: Client) -> dict:
         }
 
     if not rows:
+        if settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS:
+            return _build_local_mock_recommendations(
+                client=client,
+                latest_survey=latest_survey,
+                latest_analysis=latest_analysis,
+            )
         return _build_empty_response(
             source="current_recommendations",
             message="No recommendation batch is available yet. Please retake the capture and try again.",

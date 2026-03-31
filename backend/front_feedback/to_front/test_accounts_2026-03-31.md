@@ -14,7 +14,9 @@ C:\Users\Playdata\AppData\Local\miniconda3\envs\mirrai\python.exe manage.py seed
 
 ### 샵 관리자 계정
 - 로그인 경로: `/partner/login/`
-- PIN: `1234`
+- 사업자등록번호 입력값: `1012345672`
+- 참고 표기: `101-23-45672`
+- 비밀번호: `1234`
 - 연락처: `010-8000-1000`
 - 매장명: `MirrAI Test Shop`
 
@@ -32,11 +34,12 @@ C:\Users\Playdata\AppData\Local\miniconda3\envs\mirrai\python.exe manage.py seed
 
 - `최하나 / 010-9000-1001 / 김미나 배정`
 - `이도훈 / 010-9000-1002 / 박준 배정`
-- `윤아라 / 010-9000-1003 / 자동 배정`
+- `윤아라 / 010-9000-1003 / 김미나 배정`
+- `한서 / 010-9000-1004 / 미배정`
 
 ## 4. 확인 포인트
 
-- 샵 관리자 PIN 로그인 후 `/partner/dashboard/` 진입
+- 샵 관리자 로그인 후 디자이너 선택 화면 진입
 - 디자이너 PIN 로그인 후 `/partner/dashboard/` 진입
 - 디자이너 세션에서는 본인 고객만 보이는지 확인
 - 챗봇이 로그인 직후 바로 열리는지 확인

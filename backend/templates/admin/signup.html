@@ -143,7 +143,13 @@
       <ul class="error-summary-list"></ul>
     </div>
 
-    <form id="signupForm" action="/api/v1/admin/auth/register/" method="post" novalidate>
+    {% if form_error %}
+    <div class="panel" style="background: rgba(252, 129, 129, 0.1); border: 1px solid var(--status-red); padding: 12px 16px; margin-bottom: 20px; border-radius: 12px;">
+      <p style="color: var(--status-red); font-size: 13px; font-weight: 700; margin: 0;">{{ form_error }}</p>
+    </div>
+    {% endif %}
+
+    <form id="signupForm" action="{% url 'partner_signup' %}" method="post" novalidate data-api-action="/api/v1/admin/auth/register/">
       {% csrf_token %}
 
       <div class="input-grid">
@@ -199,8 +205,8 @@
           <span style="font-size: 13px; text-decoration: underline;">[필수] 개인정보 수집 및 이용 동의</span>
         </label>
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input type="checkbox" name="agree_third_party_sharing" required style="width: 16px; height: 16px;">
-          <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('thirdPartyModal', event)">[필수] 제3자 제공 동의</span>
+          <input type="checkbox" name="agree_third_party_sharing" id="agree_third_party_sharing" required style="width: 16px; height: 16px;" onclick="return false;">
+          <span style="font-size: 13px; text-decoration: underline;">[필수] 제3자 제공 동의</span>
         </label>
       </div>
       <p class="field-error" id="error_agree_terms"></p>
@@ -272,68 +278,112 @@
 
 {% block page_scripts %}
 <script>
-    // Terms and Privacy Modal Controls
+  (() => {
+    const form = document.getElementById('signupForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const errorSummary = document.getElementById('errorSummary');
+    const errorSummaryTitle = errorSummary.querySelector('p');
+    const errorSummaryList = errorSummary.querySelector('.error-summary-list');
+
     const termsLabel = document.getElementById('termsLabel');
     const privacyLabel = document.getElementById('privacyLabel');
+    const thirdPartyLabel = document.querySelector('label:has(#agree_third_party_sharing)');
     const agreeTerms = document.getElementById('agree_terms');
     const agreePrivacy = document.getElementById('agree_privacy');
+    const agreeThirdParty = document.getElementById('agree_third_party_sharing');
 
-    const showTermsModal = (e) => { e.preventDefault(); openModal('termsModal'); };
-    const showPrivacyModal = (e) => { e.preventDefault(); openModal('privacyModal'); };
-
-    termsLabel.addEventListener('click', showTermsModal);
-    privacyLabel.addEventListener('click', showPrivacyModal);
-    agreeTerms.addEventListener('click', showTermsModal);
-    agreePrivacy.addEventListener('click', showPrivacyModal);
-
-    // Global Modal Control
-    window.openModal = function(id) {
-      document.getElementById(id).classList.add('show');
-    };
-
-    window.closeModal = function(id, checkboxId) {
-      document.getElementById(id).classList.remove('show');
-      if (checkboxId) {
-        const cb = document.getElementById(checkboxId);
-        if (cb) cb.checked = true;
-      }
-    };
-
-    function flattenErrorMessages(errors) {
-      const items = [];
-      Object.keys(errors).forEach(field => {
-        const value = errors[field];
-        if (Array.isArray(value)) {
-          value.forEach(item => items.push(item));
-        } else if (value) {
-          items.push(value);
-        }
-      });
-      return items;
+    function normalizeMessages(value) {
+      if (Array.isArray(value)) return value.filter(Boolean);
+      return value ? [String(value)] : [];
     }
 
-    window.addEventListener('click', (e) => {
-      if (e.target.classList.contains('modal')) {
-        e.target.classList.remove('show');
+    function flattenErrorMessages(errors) {
+      return Object.values(errors || {}).flatMap(normalizeMessages);
+    }
+
+    function openModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) modal.classList.add('show');
+    }
+
+    function closeModal(id, checkboxId) {
+      const modal = document.getElementById(id);
+      if (modal) modal.classList.remove('show');
+      if (checkboxId) {
+        const checkbox = document.getElementById(checkboxId);
+        if (checkbox) checkbox.checked = true;
+      }
+    }
+
+    function clearErrors() {
+      document.querySelectorAll('.field-error').forEach((el) => {
+        el.textContent = '';
+      });
+      errorSummaryTitle.textContent = '';
+      errorSummaryList.innerHTML = '';
+      errorSummary.style.display = 'none';
+    }
+
+    function showFieldError(field, messages) {
+      const target = document.getElementById(`error_${field}`);
+      if (!target) return;
+      const normalized = normalizeMessages(messages);
+      target.textContent = normalized.join(' ');
+    }
+
+    function showSummary(title, messages) {
+      errorSummaryTitle.textContent = title;
+      errorSummaryList.innerHTML = '';
+      messages.forEach((message) => {
+        const li = document.createElement('li');
+        li.textContent = message;
+        errorSummaryList.appendChild(li);
+      });
+      errorSummary.style.display = 'block';
+    }
+
+    function bindAgreementTrigger(trigger, modalId) {
+      if (!trigger) return;
+      trigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openModal(modalId);
+      });
+    }
+
+    window.openModal = openModal;
+    window.closeModal = closeModal;
+
+    bindAgreementTrigger(termsLabel, 'termsModal');
+    bindAgreementTrigger(privacyLabel, 'privacyModal');
+    bindAgreementTrigger(thirdPartyLabel, 'thirdPartyModal');
+    bindAgreementTrigger(agreeTerms, 'termsModal');
+    bindAgreementTrigger(agreePrivacy, 'privacyModal');
+    bindAgreementTrigger(agreeThirdParty, 'thirdPartyModal');
+
+    window.addEventListener('click', (event) => {
+      if (event.target.classList.contains('modal')) {
+        event.target.classList.remove('show');
       }
     });
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
       clearErrors();
-      
-      const bizNum = form.querySelector('input[name="business_number"]').value.replace(/[^0-9]/g, '');
+
+      const businessNumber = form.querySelector('input[name="business_number"]').value.replace(/[^0-9]/g, '');
       const password = form.querySelector('input[name="password"]').value;
       const confirm = form.querySelector('input[name="password_confirm"]').value;
-      
-      // Validation for Business Number
-      if (bizNum.length !== 10) {
-        showFieldError('business_number', "사업자 등록번호 10자리를 정확히 입력해 주세요.");
+
+      if (businessNumber.length !== 10) {
+        showFieldError('business_number', '사업자 등록번호 10자리를 정확히 입력해 주세요.');
+        showSummary('입력한 정보를 다시 확인해 주세요.', ['사업자 등록번호 10자리를 정확히 입력해 주세요.']);
         return;
       }
 
       if (password !== confirm) {
         showFieldError('password_confirm', '비밀번호가 일치하지 않습니다.');
+        showSummary('입력한 정보를 다시 확인해 주세요.', ['비밀번호가 일치하지 않습니다.']);
         return;
       }
 
@@ -343,47 +393,53 @@
       try {
         const formData = new FormData(form);
         const payload = {};
+
         formData.forEach((value, key) => {
+          if (key === 'business_number') {
+            payload[key] = businessNumber;
+            return;
+          }
+          if (key === 'password_confirm') {
+            return;
+          }
           if (key.startsWith('agree_')) {
             payload[key] = true;
-          } else if (key === 'business_number') {
-            payload[key] = bizNum; // Send cleaned number
-          } else {
-            payload[key] = value;
+            return;
           }
+          payload[key] = value;
         });
 
-        const response = await fetch(form.action, {
+        const response = await fetch(form.dataset.apiAction, {
           method: 'POST',
           headers: {
             'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
 
         const data = await response.json();
-        
+
         if (response.ok && (data.status === 'success' || data.success)) {
-          // Success flow: immediate redirect to dashboard as per backend requirement
-          window.location.href = data.redirect || "/partner/dashboard/";
-        } else {
-          // Enhanced error handling for standard backend response (detail, message, error_code)
-          const errorMsg = data.message || data.detail || data.error || "회원가입에 실패했습니다.";
-          
-          if (data.errors && typeof data.errors === 'object') {
-            Object.keys(data.errors).forEach(field => {
-              showFieldError(field, data.errors[field]);
-            });
-            errorSummary.querySelector('p').textContent = "입력한 정보를 다시 확인해 주세요.";
-          } else {
-            errorSummary.querySelector('p').textContent = errorMsg;
-          }
-          errorSummary.style.display = 'block';
-          throw new Error(errorMsg);
+          window.location.href = data.redirect || '/partner/dashboard/';
+          return;
         }
+
+        const errorMessages = flattenErrorMessages(data.errors || {});
+        if (data.errors && typeof data.errors === 'object') {
+          Object.entries(data.errors).forEach(([field, messages]) => {
+            showFieldError(field, messages);
+          });
+        }
+
+        showSummary(
+          data.message || '입력한 정보를 다시 확인해 주세요.',
+          errorMessages.length ? errorMessages : [data.message || '회원가입에 실패했습니다.']
+        );
       } catch (error) {
-        console.error("Signup Error:", error);
+        console.error('Signup Error:', error);
+        showSummary('회원가입 요청 처리 중 오류가 발생했습니다.', ['잠시 후 다시 시도해 주세요.']);
+      } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = '가입 완료';
       }

@@ -11,7 +11,11 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from app.api.v1.admin_auth import build_admin_token
-from app.api.v1.services_django import persist_generated_batch, run_mirrai_analysis_pipeline
+from app.api.v1.services_django import (
+    get_current_recommendations,
+    persist_generated_batch,
+    run_mirrai_analysis_pipeline,
+)
 from app.models_django import AdminAccount, CaptureRecord, ConsultationRequest, Client, FaceAnalysis, StyleSelection, Survey
 
 
@@ -233,6 +237,8 @@ class BackendIssueProgressTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], "success")
+        self.assertEqual(response.data["next_action"], "survey")
+        self.assertIn("survey", response.data["next_actions"])
         self.assertEqual(response.data["privacy_snapshot"]["method"], "pixelate_face_region")
 
         record = CaptureRecord.objects.get(id=response.data["record_id"])
@@ -505,4 +511,52 @@ class BackendIssueProgressTests(APITestCase):
         )
         self.assertEqual(admin_response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(admin_response.data["today_metrics"]["active_clients"], 1)
+
+    @override_settings(DEBUG=True, MIRRAI_LOCAL_MOCK_RESULTS=True)
+    def test_current_recommendations_returns_local_mock_when_analysis_is_not_ready(self):
+        client = Client.objects.create(name="Mock Tester", phone="01033335555", gender="F")
+        Survey.objects.create(
+            client=client,
+            target_length="medium",
+            target_vibe="natural",
+            scalp_type="normal",
+            hair_colour="brown",
+            budget_range="10-15",
+            preference_vector=[0.5] * 20,
+        )
+        CaptureRecord.objects.create(
+            client=client,
+            original_path=None,
+            processed_path=None,
+            filename=None,
+            status="DONE",
+            face_count=1,
+            privacy_snapshot={"storage_policy": "vector_only"},
+        )
+
+        payload = get_current_recommendations(client)
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["source"], "local_mock")
+        self.assertEqual(len(payload["items"]), 3)
+        self.assertTrue(all(item["source"] == "local_mock" for item in payload["items"]))
+        self.assertTrue(all(item["reasoning_snapshot"]["is_mock"] for item in payload["items"]))
+
+    @override_settings(DEBUG=True, MIRRAI_LOCAL_MOCK_RESULTS=False)
+    def test_current_recommendations_without_local_mock_still_requires_capture_analysis(self):
+        client = Client.objects.create(name="Strict Tester", phone="01033336666", gender="F")
+        CaptureRecord.objects.create(
+            client=client,
+            original_path=None,
+            processed_path=None,
+            filename=None,
+            status="DONE",
+            face_count=1,
+            privacy_snapshot={"storage_policy": "vector_only"},
+        )
+
+        payload = get_current_recommendations(client)
+
+        self.assertEqual(payload["status"], "needs_capture")
+        self.assertEqual(payload["source"], "current_recommendations")
 

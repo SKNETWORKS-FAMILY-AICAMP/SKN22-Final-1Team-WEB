@@ -295,6 +295,8 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                 "record_id": record.id,
                 "face_count": validation["face_count"],
                 "message": validation["message"],
+                "next_action": "survey",
+                "next_actions": ["survey", "result"],
                 "privacy_snapshot": privacy_snapshot,
                 "storage_snapshot": storage_snapshot,
             }

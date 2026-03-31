@@ -106,7 +106,9 @@
         </div>
         <div style="display: flex; gap: 8px;">
           <button id="showListBtn" class="tab-btn active">고객 목록</button>
+          {% if is_shop_owner %}
           <button id="showReportBtn" class="tab-btn">트렌드 리포트</button>
+          {% endif %}
         </div>
       </div>
 
@@ -130,6 +132,38 @@
           </table>
           <div id="loadingState" class="is-hidden" style="text-align: center; padding: 40px;"><p>불러오는 중...</p></div>
           <div id="emptyState" class="is-hidden" style="text-align: center; padding: 40px;"><p>고객 데이터가 없습니다.</p></div>
+        </div>
+      </div>
+
+      <div id="reportViewContainer" class="is-hidden">
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+          <div class="panel" style="padding: 20px; border-radius: 16px; background: #fff;">
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">전체 고객 수</p>
+            <strong id="reportTotalCustomers" style="font-size: 28px;">-</strong>
+          </div>
+          <div class="panel" style="padding: 20px; border-radius: 16px; background: #fff;">
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">오늘 신규 고객</p>
+            <strong id="reportNewToday" style="font-size: 28px;">-</strong>
+          </div>
+          <div class="panel" style="padding: 20px; border-radius: 16px; background: #fff;">
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">전환율</p>
+            <strong id="reportConversionRate" style="font-size: 28px;">-</strong>
+          </div>
+        </div>
+
+        <div class="panel" style="padding: 24px; border-radius: 20px; background: #fff; margin-bottom: 24px;">
+          <h3 style="font-size: 16px; margin-bottom: 16px;">일별 방문 추이</h3>
+          <div class="chart-frame" style="position: relative; height: 320px;">
+            <canvas id="visitorTrendChart"></canvas>
+          </div>
+        </div>
+
+        <div class="panel" style="padding: 24px; border-radius: 20px; background: #fff;">
+          <h3 style="font-size: 16px; margin-bottom: 16px;">스타일 분포</h3>
+          <div id="styleDistributionEmpty" class="is-hidden" style="text-align: center; padding: 32px 16px; color: var(--text-secondary);">
+            아직 집계된 스타일 선택 데이터가 없습니다.
+          </div>
+          <div id="styleDistributionList" class="stack" style="gap: 12px;"></div>
         </div>
       </div>
     </article>
@@ -163,6 +197,13 @@
         <h2 class="hero-title" style="text-align: center; font-size: 24px; margin-bottom: 8px;">디자이너 선택</h2>
         <p style="text-align: center; font-size: 14px; opacity: 0.6; margin-bottom: 24px;">담당 디자이너를 선택해 주세요.</p>
         
+        <div style="margin-bottom: 20px; padding: 16px; border-radius: 18px; background: #f7f7f7; border: 1px solid #eee;">
+          <p style="font-size: 13px; color: #666; margin-bottom: 10px;">디자이너를 선택하지 않고 매장 전체 고객과 운영 현황을 확인하려면 아래 버튼으로 바로 이동할 수 있습니다.</p>
+          <button id="shopDashboardShortcut" type="button" class="btn btn-light" onclick="continueAsShop()" style="width: 100%; height: 48px; border-radius: 24px; border: 1px solid #ddd; font-weight: 700;">
+            매장 전체 대시보드로 이동
+          </button>
+        </div>
+
         <div id="designerList" class="designer-grid"></div>
         
         <div style="text-align: center; margin-top: 32px;">
@@ -209,6 +250,7 @@
     </article>
   {% endif %}
 </section>
+{% endblock %}
 
 {% block page_scripts %}
 <script>
@@ -236,6 +278,16 @@
     }
     updateStatus("매장 정보 확인 중...", "loading");
     try {
+      const response = await fetch('/partner/verify/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: `biz_number=${encodeURIComponent(bizNum)}&password=${encodeURIComponent(pw)}`
+      });
+      const data = await response.json();
+      if (data.status !== 'success') {
+        handleFail(data.message || "Login failed.");
+        return;
+      }
       await fetchDesigners();
       goToStep(2);
     } catch (err) {
@@ -249,7 +301,14 @@
     try {
       const response = await fetch('/api/v1/designers/');
       const designers = await response.json();
+      if (!response.ok) {
+        throw new Error(designers.message || 'designer list load failed');
+      }
       designerList.innerHTML = '';
+      if (!designers.length) {
+        designerList.innerHTML = '<p style="grid-column: span 2; text-align: center; opacity: 0.5;">등록된 디자이너가 없습니다.</p>';
+        return;
+      }
       designers.forEach(d => {
         const card = document.createElement('div');
         card.className = 'designer-card';
@@ -258,15 +317,8 @@
         designerList.appendChild(card);
       });
     } catch (err) {
-      const mockDesigners = [{id: 1, name: '김미나'}, {id: 2, name: '박준'}];
-      designerList.innerHTML = '';
-      mockDesigners.forEach(d => {
-        const card = document.createElement('div');
-        card.className = 'designer-card';
-        card.onclick = () => selectDesigner(d);
-        card.innerHTML = `<div class="designer-avatar">${d.name[0]}</div><div style="font-weight: 700; font-size: 15px;">${d.name}</div>`;
-        designerList.appendChild(card);
-      });
+      designerList.innerHTML = '<p style="grid-column: span 2; text-align: center; color: #ff3b30;">디자이너 목록을 불러오지 못했습니다.</p>';
+      updateStatus(err.message || "디자이너 목록을 불러오지 못했습니다.", "error");
     }
   }
 
@@ -275,6 +327,11 @@
     document.getElementById('selectedDesignerName').textContent = designer.name;
     document.getElementById('selectedDesignerAvatar').textContent = designer.name[0];
     goToStep(3);
+  }
+
+  function continueAsShop() {
+    updateStatus("매장 전체 대시보드로 이동합니다.", "success");
+    window.location.href = '/partner/dashboard/';
   }
 
   function updatePinDisplay() {
@@ -316,9 +373,8 @@
         updateStatus("인증 성공!", "success");
         setTimeout(() => { window.location.href = data.redirect; }, 800);
       } else {
-        handleFail();
+        handleFail(data.message || "PIN 번호가 일치하지 않습니다.");
       }
-      handleFail(data.message || "PIN 번호가 일치하지 않습니다.");
     } catch (error) {
       handleFail("인증 오류.");
     }
@@ -337,12 +393,314 @@
     }, 600);
   }
 
+  let visitorTrendChart = null;
+  let dashboardDesigners = [];
+  const canManageAssignments = "{{ is_designer_session|yesno:'true,false' }}" !== "true";
+  const canViewShopReport = "{{ is_shop_owner|yesno:'true,false' }}" === "true";
+
+  function formatPhone(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length === 11) {
+      return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+    }
+    if (digits.length === 10) {
+      return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    return value || '-';
+  }
+
+  function formatDate(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('ko-KR');
+  }
+
+  function renderAssignmentCell(item) {
+    const designerName = item.designer_name || '미배정';
+    if (!canManageAssignments) {
+      return `
+        <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+          <strong style="font-size: 13px;">${designerName}</strong>
+          <span style="font-size: 11px; color: var(--text-secondary);">${item.assignment_source || '-'}</span>
+        </div>
+      `;
+    }
+
+    const options = dashboardDesigners
+      .map((designer) => `<option value="${designer.id}" ${String(item.designer_id || '') === String(designer.id) ? 'selected' : ''}>${designer.name}</option>`)
+      .join('');
+    const buttonLabel = item.is_assignment_pending ? '배정' : '재배정';
+
+    return `
+      <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+        <select data-assignment-select="${item.id}" class="form-control" style="width: 160px; height: 40px;">
+          <option value="">디자이너 선택</option>
+          ${options}
+        </select>
+        <button type="button" data-assignment-button="${item.id}" class="btn btn-light" style="height: 40px; padding: 0 14px; border: 1px solid #eee;">${buttonLabel}</button>
+      </div>
+    `;
+  }
+
+  function renderCustomerRows(items) {
+    const tbody = document.getElementById('customerListBody');
+    const emptyState = document.getElementById('emptyState');
+    tbody.innerHTML = '';
+
+    if (!items.length) {
+      emptyState.classList.remove('is-hidden');
+      return;
+    }
+
+    emptyState.classList.add('is-hidden');
+    items.forEach((item) => {
+      const row = document.createElement('tr');
+      row.style.borderBottom = '1px solid var(--line)';
+      row.innerHTML = `
+        <td style="padding: 16px 20px; font-size: 14px;">${item.name || '-'}</td>
+        <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${formatPhone(item.phone)}</td>
+        <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${formatDate(item.created_at)}</td>
+        <td style="padding: 16px 20px; text-align: right; font-size: 12px; color: var(--text-secondary);">${renderAssignmentCell(item)}</td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    if (!canManageAssignments) {
+      return;
+    }
+
+    items.forEach((item) => {
+        const button = document.querySelector(`[data-assignment-button="${item.id}"]`);
+        const select = document.querySelector(`[data-assignment-select="${item.id}"]`);
+        if (!button || !select) {
+          return;
+        }
+        button.addEventListener('click', async () => {
+          const designerId = select.value;
+          if (!designerId) {
+            updateStatus('배정할 디자이너를 먼저 선택해 주세요.', 'error');
+            return;
+          }
+          button.disabled = true;
+          try {
+            const response = await fetch(`/api/v1/customers/${item.id}/assign/`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              body: JSON.stringify({ designer_id: designerId }),
+            });
+            const payload = await response.json();
+            if (!response.ok) {
+              throw new Error(payload.detail || payload.message || '고객 배정에 실패했습니다.');
+            }
+            updateStatus(`${item.name} 고객을 ${payload.designer_name} 디자이너에게 ${item.is_assignment_pending ? '배정' : '재배정'}했습니다.`, 'success');
+            await loadCustomerList(document.getElementById('customerSearchInput').value.trim());
+          } catch (error) {
+            updateStatus(error.message || '고객 배정에 실패했습니다.', 'error');
+          } finally {
+            button.disabled = false;
+          }
+        });
+      });
+  }
+
+  async function loadDashboardDesigners() {
+    if (!canManageAssignments) {
+      dashboardDesigners = [];
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/v1/designers/', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.message || '디자이너 목록을 불러오지 못했습니다.');
+      }
+      dashboardDesigners = Array.isArray(payload) ? payload : [];
+    } catch (error) {
+      dashboardDesigners = [];
+      updateStatus(error.message || '디자이너 목록을 불러오지 못했습니다.', 'error');
+    }
+  }
+
+  async function loadCustomerList(query = '') {
+    const loadingState = document.getElementById('loadingState');
+    const emptyState = document.getElementById('emptyState');
+    const tbody = document.getElementById('customerListBody');
+    loadingState.classList.remove('is-hidden');
+    emptyState.classList.add('is-hidden');
+    tbody.innerHTML = '';
+
+    try {
+      const url = new URL('/api/v1/customers/', window.location.origin);
+      if (query) url.searchParams.set('q', query);
+      const response = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const items = await response.json();
+      if (!response.ok) {
+        throw new Error(items.detail || items.message || '고객 목록을 불러오지 못했습니다.');
+      }
+      renderCustomerRows(Array.isArray(items) ? items : []);
+    } catch (error) {
+      emptyState.classList.remove('is-hidden');
+      emptyState.innerHTML = `<p>${error.message || '고객 목록을 불러오지 못했습니다.'}</p>`;
+    } finally {
+      loadingState.classList.add('is-hidden');
+    }
+  }
+
+  function renderTrendSummary(summary) {
+    document.getElementById('reportTotalCustomers').textContent = summary.total_customers ?? 0;
+    document.getElementById('reportNewToday').textContent = summary.new_today ?? 0;
+    document.getElementById('reportConversionRate').textContent = `${summary.conversion_rate ?? 0}%`;
+  }
+
+  function renderStyleDistribution(items) {
+    const list = document.getElementById('styleDistributionList');
+    const emptyState = document.getElementById('styleDistributionEmpty');
+    list.innerHTML = '';
+
+    if (!items.length) {
+      emptyState.classList.remove('is-hidden');
+      return;
+    }
+
+    emptyState.classList.add('is-hidden');
+    items.forEach((item) => {
+      const row = document.createElement('div');
+      row.style.display = 'grid';
+      row.style.gridTemplateColumns = '1fr auto';
+      row.style.alignItems = 'center';
+      row.style.gap = '12px';
+      row.innerHTML = `
+        <div>
+          <div style="font-size: 14px; font-weight: 600;">${item.name}</div>
+          <div style="margin-top: 6px; height: 8px; border-radius: 999px; background: #f1f3f5; overflow: hidden;">
+            <div style="width: ${Math.min(Number(item.value || 0) * 12, 100)}%; height: 100%; background: var(--accent-neon);"></div>
+          </div>
+        </div>
+        <strong style="font-size: 14px;">${item.value}</strong>
+      `;
+      list.appendChild(row);
+    });
+  }
+
+  function renderVisitorChart(items) {
+    const canvas = document.getElementById('visitorTrendChart');
+    if (!canvas) return;
+    if (visitorTrendChart) {
+      visitorTrendChart.destroy();
+    }
+
+    visitorTrendChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: items.map((item) => item.date),
+        datasets: [
+          {
+            label: '방문 고객 수',
+            data: items.map((item) => item.count),
+            borderColor: '#00d4a3',
+            backgroundColor: 'rgba(0, 212, 163, 0.16)',
+            tension: 0.35,
+            fill: true,
+            pointRadius: 4,
+            pointHoverRadius: 5,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0 },
+          },
+        },
+      },
+    });
+  }
+
+  async function loadTrendReport() {
+    try {
+      const response = await fetch('/api/v1/analysis/report/', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.detail || payload.message || '트렌드 리포트를 불러오지 못했습니다.');
+      }
+      renderTrendSummary(payload.summary || {});
+      renderVisitorChart(payload.visitor_stats || []);
+      renderStyleDistribution(payload.style_distribution || []);
+    } catch (error) {
+      document.getElementById('styleDistributionEmpty').classList.remove('is-hidden');
+      document.getElementById('styleDistributionEmpty').textContent = error.message || '트렌드 리포트를 불러오지 못했습니다.';
+    }
+  }
+
+  function switchDashboardTab(tab) {
+    const listContainer = document.getElementById('listViewContainer');
+    const reportContainer = document.getElementById('reportViewContainer');
+    const listBtn = document.getElementById('showListBtn');
+    const reportBtn = document.getElementById('showReportBtn');
+
+    const showList = tab !== 'report' || !canViewShopReport;
+    listContainer.classList.toggle('is-hidden', !showList);
+    reportContainer.classList.toggle('is-hidden', showList || !canViewShopReport);
+    listBtn.classList.toggle('active', showList);
+    if (reportBtn) {
+      reportBtn.classList.toggle('active', !showList);
+    }
+  }
+
+  async function initDashboard() {
+    const searchInput = document.getElementById('customerSearchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const listBtn = document.getElementById('showListBtn');
+    const reportBtn = document.getElementById('showReportBtn');
+
+    listBtn.addEventListener('click', () => switchDashboardTab('list'));
+    if (reportBtn && canViewShopReport) {
+      reportBtn.addEventListener('click', async () => {
+        switchDashboardTab('report');
+        await loadTrendReport();
+      });
+    }
+
+    searchBtn.addEventListener('click', () => loadCustomerList(searchInput.value.trim()));
+    refreshBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      loadCustomerList('');
+    });
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        loadCustomerList(searchInput.value.trim());
+      }
+    });
+
+    switchDashboardTab('list');
+    await loadDashboardDesigners();
+    await loadCustomerList('');
+  }
+
   // Session Check: If shop is already logged in, skip to designer selection
   document.addEventListener('DOMContentLoaded', () => {
     const hasActiveShop = "{{ active_shop|default:'' }}" !== "";
     const isDashboard = document.getElementById('customerSearchInput') !== null;
     
-    if (!isDashboard && hasActiveShop) {
+    if (isDashboard) {
+      initDashboard();
+      return;
+    }
+
+    if (hasActiveShop) {
       fetchDesigners();
       goToStep(2);
     }

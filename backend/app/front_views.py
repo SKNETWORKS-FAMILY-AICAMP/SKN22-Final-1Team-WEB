@@ -5,6 +5,7 @@ from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
+from app.api.v1.admin_services import register_admin
 from app.models_django import AdminAccount, Client, Designer
 from app.session_state import (
     clear_admin_session,
@@ -21,6 +22,17 @@ from app.session_state import (
 
 def _normalize_phone(value: str) -> str:
     return re.sub(r"\D", "", value or "")
+
+
+def _normalize_business_number(value: str) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def _business_number_variants(value: str) -> set[str]:
+    normalized = _normalize_business_number(value)
+    if len(normalized) != 10:
+        return {value}
+    return {normalized, f"{normalized[:3]}-{normalized[3:5]}-{normalized[5:]}"}
 
 
 def _birth_year_from_age(age_value: str) -> int | None:
@@ -63,12 +75,15 @@ def _resolve_client_assignment_defaults(*, request: HttpRequest) -> dict:
         return defaults
 
     active_designers = list(shop.designers.filter(is_active=True).order_by("id")[:2])
-    if len(active_designers) == 1:
+    if not active_designers:
+        defaults["assigned_at"] = timezone.now()
+        defaults["assignment_source"] = "auto_shop_only"
+    elif len(active_designers) == 1:
         defaults["designer"] = active_designers[0]
         defaults["assigned_at"] = timezone.now()
         defaults["assignment_source"] = "auto_single_designer"
-    elif active_designers:
-        defaults["assignment_source"] = "shop_session_unassigned"
+    else:
+        defaults["assignment_source"] = "shop_manual_assignment_pending"
     return defaults
 
 
@@ -156,14 +171,62 @@ def admin_login_page(request):
 
 
 def admin_signup_page(request):
+    if request.method == "POST":
+        password = request.POST.get("password", "")
+        password_confirm = request.POST.get("password_confirm", "")
+        payload = {
+            "name": (request.POST.get("name") or "").strip(),
+            "store_name": (request.POST.get("store_name") or "").strip(),
+            "role": (request.POST.get("role") or "owner").strip() or "owner",
+            "phone": _normalize_phone(request.POST.get("phone", "")),
+            "business_number": (
+                request.POST.get("business_number")
+                or request.POST.get("biz_number")
+                or ""
+            ).strip(),
+            "password": password,
+            "agree_terms": bool(request.POST.get("agree_terms")),
+            "agree_privacy": bool(request.POST.get("agree_privacy")),
+            "agree_third_party_sharing": bool(request.POST.get("agree_third_party_sharing")),
+            "agree_marketing": bool(request.POST.get("agree_marketing")),
+        }
+        if password_confirm and password != password_confirm:
+            return render(
+                request,
+                "admin/signup.html",
+                {
+                    "form_error": "비밀번호 확인이 일치하지 않습니다.",
+                    "form_values": payload,
+                },
+                status=400,
+            )
+        try:
+            result = register_admin(payload=payload)
+        except ValueError as exc:
+            return render(
+                request,
+                "admin/signup.html",
+                {
+                    "form_error": str(exc),
+                    "form_values": payload,
+                },
+                status=400,
+            )
+
+        admin = AdminAccount.objects.filter(id=result["admin_id"], is_active=True).first()
+        if admin is not None:
+            clear_designer_session(request=request)
+            set_admin_session(request=request, admin=admin)
+        return redirect("partner_dashboard")
+
     return render(request, "admin/signup.html")
 
 
 def admin_dashboard_page(request):
     admin = get_session_admin(request=request)
     designer = get_session_designer(request=request)
-    if not admin and designer is not None:
-        admin = designer.shop
+    if designer is not None:
+        return redirect("partner_staff_dashboard")
     if not admin:
         return redirect("partner_index")
     return render(
@@ -172,8 +235,26 @@ def admin_dashboard_page(request):
         {
             "is_dashboard": True,
             "admin": admin,
+            "designer": None,
+            "is_designer_session": False,
+            "is_shop_owner": True,
+        },
+    )
+
+
+def designer_dashboard_page(request):
+    designer = get_session_designer(request=request)
+    if designer is None:
+        return redirect("partner_index")
+    return render(
+        request,
+        "admin/index.html",
+        {
+            "is_dashboard": True,
+            "admin": designer.shop,
             "designer": designer,
-            "is_designer_session": bool(designer),
+            "is_designer_session": True,
+            "is_shop_owner": False,
         },
     )
 
@@ -182,9 +263,74 @@ def partner_verify(request):
     if request.method != "POST":
         return JsonResponse({"status": "error", "message": "POST method is required."}, status=405)
 
+    designer_id = (request.POST.get("designer_id") or "").strip()
+    business_number = _normalize_business_number(
+        request.POST.get("biz_number", "") or request.POST.get("business_number", "")
+    )
+    password = (request.POST.get("password") or "").strip()
     pin = (request.POST.get("pin") or "").strip()
+
+    if business_number and password:
+        admin = AdminAccount.objects.filter(
+            business_number__in=_business_number_variants(business_number),
+            is_active=True,
+        ).first()
+        if not admin or not check_password(password, admin.password_hash):
+            return JsonResponse(
+                {"status": "error", "message": "사업자등록번호 또는 비밀번호를 다시 확인해 주세요."},
+                status=401,
+            )
+
+        clear_designer_session(request=request)
+        set_admin_session(request=request, admin=admin)
+        return JsonResponse(
+            {
+                "status": "success",
+                "redirect": "/partner/login/",
+                "session_type": "admin",
+                "next_step": "designer_select",
+                "shop_id": admin.id,
+                "store_name": admin.store_name,
+            }
+        )
+
+    if designer_id:
+        admin = get_session_admin(request=request)
+        if admin is None:
+            return JsonResponse(
+                {"status": "error", "message": "먼저 매장 관리자 로그인이 필요합니다."},
+                status=401,
+            )
+        if not re.fullmatch(r"\d{4}", pin):
+            return JsonResponse({"status": "error", "message": "PIN 번호 4자리를 입력해 주세요."}, status=400)
+
+        designer = (
+            Designer.objects.select_related("shop")
+            .filter(id=designer_id, shop=admin, is_active=True)
+            .first()
+        )
+        if designer is None:
+            return JsonResponse(
+                {"status": "error", "message": "선택한 디자이너 정보를 찾을 수 없습니다."},
+                status=404,
+            )
+        if not check_password(pin, designer.pin_hash):
+            return JsonResponse({"status": "error", "message": "PIN 번호를 다시 확인해 주세요."}, status=401)
+
+        set_admin_session(request=request, admin=designer.shop)
+        set_designer_session(request=request, designer=designer)
+        return JsonResponse(
+            {
+                "status": "success",
+                "redirect": "/partner/staff/",
+                "session_type": "designer",
+                "shop_id": designer.shop_id,
+                "designer_id": designer.id,
+            }
+        )
+
     if not re.fullmatch(r"\d{4}", pin):
-        return JsonResponse({"status": "error", "message": "PIN must be 4 digits."}, status=400)
+        return JsonResponse({"status": "error", "message": "PIN 번호 4자리를 입력해 주세요."}, status=400)
 
     designer = None
     for candidate in Designer.objects.select_related("shop").filter(is_active=True).order_by("-created_at"):
@@ -198,7 +344,7 @@ def partner_verify(request):
         return JsonResponse(
             {
                 "status": "success",
-                "redirect": "/partner/dashboard/",
+                "redirect": "/partner/staff/",
                 "session_type": "designer",
                 "shop_id": designer.shop_id,
                 "designer_id": designer.id,
@@ -212,11 +358,30 @@ def partner_verify(request):
             break
 
     if admin is None:
-        return JsonResponse({"status": "error", "message": "PIN did not match any active admin."}, status=401)
+        return JsonResponse({"status": "error", "message": "일치하는 관리자 또는 디자이너 PIN이 없습니다."}, status=401)
 
     clear_designer_session(request=request)
     set_admin_session(request=request, admin=admin)
     return JsonResponse({"status": "success", "redirect": "/partner/dashboard/", "session_type": "admin"})
+
+
+def partner_designer_list(request):
+    admin = get_session_admin(request=request)
+    if admin is None:
+        return JsonResponse({"status": "error", "message": "매장 관리자 로그인 후 이용해 주세요."}, status=401)
+    if get_session_designer(request=request) is not None:
+        return JsonResponse({"status": "error", "message": "디자이너 세션에서는 매장 관리자 기능에 접근할 수 없습니다."}, status=403)
+
+    designers = [
+        {
+            "id": designer.id,
+            "name": designer.name,
+            "phone": designer.phone,
+            "profile_image": None,
+        }
+        for designer in admin.designers.filter(is_active=True).order_by("id")
+    ]
+    return JsonResponse(designers, safe=False)
 
 
 def logout_page(request):

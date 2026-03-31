@@ -9,6 +9,7 @@ set SUPABASE_USE_REMOTE_DB=False
 set SUPABASE_USE_REMOTE_STORAGE=False
 set LOCAL_DATABASE_URL=sqlite:///db.sqlite3
 set DEBUG=True
+set MIRRAI_LOCAL_MOCK_RESULTS=True
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
@@ -29,6 +30,7 @@ echo  - cwd: %CD%
 echo  - python: %PYTHON_EXE%
 echo  - db: sqlite:///db.sqlite3
 echo  - DEBUG: True
+echo  - MOCK RESULTS: True
 
 "%PYTHON_EXE%" manage.py migrate || exit /b 1
 "%PYTHON_EXE%" manage.py check || exit /b 1

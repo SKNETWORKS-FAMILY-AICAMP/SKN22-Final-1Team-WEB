@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from django.urls import path
+from django.views.generic import RedirectView
 
 from app.front_views import (
     admin_dashboard_page,
@@ -9,10 +10,12 @@ from app.front_views import (
     client_login_page,
     client_recommendation_page,
     client_survey_page,
+    designer_dashboard_page,
     health_check,
     home_page,
     logout_page,
     partner_verify,
+    partner_designer_list,
     privacy_policy_page,
     terms_page,
 )
@@ -38,10 +41,13 @@ urlpatterns = [
     path("partner/signup/", admin_signup_page, name="partner_signup"),
     path("partner/verify/", partner_verify, name="partner_verify"),
     path("partner/dashboard/", admin_dashboard_page, name="partner_dashboard"),
+    path("partner/staff/", designer_dashboard_page, name="partner_staff_dashboard"),
+    path("logout/", logout_page, name="logout"),
+    path("api/v1/designers/", partner_designer_list, name="partner_designer_list"),
     # Legacy aliases kept for older links and docs.
     path("client/login/", client_login_page, name="client-login-shell"),
     path("client/survey/", client_survey_page, name="client-survey-shell"),
     path("client/recommendations/", client_recommendation_page, name="client-recommendation-shell"),
-    path("admin-panel/login/", admin_login_page, name="admin-login-shell"),
-    path("admin-panel/dashboard/", admin_dashboard_page, name="admin-dashboard-shell"),
+    path("admin-panel/login/", RedirectView.as_view(pattern_name="partner_index", permanent=False), name="admin-login-shell"),
+    path("admin-panel/dashboard/", RedirectView.as_view(pattern_name="partner_index", permanent=False), name="admin-dashboard-shell"),
 ]

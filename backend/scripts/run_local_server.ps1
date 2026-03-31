@@ -21,6 +21,7 @@ $env:SUPABASE_USE_REMOTE_DB = "False"
 $env:SUPABASE_USE_REMOTE_STORAGE = "False"
 $env:LOCAL_DATABASE_URL = "sqlite:///db.sqlite3"
 $env:DEBUG = "True"
+$env:MIRRAI_LOCAL_MOCK_RESULTS = "True"
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 
@@ -29,6 +30,7 @@ Write-Host " - 경로: $projectRoot"
 Write-Host " - Python: $pythonExe"
 Write-Host " - DB: sqlite:///db.sqlite3"
 Write-Host " - DEBUG: True"
+Write-Host " - MOCK RESULTS: True"
 
 & $pythonExe manage.py migrate
 & $pythonExe manage.py check
