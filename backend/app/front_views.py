@@ -245,6 +245,8 @@ def admin_dashboard_page(request):
 def designer_dashboard_page(request):
     designer = get_session_designer(request=request)
     if designer is None:
+        if get_session_admin(request=request) is not None:
+            return redirect("partner_dashboard")
         return redirect("partner_index")
     return render(
         request,
@@ -329,40 +331,16 @@ def partner_verify(request):
             }
         )
 
-    if not re.fullmatch(r"\d{4}", pin):
-        return JsonResponse({"status": "error", "message": "PIN 번호 4자리를 입력해 주세요."}, status=400)
-
-    designer = None
-    for candidate in Designer.objects.select_related("shop").filter(is_active=True).order_by("-created_at"):
-        if check_password(pin, candidate.pin_hash):
-            designer = candidate
-            break
-
-    if designer is not None:
-        set_admin_session(request=request, admin=designer.shop)
-        set_designer_session(request=request, designer=designer)
+    if pin:
         return JsonResponse(
-            {
-                "status": "success",
-                "redirect": "/partner/staff/",
-                "session_type": "designer",
-                "shop_id": designer.shop_id,
-                "designer_id": designer.id,
-            }
+            {"status": "error", "message": "매장 로그인 후 디자이너를 선택한 뒤 PIN을 입력해 주세요."},
+            status=400,
         )
 
-    admin = None
-    for candidate in AdminAccount.objects.filter(is_active=True).order_by("-created_at"):
-        if check_password(pin, candidate.password_hash):
-            admin = candidate
-            break
-
-    if admin is None:
-        return JsonResponse({"status": "error", "message": "일치하는 관리자 또는 디자이너 PIN이 없습니다."}, status=401)
-
-    clear_designer_session(request=request)
-    set_admin_session(request=request, admin=admin)
-    return JsonResponse({"status": "success", "redirect": "/partner/dashboard/", "session_type": "admin"})
+    return JsonResponse(
+        {"status": "error", "message": "사업자등록번호와 비밀번호를 입력해 주세요."},
+        status=400,
+    )
 
 
 def partner_designer_list(request):
