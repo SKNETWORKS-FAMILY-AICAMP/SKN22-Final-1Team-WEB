@@ -211,6 +211,7 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(payload["error_code"], "validation_error")
         self.assertIn("errors", payload)
         self.assertIn("phone", payload["errors"])
+        self.assertEqual(payload["errors"]["phone"][0], "이미 등록된 관리자 연락처입니다.")
 
     def test_admin_register_api_returns_field_errors_for_missing_required_agreement(self):
         response = self.client.post(

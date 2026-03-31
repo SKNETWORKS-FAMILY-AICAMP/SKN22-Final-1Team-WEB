@@ -59,3 +59,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# front feedback
+!front_feedback/
+!front_feedback/**
+front_feedback/**/past/

@@ -15,9 +15,9 @@ class AdminRegisterSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         required_flags = {
-            "agree_terms": "terms of service agreement is required",
-            "agree_privacy": "privacy policy agreement is required",
-            "agree_third_party_sharing": "third-party sharing agreement is required",
+            "agree_terms": "이용약관 동의가 필요합니다.",
+            "agree_privacy": "개인정보 수집 및 이용 동의가 필요합니다.",
+            "agree_third_party_sharing": "제3자 제공 동의가 필요합니다.",
         }
         for key, message in required_flags.items():
             if not attrs.get(key):

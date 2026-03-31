@@ -80,6 +80,14 @@ def home_page(request):
     return render(request, "index.html", {"start_url": "/customer/", "partner_url": "/partner/login/"})
 
 
+def terms_page(request):
+    return render(request, "pages/terms.html")
+
+
+def privacy_policy_page(request):
+    return render(request, "pages/privacy_policy.html")
+
+
 def client_login_page(request):
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()

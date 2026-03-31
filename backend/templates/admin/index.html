@@ -221,6 +221,18 @@
     min-height: 340px;
   }
 
+  .chart-frame {
+    position: relative;
+    height: 280px;
+    width: 100%;
+  }
+
+  .chart-frame canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+  }
+
   .gallery-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -421,11 +433,15 @@
       <div class="chart-grid">
         <section class="section-panel chart-card" style="padding: 20px;">
           <h4 style="margin-top: 0;">일별 방문 추이</h4>
-          <canvas id="visitorChart"></canvas>
+          <div class="chart-frame">
+            <canvas id="visitorChart"></canvas>
+          </div>
         </section>
         <section class="section-panel chart-card" style="padding: 20px;">
           <h4 style="margin-top: 0;">스타일 선택 분포</h4>
-          <canvas id="styleChart"></canvas>
+          <div class="chart-frame">
+            <canvas id="styleChart"></canvas>
+          </div>
         </section>
       </div>
     </section>
@@ -644,6 +660,7 @@
     let searchTimeout = null;
     let visitorChart = null;
     let styleChart = null;
+    let trendReportLoaded = false;
 
     showListBtn.addEventListener("click", () => {
       showListBtn.classList.add("active");
@@ -657,7 +674,11 @@
       showListBtn.classList.remove("active");
       reportViewContainer.classList.remove("is-hidden");
       listViewContainer.classList.add("is-hidden");
-      fetchTrendReport();
+      if (!trendReportLoaded) {
+        fetchTrendReport();
+      } else {
+        resizeCharts();
+      }
     });
 
     async function fetchCustomers(query = "") {
@@ -824,14 +845,27 @@
         document.getElementById("statTodayNew").textContent = data.summary.new_today;
         document.getElementById("statConversionRate").textContent = `${data.summary.conversion_rate}%`;
         renderCharts(data);
+        trendReportLoaded = true;
       } catch (error) {
         console.error("Report fetch error:", error);
       }
     }
 
+    function destroyChart(chart) {
+      if (chart) {
+        chart.destroy();
+      }
+      return null;
+    }
+
+    function resizeCharts() {
+      if (visitorChart) visitorChart.resize();
+      if (styleChart) styleChart.resize();
+    }
+
     function renderCharts(data) {
       const visitorCtx = document.getElementById("visitorChart").getContext("2d");
-      if (visitorChart) visitorChart.destroy();
+      visitorChart = destroyChart(visitorChart);
       visitorChart = new Chart(visitorCtx, {
         type: "line",
         data: {
@@ -857,7 +891,7 @@
       });
 
       const styleCtx = document.getElementById("styleChart").getContext("2d");
-      if (styleChart) styleChart.destroy();
+      styleChart = destroyChart(styleChart);
       styleChart = new Chart(styleCtx, {
         type: "doughnut",
         data: {
@@ -880,6 +914,8 @@
           cutout: "68%",
         },
       });
+
+      resizeCharts();
     }
 
     fetchCustomers();

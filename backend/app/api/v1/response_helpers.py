@@ -11,6 +11,16 @@ from rest_framework.views import APIView
 logger = logging.getLogger(__name__)
 
 
+CANONICAL_VALIDATION_MESSAGES = {
+    "This field may not be blank.": "필수 정보입니다.",
+    "This field is required.": "필수 정보입니다.",
+    "This field may not be null.": "필수 정보입니다.",
+    "이 필드는 blank일 수 없습니다.": "필수 정보입니다.",
+    "이 필드는 null일 수 없습니다.": "필수 정보입니다.",
+    "이 필드는 필수 항목입니다.": "필수 정보입니다.",
+}
+
+
 DEFAULT_ERROR_CODE_BY_STATUS: dict[int, str] = {
     status.HTTP_400_BAD_REQUEST: "bad_request",
     status.HTTP_401_UNAUTHORIZED: "unauthorized",
@@ -64,11 +74,11 @@ def detail_response(
 
 def _extract_exception_message(detail: object) -> str:
     if isinstance(detail, str):
-        return detail
+        return CANONICAL_VALIDATION_MESSAGES.get(detail, detail)
     if isinstance(detail, list) and detail:
         first = detail[0]
         if isinstance(first, str):
-            return first
+            return CANONICAL_VALIDATION_MESSAGES.get(first, first)
     if isinstance(detail, Mapping):
         return "Validation failed."
     return "Request failed."
@@ -76,7 +86,7 @@ def _extract_exception_message(detail: object) -> str:
 
 def _normalize_error_messages(value: object) -> list[str]:
     if isinstance(value, str):
-        return [value]
+        return [CANONICAL_VALIDATION_MESSAGES.get(value, value)]
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         messages: list[str] = []
         for item in value:
@@ -89,7 +99,8 @@ def _normalize_error_messages(value: object) -> list[str]:
         return [message for message in messages if message]
     if value is None:
         return []
-    return [str(value)]
+    stringified = str(value)
+    return [CANONICAL_VALIDATION_MESSAGES.get(stringified, stringified)]
 
 
 def _normalize_error_mapping(detail: Mapping[str, object]) -> dict[str, list[str]]:

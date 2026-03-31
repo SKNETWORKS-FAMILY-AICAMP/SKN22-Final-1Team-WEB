@@ -44,9 +44,9 @@ logger = logging.getLogger(__name__)
 
 def _build_admin_register_errors(message: str) -> dict[str, list[str]]:
     lowered = message.lower()
-    if "phone number" in lowered:
+    if "phone number" in lowered or "연락처" in message:
         return {"phone": [message]}
-    if "business registration number" in lowered:
+    if "business registration number" in lowered or "사업자등록번호" in message:
         return {"business_number": [message]}
     return {"non_field_errors": [message]}
 

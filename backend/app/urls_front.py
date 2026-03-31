@@ -13,6 +13,8 @@ from app.front_views import (
     home_page,
     logout_page,
     partner_verify,
+    privacy_policy_page,
+    terms_page,
 )
 
 
@@ -20,6 +22,8 @@ urlpatterns = [
     path("", home_page, name="index"),
     path("health/", health_check, name="health-check"),
     path("docs/", lambda r: render(r, "pages/home.html"), name="docs"),
+    path("terms/", terms_page, name="terms"),
+    path("privacy-policy/", privacy_policy_page, name="privacy_policy"),
     path("customer/", client_login_page, name="customer_index"),
     path("customer/survey/", client_survey_page, name="customer_survey"),
     path("customer/survey/male/", client_survey_page, {"gender": "male"}, name="customer_survey_male"),

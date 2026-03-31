@@ -1,20 +1,21 @@
 {% extends "layouts/base_site.html" %}
 {% load static %}
 
-{% block page_title %}MirrAI | Partner Sign-up{% endblock %}
+{% block page_title %}MirrAI | 파트너 회원가입{% endblock %}
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">파트너 <span>가입 신청</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">MirrAI와 함께 스마트한 매장을 운영하세요.</p>
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">파트너 <span>회원가입</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">
+    MirrAI와 함께 매장을 운영할 파트너 정보를 입력해주세요.
+  </p>
 </div>
 {% endblock %}
 
 {% block content %}
 <style>
-  /* 파트너 가입 전용 스타일 (고객 페이지와 통일) */
   .signup-card {
-    max-width: 600px;
+    max-width: 760px;
     margin: 0 auto;
     padding: 32px !important;
     border-radius: 24px !important;
@@ -98,29 +99,53 @@
     background-color: rgba(252, 129, 129, 0.05);
   }
 
-  /* Modal Styles */
   .modal {
-    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px);
-    display: flex; align-items: center; justify-content: center; z-index: 2000;
-    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
   }
-  .modal.show { opacity: 1; pointer-events: auto; }
-  .modal-content { width: 90%; background: white; border-radius: 16px; position: relative; }
+
+  .modal.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .modal-content {
+    width: min(92vw, 560px);
+    background: white;
+    border-radius: 16px;
+    position: relative;
+  }
+
+  .error-summary-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--status-red);
+    font-size: 12px;
+    line-height: 1.6;
+  }
 </style>
 
 <div class="customer-layout" style="display: block;">
   <div class="panel signup-card">
     <h3 class="section-title compact">파트너 가입 정보</h3>
-    
-    <!-- Error Summary -->
+
     <div id="errorSummary" class="panel" style="display: none; background: rgba(252, 129, 129, 0.1); border: 1px solid var(--status-red); padding: 12px 16px; margin-bottom: 20px; border-radius: 12px;">
-      <p style="color: var(--status-red); font-size: 13px; font-weight: 600; margin: 0;"></p>
+      <p style="color: var(--status-red); font-size: 13px; font-weight: 700; margin: 0 0 8px 0;"></p>
+      <ul class="error-summary-list"></ul>
     </div>
 
     <form id="signupForm" action="/api/v1/admin/auth/register/" method="post" novalidate>
       {% csrf_token %}
-      
-      <!-- 1열: 성함 & 연락처 -->
+
       <div class="input-grid">
         <div class="form-field">
           <label class="form-label">대표자 성함</label>
@@ -130,14 +155,13 @@
         <div class="form-field">
           <label class="form-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
             <span>관리자 연락처</span>
-            <span style="font-size: 11px; color: var(--status-teal); font-weight: 600;">※ 아이디로 사용됩니다.</span>
+            <span style="font-size: 11px; color: var(--status-teal); font-weight: 600;">아이디로 사용됩니다.</span>
           </label>
           <input type="tel" name="phone" class="form-input" placeholder="010-0000-0000" required>
           <p class="field-error" id="error_phone"></p>
         </div>
       </div>
 
-      <!-- 2열: 매장명 & 사업자번호 -->
       <div class="input-grid">
         <div class="form-field">
           <label class="form-label">매장명</label>
@@ -151,7 +175,6 @@
         </div>
       </div>
 
-      <!-- 3열: 비밀번호 -->
       <div class="input-grid">
         <div class="form-field">
           <label class="form-label">비밀번호</label>
@@ -165,8 +188,7 @@
         </div>
       </div>
 
-      <!-- 약관 동의 (한 줄로 정리 + 팝업 연결) -->
-      <div class="agree-container" style="flex-direction: row; justify-content: flex-start; gap: 24px; padding: 12px 16px;">
+      <div class="agree-container">
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
           <input type="checkbox" name="agree_terms" required style="width: 16px; height: 16px;">
           <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('termsModal', event)">[필수] 이용약관 및 서비스 이용 동의</span>
@@ -175,51 +197,72 @@
           <input type="checkbox" name="agree_privacy" required style="width: 16px; height: 16px;">
           <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('privacyModal', event)">[필수] 개인정보 수집 및 이용 동의</span>
         </label>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="agree_third_party_sharing" required style="width: 16px; height: 16px;">
+          <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('thirdPartyModal', event)">[필수] 제3자 제공 동의</span>
+        </label>
       </div>
+      <p class="field-error" id="error_agree_terms"></p>
+      <p class="field-error" id="error_agree_privacy"></p>
+      <p class="field-error" id="error_agree_third_party_sharing"></p>
+      <p class="field-error" id="error_non_field_errors"></p>
 
       <div class="action-row">
         <button type="submit" id="submitBtn" class="btn btn-primary">가입 완료</button>
         <a href="{% url 'partner_login' %}" class="btn btn-outline">로그인으로</a>
       </div>
-      </form>
-      </div>
+    </form>
+  </div>
 
-      <!-- 이용약관 모달 -->
-      <div id="termsModal" class="modal">
-      <div class="modal-content" style="max-width: 500px; padding: 32px;">
-      <h3 class="section-title" style="margin-bottom: 20px;">이용약관 및 서비스 규정</h3>
+  <div id="termsModal" class="modal">
+    <div class="modal-content" style="padding: 32px;">
+      <h3 class="section-title" style="margin-bottom: 20px;">이용약관 및 서비스 이용 동의</h3>
       <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
-        <p><strong>제1조 (목적)</strong> 본 약관은 MirrAI가 제공하는 파트너 센터 서비스의 이용 조건 및 절차를 규정합니다.</p>
-        <p><strong>제2조 (서비스 제공)</strong> 회사는 파트너에게 고객 분석 데이터 및 매장 관리 대시보드 기능을 제공합니다.</p>
-        <p><strong>제3조 (파트너의 의무)</strong> 파트너는 고객의 개인정보를 보호할 의무가 있으며, 비정상적인 접근 시도를 하지 않아야 합니다.</p>
+        <p><strong>1. 목적</strong> MirrAI가 제공하는 파트너센터 서비스 이용 조건을 정합니다.</p>
+        <p><strong>2. 서비스 제공</strong> 고객 분석, 매장 관리, 상담 기록, 트렌드 리포트 기능을 제공합니다.</p>
+        <p><strong>3. 이용 의무</strong> 파트너는 서비스 운영에 필요한 정보를 정확하게 입력해야 합니다.</p>
       </div>
-      <button class="btn btn-primary" onclick="closeModal('termsModal', 'agree_terms')" style="width: 100%; margin-top: 24px;">확인하였습니다</button>
-      </div>
-      </div>
+      <button class="btn btn-primary" onclick="closeModal('termsModal', 'agree_terms')" style="width: 100%; margin-top: 24px;">확인했습니다</button>
+    </div>
+  </div>
 
-      <!-- 개인정보 수집 모달 -->
-      <div id="privacyModal" class="modal">
-      <div class="modal-content" style="max-width: 500px; padding: 32px;">
+  <div id="privacyModal" class="modal">
+    <div class="modal-content" style="padding: 32px;">
       <h3 class="section-title" style="margin-bottom: 20px;">개인정보 수집 및 이용 동의</h3>
       <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
-        <p><strong>1. 수집 항목</strong>: 성명, 연락처, 매장명, 사업자 등록번호</p>
-        <p><strong>2. 수집 목적</strong>: 파트너 계정 관리 및 서비스 이용 권한 부여</p>
-        <p><strong>3. 보유 기간</strong>: 파트너 탈퇴 시까지 (단, 관계 법령에 따라 보존이 필요한 경우 해당 기간까지)</p>
+        <p><strong>1. 수집 항목</strong>: 성함, 연락처, 매장명, 사업자등록번호</p>
+        <p><strong>2. 수집 목적</strong>: 파트너 계정 생성, 서비스 운영, 고객 관리</p>
+        <p><strong>3. 보유 기간</strong>: 파트너 탈퇴 시까지 또는 관련 법령에 따른 보관 기간까지</p>
       </div>
-      <button class="btn btn-primary" onclick="closeModal('privacyModal', 'agree_privacy')" style="width: 100%; margin-top: 24px;">확인하였습니다</button>
-      </div>
-      </div>
+      <button class="btn btn-primary" onclick="closeModal('privacyModal', 'agree_privacy')" style="width: 100%; margin-top: 24px;">확인했습니다</button>
+    </div>
+  </div>
 
-      <div style="max-width: 600px; margin: 24px auto 0; padding: 0 16px;">
+  <div id="thirdPartyModal" class="modal">
+    <div class="modal-content" style="padding: 32px;">
+      <h3 class="section-title" style="margin-bottom: 20px;">제3자 제공 동의</h3>
+      <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
+        <p><strong>1. 제공 대상</strong>: MirrAI 서비스 운영 시스템 및 파트너 관리 기능</p>
+        <p><strong>2. 제공 목적</strong>: 계정 검증, 서비스 연동, 고객 배정 및 운영 지원</p>
+        <p><strong>3. 거부 시 불이익</strong>: 파트너 회원가입 및 서비스 이용이 제한될 수 있습니다.</p>
+      </div>
+      <button class="btn btn-primary" onclick="closeModal('thirdPartyModal', 'agree_third_party_sharing')" style="width: 100%; margin-top: 24px;">확인했습니다</button>
+    </div>
+  </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+  <div style="max-width: 760px; margin: 24px auto 0; padding: 0 16px;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
       <div class="panel" style="padding: 20px; border-radius: 16px; border: none; background: white;">
-        <h4 style="font-size: 14px; margin-bottom: 8px;">💡 가입 안내</h4>
-        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">별도의 ID 없이 휴대폰 번호로 간편하게 로그인할 수 있습니다.</p>
+        <h4 style="font-size: 14px; margin-bottom: 8px;">왜 가입해야 하나요?</h4>
+        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+          ID 없이 전화번호와 비밀번호만으로 간편하게 로그인할 수 있습니다.
+        </p>
       </div>
       <div class="panel" style="padding: 20px; border-radius: 16px; border: none; background: white;">
-        <h4 style="font-size: 14px; margin-bottom: 8px;">🔒 보안 가이드</h4>
-        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">비밀번호는 영문, 숫자, 특수문자를 조합하여 설정해 주세요.</p>
+        <h4 style="font-size: 14px; margin-bottom: 8px;">보안 안내</h4>
+        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+          비밀번호는 영문, 숫자, 특수문자를 조합해 안전하게 설정해주세요.
+        </p>
       </div>
     </div>
   </div>
@@ -228,7 +271,6 @@
 
 {% block page_scripts %}
 <script>
-  // Global Modal Control
   function openModal(id, e) {
     if (e) {
       e.preventDefault();
@@ -236,6 +278,7 @@
     }
     document.getElementById(id).classList.add('show');
   }
+
   function closeModal(id, checkboxName) {
     document.getElementById(id).classList.remove('show');
     if (checkboxName) {
@@ -253,6 +296,7 @@
     function clearErrors() {
       errorSummary.style.display = 'none';
       errorSummary.querySelector('p').textContent = '';
+      errorSummary.querySelector('ul').innerHTML = '';
       form.querySelectorAll('.field-error').forEach(el => {
         el.textContent = '';
         el.style.display = 'none';
@@ -265,8 +309,9 @@
     function showFieldError(field, message) {
       const errorEl = document.getElementById(`error_${field}`);
       const inputEl = form.querySelector(`[name="${field}"]`);
+      const normalized = Array.isArray(message) ? message[0] : message;
       if (errorEl) {
-        errorEl.textContent = Array.isArray(message) ? message[0] : message;
+        errorEl.textContent = normalized;
         errorEl.style.display = 'block';
       }
       if (inputEl) {
@@ -274,7 +319,19 @@
       }
     }
 
-    // Close modals on outside click
+    function flattenErrorMessages(errors) {
+      const items = [];
+      Object.keys(errors).forEach(field => {
+        const value = errors[field];
+        if (Array.isArray(value)) {
+          value.forEach(item => items.push(item));
+        } else if (value) {
+          items.push(value);
+        }
+      });
+      return items;
+    }
+
     window.addEventListener('click', (e) => {
       if (e.target.classList.contains('modal')) {
         e.target.classList.remove('show');
@@ -284,17 +341,17 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       clearErrors();
-      
+
       const password = form.querySelector('input[name="password"]').value;
       const confirm = form.querySelector('input[name="password_confirm"]').value;
-      
+
       if (password !== confirm) {
-        showFieldError('password_confirm', "비밀번호가 일치하지 않습니다.");
+        showFieldError('password_confirm', '비밀번호가 일치하지 않습니다.');
         return;
       }
 
       submitBtn.disabled = true;
-      submitBtn.textContent = "처리 중...";
+      submitBtn.textContent = '처리 중...';
 
       try {
         const formData = new FormData(form);
@@ -309,7 +366,7 @@
 
         const response = await fetch(form.action, {
           method: 'POST',
-          headers: { 
+          headers: {
             'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
             'Content-Type': 'application/json'
           },
@@ -317,28 +374,29 @@
         });
 
         const data = await response.json();
-        
+
         if (response.ok && data.status === 'success') {
-          alert("회원가입이 완료되었습니다! 대시보드로 이동합니다.");
+          alert('회원가입이 완료되었습니다. 대시보드로 이동합니다.');
           window.location.href = data.redirect || "{% url 'partner_dashboard' %}";
+        } else if (data.errors && typeof data.errors === 'object') {
+          const summaryItems = flattenErrorMessages(data.errors);
+          Object.keys(data.errors).forEach(field => {
+            showFieldError(field, data.errors[field]);
+          });
+          errorSummary.querySelector('p').textContent = summaryItems[0] || data.message || '입력한 정보를 다시 확인해 주세요.';
+          errorSummary.querySelector('ul').innerHTML = summaryItems.map(item => `<li>${item}</li>`).join('');
+          errorSummary.style.display = 'block';
         } else {
-          // Handle field-specific errors if available
-          if (data.errors && typeof data.errors === 'object') {
-            Object.keys(data.errors).forEach(field => {
-              showFieldError(field, data.errors[field]);
-            });
-            errorSummary.querySelector('p').textContent = "입력한 정보를 다시 확인해 주세요.";
-            errorSummary.style.display = 'block';
-          } else {
-            errorSummary.querySelector('p').textContent = data.message || data.error || "회원가입에 실패했습니다.";
-            errorSummary.style.display = 'block';
-          }
-          throw new Error("Validation failed");
+          errorSummary.querySelector('p').textContent = data.message || data.error || '회원가입에 실패했습니다.';
+          errorSummary.style.display = 'block';
         }
       } catch (error) {
         console.error(error);
+        errorSummary.querySelector('p').textContent = '회원가입 요청을 처리하지 못했습니다.';
+        errorSummary.style.display = 'block';
+      } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = "가입 완료";
+        submitBtn.textContent = '가입 완료';
       }
     });
   })();
