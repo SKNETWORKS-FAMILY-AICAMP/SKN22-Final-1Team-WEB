@@ -6,605 +6,345 @@
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>파트너 센터</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">매장 운영 및 고객 관리 대시보드입니다.</p>
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span id="heroTitleText">파트너 센터</span></h2>
+  <p class="section-copy" id="heroSubText" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">매장 운영 및 디자이너 관리 대시보드입니다.</p>
 </div>
 {% endblock %}
 
 {% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  /* Ensure hero section is visible and consistent */
-  .hero-section {
-    display: flex !important; 
-  }
-  .content-section {
-    margin-top: -20px !important;
+  /* Base Styles */
+  .hero-section { display: flex !important; }
+  .content-section { margin-top: -20px !important; }
+  
+  /* Auth Panel */
+  #authSection {
+    max-width: 500px;
+    min-height: 450px;
+    margin: 40px auto;
+    padding: 40px !important;
+    border-radius: 32px !important;
+    background: #fff;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.1);
+    transition: all 0.4s ease;
   }
 
-  .pin-container {
-    display: flex;
-    justify-content: center;
-    gap: 12px;
-    margin: 32px 0;
-  }
+  /* Step Transitions */
+  .auth-step { display: none; }
+  .auth-step.active { display: block; animation: fadeIn 0.5s ease; }
   
-  .pin-dot {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: var(--line);
-    transition: all 0.2s ease;
-  }
-  
-  .pin-dot.filled {
-    background: var(--accent);
-    transform: scale(1.2);
-    box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
-  .keypad {
+  /* Designer Cards */
+  .designer-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 16px;
-    max-width: 280px;
-    margin: 0 auto;
+    margin-top: 24px;
   }
-
-  .key {
-    aspect-ratio: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    font-weight: 700;
-    border-radius: 50%;
-    background: white;
-    border: 1px solid var(--line);
+  .designer-card {
+    padding: 24px 16px;
+    border-radius: 20px;
+    border: 1px solid #eee;
+    text-align: center;
     cursor: pointer;
     transition: all 0.2s ease;
-    user-select: none;
+    background: #fafafa;
   }
-
-  .key:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: var(--accent-soft);
+  .designer-card:hover {
+    border-color: var(--accent-neon);
+    background: #fff;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+    transform: translateY(-4px);
   }
-
-  .key:active {
-    transform: scale(0.9);
-  }
-
-  .key.clear {
-    font-size: 14px;
-    color: var(--error);
-  }
-
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-8px); }
-    75% { transform: translateX(8px); }
-  }
-
-  .shake {
-    animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
-  }
-
-  /* Dashboard Styles */
-  .tab-btn {
-    padding: 8px 16px;
-    font-size: 14px;
-    font-weight: 600;
-    border: none;
-    background: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.2s ease;
-  }
-
-  .tab-btn.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
-
-  .stat-card {
-    padding: 24px;
-    border-radius: var(--radius-md);
-    background: white;
-    border: 1px solid var(--line);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .stat-value {
-    font-size: 28px;
-    font-weight: 800;
-    color: var(--text-primary);
-  }
-
-  .stat-label {
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-weight: 600;
-  }
-
-  /* Modal Styles */
-  .modal {
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.8);
-    backdrop-filter: blur(8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 2000;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-  }
-
-  .modal.show {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .modal-content {
-    width: 90%;
-    max-width: 800px;
-    max-height: 90vh;
-    background: white;
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    position: relative;
-    box-shadow: var(--shadow-lg);
-  }
-
-  .modal-close {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    width: 40px;
-    height: 40px;
+  .designer-avatar {
+    width: 64px;
+    height: 64px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.9);
-    border: none;
-    cursor: pointer;
+    background: #eee;
+    margin: 0 auto 12px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 24px;
-    z-index: 10;
-    box-shadow: var(--shadow-sm);
+    color: #999;
   }
+
+  /* PIN UI */
+  .pin-container { display: flex; justify-content: center; gap: 16px; margin: 32px 0; }
+  .pin-dot { width: 16px; height: 16px; border-radius: 50%; background: #eee; transition: all 0.2s; }
+  .pin-dot.filled { background: var(--accent-neon); transform: scale(1.2); }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 240px; margin: 0 auto; }
+  .key { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; border-radius: 50%; background: #fff; border: 1px solid #eee; cursor: pointer; transition: all 0.2s; }
+  .key:hover { border-color: var(--accent-neon); color: var(--accent-neon); }
+  .key:active { transform: scale(0.9); }
+
+  /* Forms */
+  .form-group { margin-bottom: 20px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 8px; color: #666; }
+  .form-control { width: 100%; height: 48px; border-radius: 12px; border: 1px solid #eee; padding: 0 16px; font-size: 15px; outline: none; transition: border-color 0.2s; }
+  .form-control:focus { border-color: var(--accent-neon); }
+
+  @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+  .shake { animation: shake 0.3s; }
 </style>
 {% endblock %}
 
 {% block content %}
-<style>
-  /* Compact Auth Panel centering & Standardized width/height */
-  #authSection {
-    max-width: 600px;
-    min-height: 420px; /* Further reduced height */
-    margin: 0 auto;
-    padding: 32px 40px 24px !important; /* Minimized bottom padding */
-    border-radius: 24px !important;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-  }
-  .editorial-grid {
-    display: block !important; 
-  }
-  .hero-title.auth-title {
-    font-size: 24px !important; /* Slightly smaller for compactness */
-    margin-bottom: 8px !important;
-    margin-top: 0;
-  }
-  .hero-copy.auth-copy {
-    line-height: 1.4 !important;
-    margin-bottom: 12px !important;
-    white-space: nowrap; /* Force single line */
-  }
-</style>
 <section class="editorial-grid">
-  <article class="main-content panel stack" id="authSection">
-    {% if is_dashboard %}
-      <!-- ... dashboard content ... -->
-    {% else %}
-      <h2 class="hero-title auth-title" style="text-align: center;">관리자 보안 인증</h2>
-      <p class="hero-copy auth-copy" style="font-size: 14px; text-align: center; opacity: 0.7;">
-        매장 관리를 위해 등록된 4자리 PIN 번호를 입력해 주세요.
-      </p>
-
-      <div class="pin-container" id="pinDisplay" style="margin: 8px 0; justify-content: center; gap: 16px;">
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
-        <div class="pin-dot" style="width: 14px; height: 14px;"></div>
+  {% if is_dashboard %}
+    <!-- Dashboard Content -->
+    <article class="main-content panel stack">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+        <div>
+          <h2 class="section-title" style="margin-bottom: 4px;">{{ designer.name|default:"관리자" }} 님, 안녕하세요!</h2>
+          <p class="section-copy">{{ admin.store_name }} 대시보드</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="showListBtn" class="tab-btn active">고객 목록</button>
+          <button id="showReportBtn" class="tab-btn">트렌드 리포트</button>
+        </div>
       </div>
 
-      <div class="keypad" style="gap: 10px; max-width: 240px; margin: 0 auto;">
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('1')">1</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('2')">2</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('3')">3</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('4')">4</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('5')">5</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('6')">6</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('7')">7</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('8')">8</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('9')">9</div>
-        <div class="key clear" style="font-size: 13px; width: 52px; height: 52px;" onclick="clearPin()">C</div>
-        <div class="key" style="font-size: 18px; width: 52px; height: 52px;" onclick="appendPin('0')">0</div>
-        <div class="key" style="width: 52px; height: 52px;" onclick="deletePin()">←</div>
+      <div id="listViewContainer">
+        <div class="search-bar" style="display: flex; gap: 12px; margin-bottom: 24px;">
+          <input type="text" id="customerSearchInput" class="form-control" placeholder="고객명 또는 연락처 검색..." style="flex: 1;">
+          <button id="searchBtn" class="btn btn-dark" style="padding: 0 24px;">검색</button>
+          <button id="refreshBtn" class="btn btn-light" style="padding: 0 16px; border: 1px solid #eee;">새로고침</button>
+        </div>
+        <div id="listView" class="table-container">
+          <table id="customerTable" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--line); text-align: left;">
+                <th style="padding: 12px 20px; font-size: 13px; color: var(--text-secondary);">성함</th>
+                <th style="padding: 12px 20px; font-size: 13px; color: var(--text-secondary);">연락처</th>
+                <th style="padding: 12px 20px; font-size: 13px; color: var(--text-secondary);">방문일</th>
+                <th style="padding: 12px 20px; text-align: right;"></th>
+              </tr>
+            </thead>
+            <tbody id="customerListBody"></tbody>
+          </table>
+          <div id="loadingState" class="is-hidden" style="text-align: center; padding: 40px;"><p>불러오는 중...</p></div>
+          <div id="emptyState" class="is-hidden" style="text-align: center; padding: 40px;"><p>고객 데이터가 없습니다.</p></div>
+        </div>
       </div>
+    </article>
+  {% else %}
+    <!-- Multi-Step Auth Panel -->
+    <article class="main-content panel stack" id="authSection">
       
-      <p id="authMessage" class="camera-status" style="text-align: center; margin-top: 12px; font-size: 12px;">보안 인증을 진행해 주세요.</p>
-      <div style="text-align: center; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px;">
-        <a href="/partner/signup/" style="font-size: 13px; color: var(--accent); font-weight: 700; text-decoration: underline;">신규 파트너 가입 신청</a>
+      <!-- STEP 1: Shop Admin Login -->
+      <div id="stepShopLogin" class="auth-step active">
+        <h2 class="hero-title" style="text-align: center; font-size: 24px; margin-bottom: 8px;">매장 관리자 로그인</h2>
+        <p style="text-align: center; font-size: 14px; opacity: 0.6; margin-bottom: 32px;">미용실 사업자 정보를 입력해 주세요.</p>
+        
+        <div class="form-group">
+          <label>사업자 번호</label>
+          <input type="text" id="inputBizNum" class="form-control" placeholder="'-' 제외 10자리">
+        </div>
+        <div class="form-group">
+          <label>비밀번호</label>
+          <input type="password" id="inputShopPw" class="form-control" placeholder="관리자 비밀번호">
+        </div>
+        
+        <button onclick="handleShopLogin()" class="btn btn-primary" style="width: 100%; height: 52px; border-radius: 26px; background: var(--accent-neon); color: var(--bg-dark); margin-top: 12px; font-weight: 700;">로그인</button>
+        
+        <div style="text-align: center; margin-top: 24px; border-top: 1px solid #eee; padding-top: 24px;">
+          <a href="/partner/signup/" style="font-size: 15px; color: var(--accent-neon); font-weight: 700; text-decoration: underline;">매장 관리자 회원가입</a>
+        </div>
       </div>
-    {% endif %}
-  </article>
 
-  {% if not is_dashboard %}
-  <!-- Hide side content when not logged in to focus on auth -->
-  <style> .side-content { display: none; } </style>
+      <!-- STEP 2: Designer Selection -->
+      <div id="stepDesignerSelect" class="auth-step">
+        <h2 class="hero-title" style="text-align: center; font-size: 24px; margin-bottom: 8px;">디자이너 선택</h2>
+        <p style="text-align: center; font-size: 14px; opacity: 0.6; margin-bottom: 24px;">담당 디자이너를 선택해 주세요.</p>
+        
+        <div id="designerList" class="designer-grid"></div>
+        
+        <div style="text-align: center; margin-top: 32px;">
+          <button onclick="goToStep(1)" style="background: none; border: none; font-size: 13px; color: #999; text-decoration: underline; cursor: pointer;">관리자 계정 변경</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: Designer PIN -->
+      <div id="stepDesignerPin" class="auth-step">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div id="selectedDesignerAvatar" class="designer-avatar" style="width: 80px; height: 80px; font-size: 32px; background: #fff; border: 2px solid var(--accent-neon); color: var(--accent-neon);">👤</div>
+          <h2 id="selectedDesignerName" class="hero-title" style="font-size: 20px; margin-bottom: 4px;">디자이너 이름</h2>
+          <p style="font-size: 13px; opacity: 0.6;">4자리 PIN 번호를 입력해 주세요.</p>
+        </div>
+
+        <div class="pin-container" id="pinDisplay">
+          <div class="pin-dot"></div>
+          <div class="pin-dot"></div>
+          <div class="pin-dot"></div>
+          <div class="pin-dot"></div>
+        </div>
+
+        <div class="keypad">
+          <div class="key" onclick="appendPin('1')">1</div>
+          <div class="key" onclick="appendPin('2')">2</div>
+          <div class="key" onclick="appendPin('3')">3</div>
+          <div class="key" onclick="appendPin('4')">4</div>
+          <div class="key" onclick="appendPin('5')">5</div>
+          <div class="key" onclick="appendPin('6')">6</div>
+          <div class="key" onclick="appendPin('7')">7</div>
+          <div class="key" onclick="appendPin('8')">8</div>
+          <div class="key" onclick="appendPin('9')">9</div>
+          <div class="key" style="color: #ff3b30; font-size: 14px;" onclick="clearPin()">C</div>
+          <div class="key" onclick="appendPin('0')">0</div>
+          <div class="key" onclick="deletePin()">←</div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 32px;">
+          <button onclick="goToStep(2)" style="background: none; border: none; font-size: 13px; color: #999; text-decoration: underline; cursor: pointer;">디자이너 목록으로 가기</button>
+        </div>
+      </div>
+
+      <p id="authMessage" style="text-align: center; margin-top: 20px; font-size: 13px; font-weight: 600; color: #666;"></p>
+    </article>
   {% endif %}
-
-
-  <section class="side-content panel stack">
-    <p class="kicker">Security Notice</p>
-    <h2 class="section-title">보안 가이드</h2>
-    <div class="card-list">
-      <div class="mini-card">
-        <h3>PIN 보안</h3>
-        <p>단순한 번호(1234, 0000 등)는 피하고 3개월마다 교체해 주세요.</p>
-      </div>
-      <div class="mini-card">
-        <h3>로그아웃 관리</h3>
-        <p>업무 종료 시 반드시 로그아웃하여 고객 데이터 유출을 방지하세요.</p>
-      </div>
-      <div class="mini-card">
-        <h3>다중 인증</h3>
-        <p>상세 설정 메뉴에서 추가적인 생체 인증을 활성화할 수 있습니다.</p>
-      </div>
-    </div>
-  </section>
 </section>
 
-<!-- Photo Zoom Modal -->
-<div id="photoModal" class="modal">
-  <div class="modal-content" style="max-width: 600px;">
-    <button class="modal-close" id="closePhotoModal">&times;</button>
-    <img id="zoomedPhoto" src="" alt="Zoomed Photo" style="width: 100%; height: auto; display: block;">
-    <div style="padding: 16px 24px;">
-      <p id="photoMeta" class="section-copy" style="font-weight: 600;"></p>
-    </div>
-  </div>
-</div>
-
 <script>
+  let currentStep = 1;
+  let selectedDesignerId = null;
   let currentPin = "";
-  const maxPin = 4;
-  const dots = document.querySelectorAll('.pin-dot');
-  const messageEl = document.getElementById('authMessage');
   const authSection = document.getElementById('authSection');
+  const messageEl = document.getElementById('authMessage');
 
-  function updateDisplay() {
+  function goToStep(step) {
+    document.querySelectorAll('.auth-step').forEach(el => el.classList.remove('active'));
+    const stepIds = ['', 'stepShopLogin', 'stepDesignerSelect', 'stepDesignerPin'];
+    document.getElementById(stepIds[step]).classList.add('active');
+    currentStep = step;
+    messageEl.textContent = "";
+    if (step === 3) clearPin();
+  }
+
+  async function handleShopLogin() {
+    const bizNum = document.getElementById('inputBizNum').value.trim();
+    const pw = document.getElementById('inputShopPw').value.trim();
+    if (!bizNum || !pw) {
+      updateStatus("사업자 번호와 비밀번호를 입력해 주세요.", "error");
+      return;
+    }
+    updateStatus("매장 정보 확인 중...", "loading");
+    try {
+      await fetchDesigners();
+      goToStep(2);
+    } catch (err) {
+      handleFail("매장 로그인 실패. 정보를 확인해 주세요.");
+    }
+  }
+
+  async function fetchDesigners() {
+    const designerList = document.getElementById('designerList');
+    designerList.innerHTML = '<p style="grid-column: span 2; text-align: center; opacity: 0.5;">불러오는 중...</p>';
+    try {
+      const response = await fetch('/api/v1/designers/');
+      const designers = await response.json();
+      designerList.innerHTML = '';
+      designers.forEach(d => {
+        const card = document.createElement('div');
+        card.className = 'designer-card';
+        card.onclick = () => selectDesigner(d);
+        card.innerHTML = `<div class="designer-avatar">${d.name[0]}</div><div style="font-weight: 700; font-size: 15px;">${d.name}</div><div style="font-size: 12px; color: #999; margin-top: 4px;">Designer</div>`;
+        designerList.appendChild(card);
+      });
+    } catch (err) {
+      const mockDesigners = [{id: 1, name: '김미나'}, {id: 2, name: '박준'}];
+      designerList.innerHTML = '';
+      mockDesigners.forEach(d => {
+        const card = document.createElement('div');
+        card.className = 'designer-card';
+        card.onclick = () => selectDesigner(d);
+        card.innerHTML = `<div class="designer-avatar">${d.name[0]}</div><div style="font-weight: 700; font-size: 15px;">${d.name}</div>`;
+        designerList.appendChild(card);
+      });
+    }
+  }
+
+  function selectDesigner(designer) {
+    selectedDesignerId = designer.id;
+    document.getElementById('selectedDesignerName').textContent = designer.name;
+    document.getElementById('selectedDesignerAvatar').textContent = designer.name[0];
+    goToStep(3);
+  }
+
+  function updatePinDisplay() {
+    const dots = document.querySelectorAll('.pin-dot');
     dots.forEach((dot, index) => {
-      if (index < currentPin.length) {
-        dot.classList.add('filled');
-      } else {
-        dot.classList.remove('filled');
-      }
+      if (index < currentPin.length) dot.classList.add('filled');
+      else dot.classList.remove('filled');
     });
   }
 
   function appendPin(num) {
-    if (currentPin.length < maxPin) {
+    if (currentPin.length < 4) {
       currentPin += num;
-      updateDisplay();
-      
-      if (currentPin.length === maxPin) {
-        verifyPin();
-      }
+      updatePinDisplay();
+      if (currentPin.length === 4) verifyPin();
     }
   }
 
   function deletePin() {
     currentPin = currentPin.slice(0, -1);
-    updateDisplay();
-    messageEl.textContent = "보안 인증을 진행해 주세요.";
-    messageEl.className = "camera-status";
+    updatePinDisplay();
   }
 
   function clearPin() {
     currentPin = "";
-    updateDisplay();
-    messageEl.textContent = "보안 인증을 진행해 주세요.";
-    messageEl.className = "camera-status";
+    updatePinDisplay();
   }
 
   async function verifyPin() {
-    messageEl.textContent = "인증 확인 중...";
-    messageEl.className = "camera-status loading";
-
+    updateStatus("PIN 확인 중...", "loading");
     try {
       const response = await fetch('/partner/verify/', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-CSRFToken': '{{ csrf_token }}'
-        },
-        body: `pin=${currentPin}`
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: `pin=${currentPin}&designer_id=${selectedDesignerId}`
       });
-
       const data = await response.json();
-
       if (data.status === 'success') {
-        messageEl.textContent = "인증 성공! 대시보드로 이동합니다.";
-        messageEl.className = "camera-status success";
-        setTimeout(() => {
-          window.location.href = data.redirect;
-        }, 800);
+        updateStatus("인증 성공!", "success");
+        setTimeout(() => { window.location.href = data.redirect; }, 800);
       } else {
         handleFail();
       }
     } catch (error) {
-      handleFail("네트워크 오류가 발생했습니다.");
+      handleFail("인증 오류.");
     }
+  }
+
+  function updateStatus(msg, type) {
+    messageEl.textContent = msg;
+    messageEl.style.color = type === 'error' ? '#ff3b30' : (type === 'success' ? 'var(--accent-neon)' : '#666');
   }
 
   function handleFail(msg) {
     authSection.classList.add('shake');
-    messageEl.textContent = msg || "PIN 번호가 일치하지 않습니다.";
-    messageEl.className = "camera-status error";
-    
+    updateStatus(msg || "PIN 번호가 일치하지 않습니다.", "error");
     setTimeout(() => {
       authSection.classList.remove('shake');
       clearPin();
     }, 600);
   }
 
-  // Dashboard Logic
-  if (document.getElementById('showListBtn')) {
-    const listViewContainer = document.getElementById('listViewContainer');
-    const reportViewContainer = document.getElementById('reportViewContainer');
-    const showListBtn = document.getElementById('showListBtn');
-    const showReportBtn = document.getElementById('showReportBtn');
-
-    // List Logic
-    const table = document.getElementById('customerTable');
-    const tbody = document.getElementById('customerListBody');
-    const loading = document.getElementById('loadingState');
-    const empty = document.getElementById('emptyState');
-    const error = document.getElementById('errorState');
-    const refreshBtn = document.getElementById('refreshBtn');
-    const searchInput = document.getElementById('customerSearchInput');
-    const searchBtn = document.getElementById('searchBtn');
+  // Session Check: If shop is already logged in, skip to designer selection
+  document.addEventListener('DOMContentLoaded', () => {
+    const hasActiveShop = "{{ active_shop|default:'' }}" !== "";
+    const isDashboard = document.getElementById('customerSearchInput') !== null;
     
-    const listView = document.getElementById('listView');
-    const detailView = document.getElementById('detailView');
-    const backToListBtn = document.getElementById('backToListBtn');
-    const detailName = document.getElementById('detailName');
-    const detailPhone = document.getElementById('detailPhone');
-    const surveyContent = document.getElementById('surveyContent');
-    const analysisContent = document.getElementById('analysisContent');
-    const photoGallery = document.getElementById('photoGallery');
-    const noPhotosMsg = document.getElementById('noPhotosMsg');
-    
-    const photoModal = document.getElementById('photoModal');
-    const zoomedPhoto = document.getElementById('zoomedPhoto');
-    const photoMeta = document.getElementById('photoMeta');
-    const closePhotoModal = document.getElementById('closePhotoModal');
-
-    let searchTimeout = null;
-    let visitorChart = null;
-    let styleChart = null;
-
-    // View Switching
-    showListBtn.addEventListener('click', () => {
-      showListBtn.classList.add('active');
-      showReportBtn.classList.remove('active');
-      listViewContainer.classList.remove('is-hidden');
-      reportViewContainer.classList.add('is-hidden');
-    });
-
-    showReportBtn.addEventListener('click', () => {
-      showReportBtn.classList.add('active');
-      showListBtn.classList.remove('active');
-      reportViewContainer.classList.remove('is-hidden');
-      listViewContainer.classList.add('is-hidden');
-      fetchTrendReport();
-    });
-
-    async function fetchCustomers(query = '') {
-      loading.classList.remove('is-hidden');
-      table.classList.add('is-hidden');
-      empty.classList.add('is-hidden');
-      error.classList.add('is-hidden');
-      tbody.innerHTML = '';
-
-      try {
-        const url = query ? `/api/v1/customers/?q=${encodeURIComponent(query)}` : '/api/v1/customers/';
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Fetch failed');
-        const data = await response.json();
-        loading.classList.add('is-hidden');
-        if (data.length === 0) {
-          const emptyMsg = query ? `"${query}"에 대한 검색 결과가 없습니다.` : '아직 등록된 고객이 없습니다.';
-          empty.querySelector('p').textContent = emptyMsg;
-          empty.classList.remove('is-hidden');
-        } else {
-          data.forEach(customer => {
-            const date = new Date(customer.created_at).toLocaleDateString('ko-KR', {
-              year: 'numeric', month: '2-digit', day: '2-digit'
-            });
-            const tr = document.createElement('tr');
-            tr.style.borderBottom = '1px solid var(--line)';
-            tr.innerHTML = `
-              <td style="padding: 16px 20px; font-size: 14px; font-weight: 600;">${customer.name}</td>
-              <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${customer.phone}</td>
-              <td style="padding: 16px 20px; font-size: 14px; color: var(--text-secondary);">${date}</td>
-              <td style="padding: 16px 20px; text-align: right;">
-                <button class="badge detail-btn" data-id="${customer.id}" style="background: white; border: 1px solid var(--line); cursor: pointer;">상세보기</button>
-              </td>
-            `;
-            tbody.appendChild(tr);
-          });
-          table.classList.remove('is-hidden');
-          document.querySelectorAll('.detail-btn').forEach(btn => {
-            btn.addEventListener('click', () => showDetail(btn.dataset.id));
-          });
-        }
-      } catch (err) {
-        loading.classList.add('is-hidden');
-        error.classList.remove('is-hidden');
-      }
+    if (!isDashboard && hasActiveShop) {
+      fetchDesigners();
+      goToStep(2);
     }
-
-    async function showDetail(id) {
-      listView.classList.add('is-hidden');
-      detailView.classList.remove('is-hidden');
-      detailName.textContent = "불러오는 중...";
-      surveyContent.innerHTML = '<p class="section-copy">데이터를 불러오고 있습니다...</p>';
-      analysisContent.innerHTML = '<p class="section-copy">데이터를 불러오고 있습니다...</p>';
-      try {
-        const response = await fetch(`/api/v1/customers/${id}/`);
-        const customer = await response.json();
-        detailName.textContent = customer.name;
-        detailPhone.textContent = customer.phone;
-        if (customer.survey) {
-          const s = customer.survey;
-          surveyContent.innerHTML = `
-            <div class="mini-card" style="padding: 12px; background: var(--bg);">
-              <p class="section-copy"><strong>희망 길이:</strong> ${s.target_length || '미지정'}</p>
-              <p class="section-copy"><strong>선호 분위기:</strong> ${s.target_vibe || '미지정'}</p>
-              <p class="section-copy"><strong>모발 상태:</strong> ${s.scalp_type || '미지정'}</p>
-              <p class="section-copy"><strong>선호 컬러:</strong> ${s.hair_colour || '미지정'}</p>
-            </div>
-          `;
-        } else { surveyContent.innerHTML = '<p class="section-copy">설문 내역이 없습니다.</p>'; }
-        if (customer.face_analyses && customer.face_analyses.length > 0) {
-          analysisContent.innerHTML = customer.face_analyses.map(a => `
-            <div class="mini-card" style="padding: 12px; background: var(--bg);">
-              <p class="section-copy"><strong>얼굴형:</strong> ${a.face_shape}</p>
-              <p class="section-copy"><strong>황금비 점수:</strong> ${a.golden_ratio_score || '-'}</p>
-              <p class="section-copy" style="font-size: 12px; opacity: 0.7;">${new Date(a.created_at).toLocaleString()}</p>
-            </div>
-          `).join('');
-        } else { analysisContent.innerHTML = '<p class="section-copy">분석 내역이 없습니다.</p>'; }
-        photoGallery.innerHTML = '';
-        const allPhotos = [
-          ...(customer.captures || []).map(c => ({ url: c.processed_path, date: c.created_at, type: '원본/전처리' })),
-          ...(customer.face_analyses || []).map(a => ({ url: a.image_url, date: a.created_at, type: '분석용' }))
-        ].sort((a, b) => new Date(b.date) - new Date(a.date));
-        if (allPhotos.length > 0) {
-          noPhotosMsg.classList.add('is-hidden');
-          allPhotos.forEach(photo => {
-            const img = document.createElement('img');
-            img.src = photo.url.startsWith('http') ? photo.url : `/media${photo.url.split('media').pop()}`;
-            img.className = 'thumb';
-            img.style.width = '100%';
-            img.style.aspectRatio = '1';
-            img.style.objectFit = 'cover';
-            img.style.cursor = 'pointer';
-            img.addEventListener('click', () => zoomPhoto(img.src, `${photo.type} - ${new Date(photo.date).toLocaleString()}`));
-            photoGallery.appendChild(img);
-          });
-        } else { noPhotosMsg.classList.remove('is-hidden'); }
-      } catch (err) { detailName.textContent = "오류 발생"; }
-    }
-
-    function zoomPhoto(src, meta) {
-      zoomedPhoto.src = src;
-      photoMeta.textContent = meta;
-      photoModal.classList.add('show');
-    }
-    closePhotoModal.addEventListener('click', () => photoModal.classList.remove('show'));
-    photoModal.addEventListener('click', (e) => { if (e.target === photoModal) photoModal.classList.remove('show'); });
-    function hideDetail() {
-      detailView.classList.add('is-hidden');
-      listView.classList.remove('is-hidden');
-    }
-    backToListBtn.addEventListener('click', hideDetail);
-    refreshBtn.addEventListener('click', () => { searchInput.value = ''; fetchCustomers(); });
-    searchBtn.addEventListener('click', () => { fetchCustomers(searchInput.value); });
-    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchCustomers(searchInput.value); });
-    searchInput.addEventListener('input', () => {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => fetchCustomers(searchInput.value), 500);
-    });
-
-    // Trend Report Logic
-    async function fetchTrendReport() {
-      try {
-        const response = await fetch('/api/v1/analysis/report/');
-        const data = await response.json();
-        
-        // Summary
-        document.getElementById('statTotalCustomers').textContent = data.summary.total_customers;
-        document.getElementById('statTodayNew').textContent = data.summary.new_today;
-        document.getElementById('statConversionRate').textContent = `${data.summary.conversion_rate}%`;
-
-        renderCharts(data);
-      } catch (error) {
-        console.error("Report fetch error:", error);
-      }
-    }
-
-    function renderCharts(data) {
-      // Visitor Chart
-      const ctxVisitor = document.getElementById('visitorChart').getContext('2d');
-      if (visitorChart) visitorChart.destroy();
-      visitorChart = new Chart(ctxVisitor, {
-        type: 'line',
-        data: {
-          labels: data.visitor_stats.map(s => s.date),
-          datasets: [{
-            label: '일별 방문자',
-            data: data.visitor_stats.map(s => s.count),
-            borderColor: '#6366f1',
-            backgroundColor: 'rgba(99, 102, 241, 0.1)',
-            fill: true,
-            tension: 0.4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
-        }
-      });
-
-      // Style Distribution Chart
-      const ctxStyle = document.getElementById('styleChart').getContext('2d');
-      if (styleChart) styleChart.destroy();
-      styleChart = new Chart(ctxStyle, {
-        type: 'doughnut',
-        data: {
-          labels: data.style_distribution.map(s => s.name),
-          datasets: [{
-            data: data.style_distribution.map(s => s.value),
-            backgroundColor: ['#6366f1', '#f43f5e', '#10b981', '#f59e0b', '#8b5cf6'],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } },
-          cutout: '70%'
-        }
-      });
-    }
-
-    fetchCustomers();
-  }
+  });
 </script>
-
-{% include "components/chatbot.html" %}
 {% endblock %}

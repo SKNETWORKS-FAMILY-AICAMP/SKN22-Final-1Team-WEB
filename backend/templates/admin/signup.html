@@ -167,13 +167,13 @@
 
       <!-- 약관 동의 (한 줄로 정리 + 팝업 연결) -->
       <div class="agree-container" style="flex-direction: row; justify-content: flex-start; gap: 24px; padding: 12px 16px;">
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input type="checkbox" name="agree_terms" required style="width: 16px; height: 16px;">
-          <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('termsModal', event)">[필수] 이용약관 및 서비스 이용 동의</span>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;" id="termsLabel">
+          <input type="checkbox" name="agree_terms" id="agree_terms" required style="width: 16px; height: 16px;" onclick="return false;">
+          <span style="font-size: 13px; text-decoration: underline;">[필수] 이용약관 및 서비스 이용 동의</span>
         </label>
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input type="checkbox" name="agree_privacy" required style="width: 16px; height: 16px;">
-          <span style="font-size: 13px; text-decoration: underline;" onclick="openModal('privacyModal', event)">[필수] 개인정보 수집 및 이용 동의</span>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;" id="privacyLabel">
+          <input type="checkbox" name="agree_privacy" id="agree_privacy" required style="width: 16px; height: 16px;" onclick="return false;">
+          <span style="font-size: 13px; text-decoration: underline;">[필수] 개인정보 수집 및 이용 동의</span>
         </label>
       </div>
 
@@ -228,51 +228,32 @@
 
 {% block page_scripts %}
 <script>
-  // Global Modal Control
-  function openModal(id, e) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    document.getElementById(id).classList.add('show');
-  }
-  function closeModal(id, checkboxName) {
-    document.getElementById(id).classList.remove('show');
-    if (checkboxName) {
-      const cb = document.querySelector(`input[name="${checkboxName}"]`);
-      if (cb) cb.checked = true;
-    }
-  }
+    // Terms and Privacy Modal Controls
+    const termsLabel = document.getElementById('termsLabel');
+    const privacyLabel = document.getElementById('privacyLabel');
+    const agreeTerms = document.getElementById('agree_terms');
+    const agreePrivacy = document.getElementById('agree_privacy');
 
-  (function() {
-    'use strict';
-    const form = document.getElementById('signupForm');
-    const submitBtn = document.getElementById('submitBtn');
-    const errorSummary = document.getElementById('errorSummary');
+    const showTermsModal = (e) => { e.preventDefault(); openModal('termsModal'); };
+    const showPrivacyModal = (e) => { e.preventDefault(); openModal('privacyModal'); };
 
-    function clearErrors() {
-      errorSummary.style.display = 'none';
-      errorSummary.querySelector('p').textContent = '';
-      form.querySelectorAll('.field-error').forEach(el => {
-        el.textContent = '';
-        el.style.display = 'none';
-      });
-      form.querySelectorAll('.form-input').forEach(el => {
-        el.classList.remove('is-invalid');
-      });
-    }
+    termsLabel.addEventListener('click', showTermsModal);
+    privacyLabel.addEventListener('click', showPrivacyModal);
+    agreeTerms.addEventListener('click', showTermsModal);
+    agreePrivacy.addEventListener('click', showPrivacyModal);
 
-    function showFieldError(field, message) {
-      const errorEl = document.getElementById(`error_${field}`);
-      const inputEl = form.querySelector(`[name="${field}"]`);
-      if (errorEl) {
-        errorEl.textContent = Array.isArray(message) ? message[0] : message;
-        errorEl.style.display = 'block';
+    // Global Modal Control
+    window.openModal = function(id) {
+      document.getElementById(id).classList.add('show');
+    };
+
+    window.closeModal = function(id, checkboxId) {
+      document.getElementById(id).classList.remove('show');
+      if (checkboxId) {
+        const cb = document.getElementById(checkboxId);
+        if (cb) cb.checked = true;
       }
-      if (inputEl) {
-        inputEl.classList.add('is-invalid');
-      }
-    }
+    };
 
     // Close modals on outside click
     window.addEventListener('click', (e) => {
@@ -285,9 +266,16 @@
       e.preventDefault();
       clearErrors();
       
+      const bizNum = form.querySelector('input[name="business_number"]').value.replace(/[^0-9]/g, '');
       const password = form.querySelector('input[name="password"]').value;
       const confirm = form.querySelector('input[name="password_confirm"]').value;
       
+      // Validation for Business Number
+      if (bizNum.length !== 10) {
+        showFieldError('business_number', "사업자 등록번호 10자리를 정확히 입력해 주세요.");
+        return;
+      }
+
       if (password !== confirm) {
         showFieldError('password_confirm', "비밀번호가 일치하지 않습니다.");
         return;
@@ -302,6 +290,8 @@
         formData.forEach((value, key) => {
           if (key.startsWith('agree_')) {
             payload[key] = true;
+          } else if (key === 'business_number') {
+            payload[key] = bizNum; // Send cleaned number
           } else {
             payload[key] = value;
           }
@@ -318,25 +308,26 @@
 
         const data = await response.json();
         
-        if (response.ok && data.status === 'success') {
-          alert("회원가입이 완료되었습니다! 대시보드로 이동합니다.");
-          window.location.href = data.redirect || "{% url 'partner_dashboard' %}";
+        if (response.ok && (data.status === 'success' || data.success)) {
+          // Success flow: immediate redirect to dashboard as per backend requirement
+          window.location.href = data.redirect || "/partner/dashboard/";
         } else {
-          // Handle field-specific errors if available
+          // Enhanced error handling for standard backend response (detail, message, error_code)
+          const errorMsg = data.message || data.detail || data.error || "회원가입에 실패했습니다.";
+          
           if (data.errors && typeof data.errors === 'object') {
             Object.keys(data.errors).forEach(field => {
               showFieldError(field, data.errors[field]);
             });
             errorSummary.querySelector('p').textContent = "입력한 정보를 다시 확인해 주세요.";
-            errorSummary.style.display = 'block';
           } else {
-            errorSummary.querySelector('p').textContent = data.message || data.error || "회원가입에 실패했습니다.";
-            errorSummary.style.display = 'block';
+            errorSummary.querySelector('p').textContent = errorMsg;
           }
-          throw new Error("Validation failed");
+          errorSummary.style.display = 'block';
+          throw new Error(errorMsg);
         }
       } catch (error) {
-        console.error(error);
+        console.error("Signup Error:", error);
         submitBtn.disabled = false;
         submitBtn.textContent = "가입 완료";
       }

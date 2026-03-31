@@ -6,44 +6,41 @@
 <style>
   .result-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 32px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 24px;
     margin-top: 32px;
   }
 
   @media (max-width: 768px) {
     .result-grid {
-      grid-template-columns: 1fr;
-      gap: 20px;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
     }
-    .style-info {
-      padding: 20px;
-    }
-    .style-info .section-title {
-      font-size: 18px !important;
-    }
+    .style-info { padding: 16px; }
+    .style-info .section-title { font-size: 16px !important; }
   }
 
   .style-card {
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     overflow: hidden;
     transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     display: flex;
     flex-direction: column;
     box-shadow: var(--shadow-main);
+    cursor: pointer;
   }
 
   .style-card:hover {
-    transform: translateY(-12px);
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.1);
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
   }
 
   .style-image-wrapper {
     position: relative;
     width: 100%;
-    aspect-ratio: 1;
+    aspect-ratio: 4/5;
     overflow: hidden;
   }
 
@@ -54,27 +51,25 @@
     transition: transform 0.6s ease;
   }
 
-  .style-card:hover .style-image {
-    transform: scale(1.1);
-  }
+  .style-card:hover .style-image { transform: scale(1.05); }
 
   .style-info {
-    padding: 24px;
+    padding: 16px;
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
   }
 
   .match-badge {
     position: absolute;
-    top: 20px;
-    left: 20px;
-    padding: 6px 16px;
+    top: 12px;
+    left: 12px;
+    padding: 4px 12px;
     background: var(--accent-neon);
     color: var(--bg-dark);
     border-radius: var(--radius-pill);
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 800;
     box-shadow: var(--shadow-floating);
   }
@@ -82,6 +77,22 @@
   .style-card.selected {
     border: 3px solid var(--accent-neon);
     box-shadow: var(--shadow-neon);
+  }
+
+  /* Selection Summary Bar */
+  .selection-bar {
+    position: sticky;
+    bottom: 32px;
+    margin-top: 48px;
+    background: var(--bg-dark);
+    color: white;
+    padding: 20px 32px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 100;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
   }
 
   /* Modal & Toast */
@@ -102,144 +113,29 @@
   #toast.show { transform: translateX(-50%) translateY(0); }
 
   .modal {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(12px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 2000;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(12px);
+    display: flex; align-items: center; justify-content: center; z-index: 2000;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
   }
   .modal.show { opacity: 1; pointer-events: auto; }
+  .modal-content { width: 90%; max-width: 900px; background: white; border-radius: var(--radius-lg); overflow: hidden; position: relative; }
 
-  .modal-content {
-    width: 90%;
-    max-width: 900px;
-    background: white;
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    position: relative;
-  }
+  .thumb.active { border: 3px solid var(--accent-neon); transform: scale(1.1); }
+  .watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0.15; z-index: 5; overflow: hidden; }
+  .watermark span { font-size: 24px; font-weight: 900; color: white; transform: rotate(-45deg); white-space: nowrap; text-transform: uppercase; }
 
-  .thumb.active {
-    border: 3px solid var(--accent-neon);
-    transform: scale(1.1);
-  }
-
-  /* Leak Prevention UI */
-  .style-image-wrapper {
-    user-select: none;
-    -webkit-user-drag: none;
-  }
-  
-  .style-image {
-    pointer-events: none; /* Disable right click effectively */
-  }
-
-  .watermark {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    opacity: 0.15;
-    z-index: 5;
-    overflow: hidden;
-  }
-
-  .watermark span {
-    font-size: 24px;
-    font-weight: 900;
-    color: white;
-    transform: rotate(-45deg);
-    white-space: nowrap;
-    text-transform: uppercase;
-  }
-
-  .capture-warning {
-    background: rgba(220, 38, 38, 0.1);
-    border: 1px solid rgba(220, 38, 38, 0.2);
-    color: #dc2626;
-    padding: 12px 20px;
-    border-radius: var(--radius-md);
-    font-size: 13px;
-    margin-bottom: 24px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  /* Consent Modal Styles */
-  .consent-modal-content {
-    max-width: 500px;
-    padding: 40px;
-  }
-
-  .consent-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 20px;
-    padding: 16px;
-    border-radius: var(--radius-md);
-    background: var(--bg-light);
-    transition: background 0.2s ease;
-  }
-
-  .consent-item:hover {
-    background: #f1f5f9;
-  }
-
-  .consent-item input[type="checkbox"] {
-    width: 20px;
-    height: 20px;
-    margin-top: 2px;
-    cursor: pointer;
-  }
-
-  .consent-text {
-    flex: 1;
-    font-size: 14px;
-    color: var(--bg-dark);
-    line-height: 1.5;
-  }
-
-  .consent-text b {
-    display: block;
-    margin-bottom: 4px;
-  }
-
-  .consent-tag {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 4px;
-    margin-left: 6px;
-  }
-
-  .tag-required { background: #fee2e2; color: #ef4444; }
-  .tag-optional { background: #f1f5f9; color: #64748b; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 {% endblock %}
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 03. <span>최적의 스타일 제안</span></h2>
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 04. <span>최적의 스타일 제안</span></h2>
   <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">당신의 매력을 돋보이게 할 최적의 스타일입니다.</p>
 </div>
 {% endblock %}
 
 {% block content %}
-<div class="capture-warning">
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-  <span>보안 정책에 따라 화면 캡처 및 이미지 무단 공유가 금지되어 있습니다. 모든 이미지는 내부 상담용으로만 사용 가능합니다.</span>
-</div>
-
 <div id="loadingResults" style="padding: 100px 0; text-align: center;">
   <div style="width: 64px; height: 64px; border: 4px solid var(--line); border-top-color: var(--accent-neon); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
   <p class="section-title">AI가 최적의 조합을 찾는 중...</p>
@@ -249,9 +145,18 @@
   <!-- Dynamic Cards -->
 </div>
 
+<!-- Selection Summary (Missing elements added here) -->
+<div id="selectionSummary" class="selection-bar is-hidden">
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <p style="font-size: 12px; color: rgba(255,255,255,0.5); font-weight: 600; text-transform: uppercase;">Selected Style</p>
+    <h4 id="selectedInfo" style="font-size: 18px; font-weight: 800; color: var(--accent-neon);">스타일을 선택해 주세요</h4>
+  </div>
+  <button id="saveBtn" class="btn btn-primary" style="height: 52px; padding: 0 40px; border-radius: 14px; background: var(--accent-neon); color: var(--bg-dark); font-weight: 800;" disabled>상담 예약하기</button>
+</div>
+
 <div id="toast">선택하신 정보가 저장되었습니다.</div>
 
-<!-- Modal -->
+<!-- Modal & Consent remains same -->
 <div id="referenceModal" class="modal">
   <div class="modal-content">
     <button id="modalClose" style="position: absolute; top: 24px; right: 24px; width: 48px; height: 48px; border-radius: 50%; background: white; border: none; cursor: pointer; font-size: 24px; z-index: 10; box-shadow: var(--shadow-floating);">&times;</button>
@@ -264,9 +169,7 @@
           <h3 id="modalStyleName" class="section-title" style="margin-bottom: 12px;">스타일명</h3>
           <p id="modalRefDesc" class="section-copy" style="font-size: 14px;">설명입니다.</p>
         </div>
-        <div id="thumbContainer" style="margin-top: auto; padding: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: var(--bg-light);">
-          <!-- Thumbs -->
-        </div>
+        <div id="thumbContainer" style="margin-top: auto; padding: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: var(--bg-light);"></div>
       </div>
     </div>
   </div>
@@ -274,46 +177,24 @@
 
 <!-- Privacy Consent Modal -->
 <div id="consentModal" class="modal">
-  <div class="modal-content consent-modal-content">
+  <div class="modal-content" style="max-width: 500px; padding: 40px; border-radius: 24px;">
     <h3 class="section-title" style="margin-bottom: 24px;">개인정보 수집 및 이용 동의</h3>
-    <p class="section-copy" style="font-size: 14px; margin-bottom: 32px;">
-      안전한 서비스 제공을 위해 아래 항목에 대한 동의가 필요합니다.
-    </p>
-
-    <div class="consent-item">
-      <input type="checkbox" id="consentFace" checked>
-      <label for="consentFace" class="consent-text">
-        <b>얼굴 사진 수집 및 이용 동의 <span class="consent-tag tag-required">필수</span></b>
-        AI 스타일 분석 및 시뮬레이션 결과 생성을 위해 촬영된 사진을 활용합니다.
+    <div style="margin-bottom: 32px; display: flex; flex-direction: column; gap: 16px;">
+      <label style="display: flex; gap: 12px; cursor: pointer;">
+        <input type="checkbox" id="consentFace" checked style="width: 20px; height: 20px;">
+        <span style="font-size: 14px;">[필수] 얼굴 사진 수집 및 이용 동의</span>
+      </label>
+      <label style="display: flex; gap: 12px; cursor: pointer;">
+        <input type="checkbox" id="consentStorage" checked style="width: 20px; height: 20px;">
+        <span style="font-size: 14px;">[필수] 서비스 제공 및 기록 저장 동의</span>
       </label>
     </div>
-
-    <div class="consent-item">
-      <input type="checkbox" id="consentStorage" checked>
-      <label for="consentStorage" class="consent-text">
-        <b>서비스 제공 및 기록 저장 동의 <span class="consent-tag tag-required">필수</span></b>
-        상담 이력 관리 및 향후 서비스 제공을 위해 분석 결과가 보안 서버에 저장됩니다.
-      </label>
-    </div>
-
-    <div class="consent-item">
-      <input type="checkbox" id="consentMarketing">
-      <label for="consentMarketing" class="consent-text">
-        <b>통계 및 마케팅 활용 동의 <span class="consent-tag tag-optional">선택</span></b>
-        서비스 개선을 위한 통계 분석 및 맞춤형 혜택 안내에 활용될 수 있습니다.
-      </label>
-    </div>
-
-    <div style="display: flex; gap: 12px; margin-top: 40px;">
+    <div style="display: flex; gap: 12px;">
       <button id="consentCancel" class="btn btn-dark" style="flex: 1; background: var(--bg-light); color: var(--bg-dark); border: 1px solid var(--line);">취소</button>
-      <button id="consentConfirm" class="btn btn-primary" style="flex: 2;">동의하고 저장하기</button>
+      <button id="consentConfirm" class="btn btn-primary" style="flex: 2; background: var(--bg-dark); color: white;">동의하고 저장하기</button>
     </div>
   </div>
 </div>
-
-<style>
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
 {% endblock %}
 
 {% block page_scripts %}
@@ -322,6 +203,7 @@
     'use strict';
     const grid = document.getElementById('resultGrid');
     const loading = document.getElementById('loadingResults');
+    const selectionBar = document.getElementById('selectionSummary');
     const saveBtn = document.getElementById('saveBtn');
     const selectedInfo = document.getElementById('selectedInfo');
     const toast = document.getElementById('toast');
@@ -338,61 +220,61 @@
     const consentCancel = document.getElementById('consentCancel');
     const consentFace = document.getElementById('consentFace');
     const consentStorage = document.getElementById('consentStorage');
-    const consentMarketing = document.getElementById('consentMarketing');
 
     let selectedStyleId = null;
     let customerName = "{{ request.session.customer_name }}";
     const customerId = "{{ request.session.customer_id }}";
-    
-    // Mask name: 홍길동 -> 홍*동
-    function maskName(name) {
-      if (!name) return "";
-      if (name.length <= 2) return name[0] + "*";
-      return name[0] + "*".repeat(name.length - 2) + name[name.length - 1];
-    }
 
     async function fetchRecommendations() {
       if (!customerId) {
-        alert("고객 정보가 없습니다.");
+        alert("세션 정보가 없습니다. 다시 로그인해 주세요.");
         window.location.href = "/customer/";
         return;
       }
       try {
         const response = await fetch(`/api/v1/analysis/recommendations/?customer_id=${customerId}`);
+        if (response.status === 401 || response.status === 403) {
+          alert("세션이 만료되었습니다.");
+          window.location.href = "/customer/";
+          return;
+        }
         const data = await response.json();
-        renderResults(data);
+        renderResults(Array.isArray(data) ? data : (data.results || []));
       } catch (error) {
-        console.error("Fetch error:", error);
-        loading.innerHTML = '<p class="section-title" style="color: var(--status-red);">데이터를 불러오지 못했습니다.</p>';
+        loading.innerHTML = '<p class="section-title" style="color: var(--status-red);">데이터 로드 실패</p>';
       }
     }
 
     function renderResults(results) {
-      loading.classList.add('is-hidden');
-      grid.classList.remove('is-hidden');
       grid.innerHTML = '';
+      loading.classList.add('is-hidden');
+      if (!results || results.length === 0) {
+        loading.innerHTML = '<p class="section-title">추천 결과가 없습니다.</p>';
+        loading.classList.remove('is-hidden');
+        return;
+      }
+      grid.classList.remove('is-hidden');
+      selectionBar.classList.remove('is-hidden');
       results.forEach(style => {
         const card = document.createElement('div');
         card.className = 'style-card';
         card.dataset.id = style.style_id;
         card.innerHTML = `
           <div class="style-image-wrapper">
-            <img class="style-image" src="${style.synthetic_image_url || 'https://via.placeholder.com/400x400?text=Style'}" alt="${style.style_name}">
+            <img class="style-image" src="${style.synthetic_image_url || 'https://via.placeholder.com/400x400'}" alt="${style.style_name}">
             <div class="watermark"><span>MirrAI SECURITY</span></div>
             <span class="match-badge">${style.match_score}% Match</span>
           </div>
           <div class="style-info">
-            <h3 class="section-title" style="font-size: 20px; margin-bottom: 0;">${style.style_name}</h3>
-            <p class="section-copy" style="font-size: 14px; line-height: 1.5;">${style.reasoning}</p>
+            <h3 class="section-title" style="font-size: 20px;">${style.style_name}</h3>
+            <p class="section-copy" style="font-size: 14px;">${style.reasoning}</p>
             <div style="margin-top: auto; display: flex; gap: 8px;">
-              <button class="btn btn-dark select-btn" style="flex: 1; height: 44px; font-size: 14px;">선택하기</button>
-              <button class="btn btn-dark view-ref-btn" style="width: 44px; height: 44px; padding: 0; background: var(--bg-light); color: var(--bg-dark); border: 1px solid var(--line);">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-              </button>
+              <button class="btn btn-dark select-btn" style="flex: 1; height: 44px; font-size: 14px; background: var(--bg-dark); color: white;">선택하기</button>
+              <button class="btn view-ref-btn" style="width: 44px; height: 44px; padding: 0; background: var(--bg-light); border: 1px solid var(--line);">🔍</button>
             </div>
           </div>
         `;
-        card.querySelector('.select-btn').addEventListener('click', () => selectStyle(style));
+        card.addEventListener('click', () => selectStyle(style));
         card.querySelector('.view-ref-btn').addEventListener('click', (e) => {
           e.stopPropagation();
           openReferenceModal(style);
@@ -405,7 +287,7 @@
       selectedStyleId = style.style_id;
       document.querySelectorAll('.style-card').forEach(c => c.classList.remove('selected'));
       document.querySelector(`.style-card[data-id="${selectedStyleId}"]`).classList.add('selected');
-      selectedInfo.innerHTML = `${style.style_name} <span style="color: var(--accent-neon); font-size: 14px; margin-left: 8px;">${style.match_score}% Match</span>`;
+      selectedInfo.innerHTML = `${style.style_name} <span style="color: var(--accent-neon); margin-left: 8px;">${style.match_score}% Match</span>`;
       saveBtn.disabled = false;
     }
 
@@ -413,83 +295,40 @@
       modalStyleName.textContent = style.style_name;
       thumbContainer.innerHTML = '';
       const refs = style.reference_images || [];
-      if (refs.length > 0) {
-        refs.forEach((ref, index) => {
-          const thumb = document.createElement('img');
-          thumb.style = "width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer;";
-          thumb.className = 'thumb';
-          thumb.src = ref.image_url;
-          if (index === 0) { thumb.classList.add('active'); updateMainImage(ref); }
-          thumb.addEventListener('click', () => {
-            document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
-            thumb.classList.add('active');
-            updateMainImage(ref);
-          });
-          thumbContainer.appendChild(thumb);
+      refs.forEach((ref, index) => {
+        const thumb = document.createElement('img');
+        thumb.className = 'thumb';
+        thumb.src = ref.image_url;
+        thumb.style = "width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer;";
+        if (index === 0) { thumb.classList.add('active'); mainRefImg.src = ref.image_url; modalRefDesc.textContent = ref.description || '시술 참고용 이미지'; }
+        thumb.addEventListener('click', () => {
+          document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
+          thumb.classList.add('active');
+          mainRefImg.src = ref.image_url;
         });
-      }
+        thumbContainer.appendChild(thumb);
+      });
       modal.classList.add('show');
     }
 
-    function updateMainImage(ref) {
-      mainRefImg.src = ref.image_url;
-      modalRefDesc.textContent = ref.description || '시술 참고용 이미지입니다.';
-    }
-
     modalClose.addEventListener('click', () => modal.classList.remove('show'));
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('show'); });
-    
-    // Consent Modal Logic
-    saveBtn.addEventListener('click', () => {
-      if (!selectedStyleId || saveBtn.disabled) return;
-      consentModal.classList.add('show');
-    });
-
-    consentCancel.addEventListener('click', () => {
-      consentModal.classList.remove('show');
-    });
-
+    saveBtn.addEventListener('click', () => consentModal.classList.add('show'));
+    consentCancel.addEventListener('click', () => consentModal.classList.remove('show'));
     consentConfirm.addEventListener('click', async () => {
-      if (!consentFace.checked || !consentStorage.checked) {
-        alert("필수 항목에 동의해 주세요.");
-        return;
-      }
-
+      if (!consentFace.checked || !consentStorage.checked) { alert("필수 동의가 필요합니다."); return; }
       consentModal.classList.remove('show');
       saveBtn.disabled = true;
-      saveBtn.textContent = "저장 중...";
-
       try {
-        // 1. Save style selection
-        await fetch('/api/v1/analysis/selection/', {
+        const response = await fetch('/api/v1/analysis/consult/', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
           body: JSON.stringify({ customer_id: parseInt(customerId), style_id: selectedStyleId })
         });
-
-        // 2. Send consultation data + consents
-        const response = await fetch('/api/v1/analysis/consult/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
-          body: JSON.stringify({ 
-            customer_id: parseInt(customerId), 
-            style_id: selectedStyleId,
-            consent_face_capture: consentFace.checked,
-            consent_service_storage: consentStorage.checked,
-            consent_marketing: consentMarketing.checked
-          })
-        });
-
         if (response.ok) {
-          toast.textContent = `${maskName(customerName)} 고객님의 정보가 전송되었습니다.`;
           toast.classList.add('show');
           setTimeout(() => { window.location.href = "/"; }, 2000);
         }
-      } catch (error) { 
-        alert("저장 실패"); 
-        saveBtn.disabled = false; 
-        saveBtn.textContent = "상담 예약하기";
-      }
+      } catch (error) { saveBtn.disabled = false; }
     });
 
     fetchRecommendations();

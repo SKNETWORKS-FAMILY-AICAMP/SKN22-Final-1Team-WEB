@@ -5,8 +5,8 @@
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>퍼스널 헤어 솔루션</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">간단한 정보 입력으로 스타일을 발견하세요.</p>
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 01. <span>고객 정보 입력</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">간단한 정보 입력으로 스타일 분석을 시작하세요.</p>
 </div>
 {% endblock %}
 
@@ -161,11 +161,10 @@
       
       <!-- 개인정보 동의 -->
       <div class="agree-box">
-        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
-          <input type="checkbox" id="privacyAgree" style="margin-top: 3px; width: 16px; height: 16px;">
+        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;" id="privacyLabel">
+          <input type="checkbox" id="privacyAgree" style="margin-top: 3px; width: 16px; height: 16px;" onclick="return false;">
           <span class="section-copy" style="font-size: 13px; line-height: 1.5; color: var(--text-primary);">
             <b>[필수]</b> AI 스타일 분석을 위한 데이터 수집 동의
-            <a href="#" id="viewTerms" style="color: #6366f1; text-decoration: underline; margin-left: 4px;">약관보기</a>
           </span>
         </label>
       </div>
@@ -179,6 +178,29 @@
     <p style="text-align: center; font-size: 13px; color: var(--text-secondary); margin-top: 20px; opacity: 0.8;">
       ※ 약 2분 내외의 분석 시간이 소요됩니다.
     </p>
+  </div>
+
+  <!-- 약관 동의 모달 -->
+  <div id="termsModal" class="modal">
+    <div class="modal-content" style="max-width: 500px; padding: 32px;">
+      <h3 class="section-title" style="margin-bottom: 20px; font-size: 20px;">AI 스타일 분석 데이터 수집 동의</h3>
+      <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
+        <p><strong>1. 수집 항목</strong>: 성명, 성별, 연령, 연락처, 촬영된 얼굴 이미지</p>
+        <p><strong>2. 수집 및 이용 목적</strong>: </p>
+        <ul>
+          <li>AI 기반 얼굴형 정밀 스캔 및 분석</li>
+          <li>개인화된 헤어 스타일 추천 리포트 생성</li>
+          <li>매장 방문 시 담당 디자이너와의 스마트 상담 지원</li>
+        </ul>
+        <p><strong>3. 보유 및 이용 기간</strong>: </p>
+        <ul>
+          <li>분석 완료 및 상담 종료 시까지</li>
+          <li>관계 법령에 따라 보존이 필요한 경우 해당 기간까지 보관</li>
+        </ul>
+        <p style="color: var(--status-red); font-weight: 600;">※ 귀하는 위와 같은 데이터 수집 및 이용에 동의하지 않을 권리가 있으나, 동의하지 않을 경우 분석 서비스 이용이 제한될 수 있습니다.</p>
+      </div>
+      <button class="btn btn-primary" id="confirmTerms" style="width: 100%; margin-top: 24px; background: var(--bg-dark); color: white;">확인하였습니다</button>
+    </div>
   </div>
 
   <div class="stack" style="gap: 20px;">
@@ -215,23 +237,31 @@
     const ageInput = document.getElementById('id_age');
     const phoneInput = document.getElementById('id_phone');
     const privacyAgree = document.getElementById('privacyAgree');
-    const viewTerms = document.getElementById('viewTerms');
+    const privacyLabel = document.getElementById('privacyLabel');
     const termsModal = document.getElementById('termsModal');
-    const closeTerms = document.getElementById('closeTerms');
+    const confirmTerms = document.getElementById('confirmTerms');
     const genderBtns = document.querySelectorAll('.gender-btn');
 
-    // Gender selection UI logic
-    genderBtns.forEach(btn => {
-      btn.addEventListener('click', function() {
-        genderBtns.forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        this.querySelector('input').checked = true;
-      });
+    // Show modal on checkbox or label click
+    const showModal = (e) => {
+      e.preventDefault();
+      termsModal.classList.add('show');
+    };
+
+    privacyAgree.addEventListener('click', showModal);
+    privacyLabel.addEventListener('click', (e) => {
+      if (e.target !== privacyAgree) showModal(e);
     });
 
-    viewTerms.addEventListener('click', (e) => { e.preventDefault(); termsModal.classList.add('show'); });
-    closeTerms.addEventListener('click', () => { termsModal.classList.remove('show'); });
-    termsModal.addEventListener('click', (e) => { if (e.target === termsModal) termsModal.classList.remove('show'); });
+    confirmTerms.addEventListener('click', () => {
+      privacyAgree.checked = true;
+      termsModal.classList.remove('show');
+    });
+
+    // Close modal on outside click
+    termsModal.addEventListener('click', (e) => { 
+      if (e.target === termsModal) termsModal.classList.remove('show'); 
+    });
 
     function validateForm() {
       if (!validator.validateName(nameInput.value)) { alert('이름을 입력해 주세요.'); nameInput.focus(); return false; }

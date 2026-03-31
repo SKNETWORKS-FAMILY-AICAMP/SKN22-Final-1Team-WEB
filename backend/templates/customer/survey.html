@@ -64,7 +64,7 @@
     background: var(--bg-dark);
     border-color: var(--accent-neon);
     color: white;
-    box-shadow: var(--shadow-neon);
+    box-shadow: 0 10px 25px rgba(245, 209, 13, 0.2);
   }
   
   .survey-card.selected .survey-label {
@@ -346,8 +346,8 @@
   {% endif %}
 
   <div class="survey-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding: 0 12px;">
-    <a href="{% url 'customer_index' %}" class="btn btn-dark" style="background: white; color: var(--bg-dark); border: 1.5px solid var(--line);">이전 단계</a>
-    <button type="submit" id="submitBtn" class="btn btn-primary" style="min-width: 240px;">분석 및 촬영 시작</button>
+    <a href="{% url 'customer_camera' %}" class="btn btn-dark" style="background: white; color: var(--bg-dark); border: 1.5px solid var(--line);">이전 단계</a>
+    <button type="submit" id="submitBtn" class="btn btn-primary" style="min-width: 240px;">취향 분석 완료</button>
   </div>
 </form>
 
@@ -396,7 +396,7 @@
           body: JSON.stringify(data)
         });
         if (!response.ok) throw new Error("Survey submission failed");
-        window.location.href = "{% url 'customer_camera' %}";
+        window.location.href = "/customer/result/";
       } catch (error) {
         alert("저장 중 오류가 발생했습니다.");
         submitBtn.disabled = false;

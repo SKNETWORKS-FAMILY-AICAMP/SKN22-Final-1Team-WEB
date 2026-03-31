@@ -10,13 +10,13 @@
   --line: #EEEEEE;
   
   /* Brand Accent */
-  --accent-neon: #E2FB5E;
+  --accent-neon: #f5d10d;
   --accent-dark: #1A1A1A;
   
   /* Status Colors */
   --status-teal: #4FD1C5;
   --status-purple: #B794F4;
-  --status-yellow: #ECC94B;
+  --status-yellow: #f5d10d;
   --status-red: #FC8181;
   
   /* Radius & Shadows */
@@ -27,7 +27,7 @@
   
   --shadow-main: 0 20px 40px rgba(0, 0, 0, 0.06);
   --shadow-floating: 0 10px 20px rgba(0, 0, 0, 0.15);
-  --shadow-neon: 0 0 20px rgba(226, 251, 94, 0.4);
+  --shadow-neon: 0 0 20px rgba(245, 209, 13, 0.4);
 }
 
 * {

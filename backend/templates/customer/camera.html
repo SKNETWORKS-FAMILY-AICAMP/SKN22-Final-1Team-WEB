@@ -5,48 +5,49 @@
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
   <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 02. <span>페이스 정밀 스캔</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">당신의 페이스 라인을 정밀하게 분석합니다.</p>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">가이드 라인에 맞춰 정면을 응시해 주세요.</p>
 </div>
 {% endblock %}
 
 {% block content %}
 <div style="display: grid; grid-template-columns: 1fr 320px; gap: 32px; align-items: start;">
   <div class="panel" style="padding: 12px;">
-    <div class="camera-shell" style="aspect-ratio: 3/4; width: 100%; max-width: 480px; margin: 0 auto; overflow: hidden; position: relative; background: #000; border-radius: var(--radius-lg);">
-      <!-- Portrait Mode: Background vs Subject -->
-      <div style="width: 100%; height: 100%; position: relative;">
-        <!-- Deep Background Blur (Simulating Removal) -->
-        <video id="cameraPreviewBlur" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); filter: blur(20px) brightness(0.4); opacity: 0.4; position: absolute; inset: 0;"></video>
-        
-        <!-- Focused Subject (Elliptical Mask) -->
-        <video id="cameraPreview" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); position: absolute; inset: 0; -webkit-mask-image: radial-gradient(ellipse 55% 75% at 50% 40%, black 40%, transparent 95%); mask-image: radial-gradient(ellipse 55% 75% at 50% 40%, black 40%, transparent 95%);"></video>
+    <div class="camera-shell" style="aspect-ratio: 3/4; width: 100%; max-width: 340px; margin: 0 auto; overflow: hidden; position: relative; background: #000; border-radius: var(--radius-lg);">
+      
+      <!-- Camera Preview Layer (Mirroring applied) -->
+      <div style="width: 100%; height: 100%; position: relative; overflow: hidden; z-index: 1;">
+        <video id="cameraPreview" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1) scale(1.2); position: absolute; inset: 0;"></video>
       </div>
 
-      <div id="photoPreviewContainer" class="is-hidden" style="position: absolute; inset: 0; background: #000; z-index: 5;">
-        <img id="photoPreview" src="" alt="Capture Preview" style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);">
+      <!-- Capture Result Layer -->
+      <div id="photoPreviewContainer" class="is-hidden" style="position: absolute; inset: 0; background: #000; z-index: 50;">
+        <img id="photoPreview" src="" alt="Capture Preview" style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1) scale(1.2);">
       </div>
       
-      <!-- Refined Anatomical Human Guide -->
-      <div id="cameraGuide" aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center;">
-        <svg width="100%" height="100%" viewBox="0 0 400 533" preserveAspectRatio="xMidYMid meet" style="width: 90%; height: 90%; opacity: 0.8;">
-          <!-- Human Bust Path -->
-          <path d="M60,533 
-                   C60,420 100,380 140,370 
-                   L145,340 
-                   C120,320 115,280 115,200 
-                   C115,80 285,80 285,200 
-                   C285,280 280,320 255,340 
-                   L260,370 
-                   C300,380 340,420 340,533" 
-                fill="none" stroke="var(--accent-neon)" stroke-width="2.5" stroke-dasharray="8,8" />
-          
-          <!-- Eye & Center Alignment -->
-          <line x1="200" y1="100" x2="200" y2="400" stroke="rgba(0, 255, 157, 0.2)" stroke-width="1" stroke-dasharray="4,4" />
-          <path d="M160,200 L240,200" fill="none" stroke="rgba(0, 255, 157, 0.3)" stroke-width="1" stroke-dasharray="4,4" />
+      <!-- Camera Guide & Countdown Overlay -->
+      <div id="cameraGuide" aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10;">
+        <!-- Professional Human Guide Line (Light Yellow) -->
+        <svg width="100%" height="100%" viewBox="0 0 400 533" preserveAspectRatio="xMidYMid meet" style="width: 90%; height: 90%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.5;">
+          <path d="M70,533 
+                   C70,450 100,410 140,400 
+                   L145,370 
+                   C115,350 110,300 110,210 
+                   C110,90 290,90 290,210 
+                   C290,300 285,350 255,370 
+                   L260,400 
+                   C300,410 330,450 330,533" 
+                fill="none" stroke="#ffff00" stroke-width="2.5" stroke-dasharray="8,8" />
         </svg>
-        <!-- Center Focus Glow -->
-        <div style="position: absolute; width: 60%; height: 70%; top: 40%; left: 50%; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: 0 0 100px rgba(0, 255, 157, 0.1);"></div>
+
+        <!-- Capturing Message Overlay (Yellow Theme) -->
+        <div id="captureMessage" style="background: var(--accent-neon); color: var(--bg-dark); padding: 12px 24px; border-radius: 40px; font-weight: 800; margin-bottom: 20px; opacity: 0; transition: opacity 0.3s; font-size: 16px; box-shadow: 0 8px 20px rgba(245, 209, 13, 0.3);">
+          모든 조건 충족! 3초 뒤 촬영됩니다.
+        </div>
+        
+        <!-- Countdown Overlay (Yellow Theme) -->
+        <div id="countdownOverlay" style="font-size: 140px; font-weight: 900; color: var(--accent-neon); text-shadow: 0 0 30px rgba(0,0,0,0.8); opacity: 0; transition: transform 0.2s ease-out, opacity 0.2s ease-out; font-family: 'Inter', sans-serif;"></div>
       </div>
+
       <div id="cameraFallback" class="camera-fallback is-hidden" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; text-align: center;">
         <p>카메라 연결에 실패했습니다.<br />브라우저 설정을 확인해 주세요.</p>
       </div>
@@ -64,27 +65,34 @@
       </div>
       
       <div class="button-row is-hidden" id="previewControls" style="display: flex; gap: 12px;">
-        <button id="confirmBtn" class="btn btn-primary" type="button" style="height: 48px;">분석 시작</button>
+        <button id="confirmBtn" class="btn btn-primary" type="button" style="height: 48px;">스캔 결과 저장</button>
         <button id="retakeBtn" class="btn btn-dark" type="button" style="height: 48px;">다시 촬영</button>
       </div>
     </div>
   </div>
 
   <div class="stack" style="gap: 24px;">
+    <!-- Checklist UI -->
     <div class="panel">
-      <h3 class="section-title" style="font-size: 18px;">촬영 가이드</h3>
+      <h3 class="section-title" style="font-size: 18px;">실시간 촬영 가이드</h3>
       <div class="stack" style="gap: 16px; margin-top: 16px;">
-        <div style="display: flex; gap: 12px; align-items: flex-start;">
-          <div style="width: 24px; height: 24px; background: var(--accent-neon); border-radius: 6px; flex-shrink: 0;"></div>
-          <p class="section-copy" style="font-size: 14px;">얼굴에 충분한 빛이 들어오는 밝은 곳에서 촬영해 주세요.</p>
+        <div class="guide-item" id="guideFaceDetected" style="display: flex; gap: 12px; align-items: center; opacity: 0.5; transition: opacity 0.3s;">
+          <div class="checkbox-ui" style="width: 20px; height: 20px; border: 2px solid var(--line); border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-neon)" stroke-width="4" class="check-mark is-hidden"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <p class="section-copy" style="font-size: 14px; font-weight: 500;">얼굴 인식 완료</p>
         </div>
-        <div style="display: flex; gap: 12px; align-items: flex-start;">
-          <div style="width: 24px; height: 24px; background: var(--accent-neon); border-radius: 6px; flex-shrink: 0;"></div>
-          <p class="section-copy" style="font-size: 14px;">정확한 윤곽 분석을 위해 안경이나 마스크는 벗어주세요.</p>
+        <div class="guide-item" id="guideCentered" style="display: flex; gap: 12px; align-items: center; opacity: 0.5; transition: opacity 0.3s;">
+          <div class="checkbox-ui" style="width: 20px; height: 20px; border: 2px solid var(--line); border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-neon)" stroke-width="4" class="check-mark is-hidden"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <p class="section-copy" style="font-size: 14px; font-weight: 500;">화면 중앙 정렬</p>
         </div>
-        <div style="display: flex; gap: 12px; align-items: flex-start;">
-          <div style="width: 24px; height: 24px; background: var(--accent-neon); border-radius: 6px; flex-shrink: 0;"></div>
-          <p class="section-copy" style="font-size: 14px;">카메라와 시선을 수평으로 맞추고 정면을 응시해 주세요.</p>
+        <div class="guide-item" id="guideFrontal" style="display: flex; gap: 12px; align-items: center; opacity: 0.5; transition: opacity 0.3s;">
+          <div class="checkbox-ui" style="width: 20px; height: 20px; border: 2px solid var(--line); border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-neon)" stroke-width="4" class="check-mark is-hidden"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <p class="section-copy" style="font-size: 14px; font-weight: 500;">정면 응시 확인</p>
         </div>
       </div>
     </div>
@@ -97,6 +105,8 @@
 {% endblock %}
 
 {% block page_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
 <script>
   window.MirrAIConfig = {
     customerId: "{{ request.session.customer_id|default:'' }}",
