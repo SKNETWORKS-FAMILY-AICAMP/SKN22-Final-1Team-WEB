@@ -35,6 +35,7 @@ from .admin_views import (
     ConsultationCloseView,
     ConsultationNoteView,
     AdminChatbotAskView,
+    AdminAiHealthView,
     StyleReportView,
 )
 
@@ -70,6 +71,7 @@ urlpatterns = [
     path('admin/consultations/note/', ConsultationNoteView.as_view(), name='admin-consultation-note'),
     path('admin/consultations/close/', ConsultationCloseView.as_view(), name='admin-consultation-close'),
     path('admin/chatbot/ask/', AdminChatbotAskView.as_view(), name='admin-chatbot-ask'),
+    path('admin/ai-health/', AdminAiHealthView.as_view(), name='admin-ai-health'),
     path('admin/trend-report/', AdminTrendReportView.as_view(), name='admin-trend-report'),
     path('admin/style-report/', StyleReportView.as_view(), name='admin-style-report'),
 ]

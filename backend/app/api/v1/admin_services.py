@@ -243,11 +243,11 @@ def register_admin(*, payload: dict) -> dict:
     }
 
     if AdminAccount.objects.filter(phone=phone).exists():
-        raise ValueError("This phone number is already registered for an admin account.")
+        raise ValueError("이미 등록된 관리자 연락처입니다.")
     if not _is_valid_business_number(business_number):
-        raise ValueError("The business registration number is not valid.")
+        raise ValueError("유효하지 않은 사업자등록번호입니다.")
     if AdminAccount.objects.filter(Q(business_number__in=_business_number_variants(business_number))).exists():
-        raise ValueError("This business registration number is already registered.")
+        raise ValueError("이미 등록된 사업자등록번호입니다.")
 
     admin = AdminAccount.objects.create(
         name=payload["name"],
@@ -271,7 +271,7 @@ def login_admin(*, phone: str, password: str) -> dict:
     phone = _normalize_phone(phone)
     admin = AdminAccount.objects.filter(phone=phone, is_active=True).first()
     if not admin or not check_password(password, admin.password_hash):
-        raise ValueError("Please check the admin account credentials and try again.")
+        raise ValueError("관리자 계정 정보를 다시 확인해 주세요.")
     return {
         "status": "success",
         "admin": _serialize_admin_profile(admin),

@@ -491,6 +491,20 @@ class RefreshTokenEndpointTests(APITestCase):
         self.assertEqual(response.data["message"], "Validation failed.")
         self.assertIsInstance(response.data["detail"], dict)
 
+    def test_admin_login_blank_field_error_is_localized(self):
+        response = self.client.post(
+            "/api/v1/admin/auth/login/",
+            {
+                "phone": "",
+                "password": "",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "validation_error")
+        self.assertEqual(response.data["errors"]["phone"][0], "필수 정보입니다.")
+
     def test_client_refresh_parse_error_uses_compat_envelope(self):
         response = self.client.generic(
             "POST",

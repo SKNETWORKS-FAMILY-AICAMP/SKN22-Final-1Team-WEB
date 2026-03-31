@@ -210,6 +210,7 @@
   {% endif %}
 </section>
 
+{% block page_scripts %}
 <script>
   let currentStep = 1;
   let selectedDesignerId = null;
@@ -290,14 +291,14 @@
       updatePinDisplay();
       if (currentPin.length === 4) verifyPin();
     }
-  }
+  };
 
-  function deletePin() {
+  window.deletePin = function deletePin() {
     currentPin = currentPin.slice(0, -1);
     updatePinDisplay();
   }
 
-  function clearPin() {
+  window.clearPin = function clearPin() {
     currentPin = "";
     updatePinDisplay();
   }
@@ -317,6 +318,7 @@
       } else {
         handleFail();
       }
+      handleFail(data.message || "PIN 번호가 일치하지 않습니다.");
     } catch (error) {
       handleFail("인증 오류.");
     }
@@ -331,7 +333,6 @@
     authSection.classList.add('shake');
     updateStatus(msg || "PIN 번호가 일치하지 않습니다.", "error");
     setTimeout(() => {
-      authSection.classList.remove('shake');
       clearPin();
     }, 600);
   }
