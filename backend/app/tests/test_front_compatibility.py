@@ -368,6 +368,10 @@ class FrontCompatibilityTests(APITestCase):
         response = self.client.get("/api/v1/analysis/report/")
 
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["message"],
+            "디자이너 세션에서는 매장 전체 트렌드 리포트에 접근할 수 없습니다.",
+        )
 
     def test_partner_verify_accepts_business_number_and_password_for_shop_login(self):
         admin = AdminAccount.objects.create(

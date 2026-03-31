@@ -82,14 +82,18 @@ def _legacy_staff_required(request):
     return (admin, designer), None
 
 
-def _legacy_shop_required(request):
+def _legacy_shop_required(
+    request,
+    *,
+    designer_message: str = "디자이너 세션에서는 고객 배정을 변경할 수 없습니다.",
+):
     staff, error_response = _legacy_staff_required(request)
     if error_response:
         return None, error_response
     admin, designer = staff
     if designer is not None:
         return None, detail_response(
-            "디자이너 세션에서는 고객 배정을 변경할 수 없습니다.",
+            designer_message,
             status_code=status.HTTP_403_FORBIDDEN,
         )
     return admin, None
@@ -379,7 +383,10 @@ class AdminTrendReportView(AdminProtectedAPIView):
 class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
     @extend_schema(summary="Legacy trend report for template dashboard", responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def get(self, request):
-        admin, error_response = _legacy_shop_required(request)
+        admin, error_response = _legacy_shop_required(
+            request,
+            designer_message="디자이너 세션에서는 매장 전체 트렌드 리포트에 접근할 수 없습니다.",
+        )
         if error_response:
             return error_response
 
