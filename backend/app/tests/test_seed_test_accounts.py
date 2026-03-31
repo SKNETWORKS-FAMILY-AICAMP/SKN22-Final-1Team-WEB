@@ -64,3 +64,7 @@ class SeedTestAccountsCommandTests(TestCase):
             CaptureRecord.objects.filter(client=pending_client).exists()
         )
         self.assertIsNone(pending_client.designer_id)
+
+    def test_verify_seed_integrity_passes_after_seed(self):
+        call_command("seed_test_accounts")
+        call_command("verify_seed_integrity", strict=True)
