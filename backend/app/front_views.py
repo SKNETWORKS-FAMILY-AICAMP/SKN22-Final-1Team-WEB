@@ -115,12 +115,8 @@ def client_login_page(request):
         )
         set_customer_session(request=request, client=client)
         
-        # 성별에 따른 전용 URL로 리다이렉트
-        if gender == "male":
-            return redirect("customer_survey_male")
-        elif gender == "female":
-            return redirect("customer_survey_female")
-        return redirect("customer_survey")
+        # New Flow: Step 1 Login -> Step 2 Camera
+        return redirect("customer_camera")
 
     return _render_customer_login(request)
 
@@ -152,7 +148,11 @@ def client_recommendation_page(request):
 
 
 def admin_login_page(request):
-    return render(request, "admin/index.html", {"is_dashboard": False})
+    shop = get_session_admin(request=request)
+    return render(request, "admin/index.html", {
+        "is_dashboard": False,
+        "active_shop": shop
+    })
 
 
 def admin_signup_page(request):
