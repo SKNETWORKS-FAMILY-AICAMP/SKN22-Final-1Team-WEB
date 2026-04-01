@@ -1,0 +1,160 @@
+{% extends "layouts/base_site.html" %}
+
+{% block page_title %}MirrAI | 매장 트렌드{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 02. <span>매장 내 인기 트렌드</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">많이 선택된 스타일을 먼저 보고, 마음에 드는 스타일은 바로 상담으로 전달할 수 있습니다.</p>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .trend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px;
+  }
+  .trend-card {
+    cursor: pointer;
+    transition: all 0.25s ease;
+  }
+  .trend-card.selected {
+    border: 3px solid var(--accent-neon);
+    box-shadow: var(--shadow-neon);
+  }
+  .trend-selection-bar {
+    position: sticky;
+    bottom: 32px;
+    margin-top: 32px;
+    background: var(--bg-dark);
+    color: white;
+    padding: 20px 24px;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .trend-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stack" style="gap: 24px; max-width: 1080px; margin: 0 auto;">
+  <div id="trendLoading" class="panel" style="padding: 32px; text-align: center;">트렌드를 불러오는 중입니다...</div>
+  <div id="trendGrid" class="trend-grid"></div>
+
+  <div id="trendSelectionBar" class="trend-selection-bar is-hidden">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="font-size: 12px; color: rgba(255,255,255,0.55); font-weight: 600; text-transform: uppercase;">Selected Trend Style</p>
+      <h4 id="trendSelectedInfo" style="font-size: 18px; font-weight: 800; color: var(--accent-neon);">스타일을 선택해 주세요.</h4>
+    </div>
+    <div class="trend-actions">
+      <a href="{% url 'customer_menu' %}" class="btn btn-dark" style="height: 48px; display: inline-flex; align-items: center; justify-content: center;">이전으로</a>
+      <button id="trendConsultBtn" type="button" class="btn btn-primary" style="height: 48px;" disabled>이 스타일로 결정(상담사 전송)</button>
+      <a href="{% url 'customer_camera' %}" class="btn btn-dark" style="height: 48px; display: inline-flex; align-items: center; justify-content: center;">나만의 스타일(촬영)</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  (function () {
+    const customerId = "{{ request.session.customer_id|default:'' }}";
+    const loading = document.getElementById("trendLoading");
+    const grid = document.getElementById("trendGrid");
+    const selectionBar = document.getElementById("trendSelectionBar");
+    const selectedInfo = document.getElementById("trendSelectedInfo");
+    const consultBtn = document.getElementById("trendConsultBtn");
+
+    let selectedStyle = null;
+
+    function selectStyle(item) {
+      selectedStyle = item;
+      document.querySelectorAll('.trend-card').forEach((card) => card.classList.remove('selected'));
+      document.querySelector(`.trend-card[data-style-id="${item.style_id}"]`)?.classList.add('selected');
+      selectedInfo.textContent = `${item.style_name} 스타일을 상담사에게 전달합니다.`;
+      consultBtn.disabled = false;
+    }
+
+    async function submitTrendConsultation() {
+      if (!selectedStyle || !customerId) {
+        return;
+      }
+      consultBtn.disabled = true;
+      try {
+        const response = await fetch('/api/v1/analysis/confirm/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+          },
+          body: JSON.stringify({
+            customer_id: parseInt(customerId, 10),
+            style_id: selectedStyle.style_id,
+            source: 'trend'
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || '트렌드 스타일 상담 요청에 실패했습니다.');
+        }
+        window.location.href = '/customer/consultation/complete/';
+      } catch (error) {
+        alert(error.message || '트렌드 스타일 상담 요청에 실패했습니다.');
+        consultBtn.disabled = false;
+      }
+    }
+
+    async function fetchTrend() {
+      if (!customerId) {
+        loading.textContent = '세션 정보가 없습니다. 다시 시작해 주세요.';
+        return;
+      }
+      try {
+        const response = await fetch(`/api/v1/analysis/trend/?client_id=${customerId}`);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || '트렌드를 불러오지 못했습니다.');
+        }
+        const items = data.items || [];
+        loading.remove();
+        selectionBar.classList.remove('is-hidden');
+        if (!items.length) {
+          grid.innerHTML = '<div class="panel" style="padding: 24px; text-align: center; grid-column: 1 / -1;">아직 표시할 트렌드가 없습니다.</div>';
+          return;
+        }
+        grid.innerHTML = items.map((item) => `
+          <article class="panel trend-card" data-style-id="${item.style_id}" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+            <img src="${item.sample_image_url || 'https://via.placeholder.com/400x500'}" alt="${item.style_name}" style="width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 12px;">
+            <h3 class="section-title" style="font-size: 18px; margin-bottom: 0;">${item.style_name}</h3>
+            <p class="section-copy" style="font-size: 13px;">${item.reasoning || item.style_description || ''}</p>
+            <button type="button" class="btn btn-dark trend-select-btn" style="margin-top: auto; height: 44px;">이 스타일 선택</button>
+          </article>
+        `).join("");
+        document.querySelectorAll('.trend-card').forEach((card) => {
+          const styleId = Number(card.dataset.styleId);
+          const item = items.find((row) => Number(row.style_id) === styleId);
+          card.addEventListener('click', () => selectStyle(item));
+          card.querySelector('.trend-select-btn')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            selectStyle(item);
+          });
+        });
+      } catch (error) {
+        loading.textContent = error.message || '트렌드를 불러오지 못했습니다.';
+      }
+    }
+
+    consultBtn.addEventListener('click', submitTrendConsultation);
+    fetchTrend();
+  })();
+</script>
+{% endblock %}

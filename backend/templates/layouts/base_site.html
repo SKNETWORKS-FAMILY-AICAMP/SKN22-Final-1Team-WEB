@@ -21,51 +21,54 @@
           </a>
 
           <nav class="nav-links">
-            <a href="{% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
-            
+            <a href="{% if request.session.customer_id %}{% url 'customer_menu' %}{% else %}{% url 'customer_index' %}{% endif %}" class="nav-link">분석 시작하기</a>
+            <a href="{% if request.session.customer_id %}{% url 'customer_resume' %}?notice=partner_forbidden_customer{% elif request.session.designer_id %}{% url 'partner_staff_dashboard' %}?notice=partner_forbidden_designer{% else %}{% url 'partner_index' %}{% endif %}" class="nav-link">파트너 센터</a>
+
             {% if request.session.designer_name %}
-              <a href="{% url 'partner_staff_dashboard' %}" class="nav-link">디자이너 ({{ request.session.designer_name }})</a>
-            {% else %}
-              <a href="{% url 'partner_designer_select' %}" class="nav-link">디자이너</a>
-            {% endif %}
-
-            <a href="{% url 'partner_designer_select' %}" class="nav-link">파트너 센터</a>
-
-            {% if request.session.admin_store_name or request.session.admin_id %}
-              <!-- 매장(사업자) 로그인 상태 -->
               <div style="display: flex; align-items: center; gap: 12px; margin-left: 12px;">
-                <span style="font-size: 13px; color: rgba(255,255,255,0.8); font-weight: 600;">
-                  {{ request.session.admin_store_name|default:"MirrAI Partner" }}
+                <span class="brand-sub" style="text-transform: none; color: white;">
+                  <strong>{{ request.session.admin_name }}</strong> ({{ request.session.designer_name }})
                 </span>
-                <a href="{% url 'logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">로그아웃</a>
+                <a href="{% url 'designer_logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px;">로그아웃</a>
+              </div>
+            {% elif request.session.admin_name %}
+              <div style="display: flex; align-items: center; gap: 12px; margin-left: 12px;">
+                <span class="brand-sub" style="text-transform: none; color: white;">
+                  <strong>{{ request.session.admin_name }}</strong> (관리자)
+                </span>
+                <a href="{% url 'partner_logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px;">로그아웃</a>
               </div>
             {% elif request.session.customer_name %}
-              <!-- 매장 세션이 없을 때만 고객명 노출 -->
               <div style="display: flex; align-items: center; gap: 12px; margin-left: 12px;">
-                <span style="font-size: 13px; color: rgba(255,255,255,0.8); font-weight: 600;">
-                  {{ request.session.customer_name }}님
+                <span class="brand-sub" style="text-transform: none; color: white;">
+                  <strong>{{ request.session.customer_name }}</strong>님
                 </span>
-                <a href="{% url 'logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">로그아웃</a>
+                <a href="{% url 'customer_logout' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px;">로그아웃</a>
               </div>
             {% else %}
-              <a href="{% url 'partner_index' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px; background: var(--accent-neon); color: var(--bg-dark); border: none;">로그인</a>
+              <a href="{% url 'customer_index' %}" class="btn btn-dark" style="height: 32px; padding: 0 16px; font-size: 12px;">로그인</a>
             {% endif %}
           </nav>
         </div>
       </header>
 
-      <!-- Hero Section: Header + Top Messaging -->
       <section class="hero-section">
         {% block hero_content %}{% endblock %}
       </section>
 
-      <!-- Content Section: Main UI Elements -->
       <section class="content-section">
         {% block content %}{% endblock %}
       </section>
-      
+
       {% include "components/footer.html" %}
     </div>
+    {% if popup_message %}
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        alert('{{ popup_message|escapejs }}');
+      });
+    </script>
+    {% endif %}
     {% block page_scripts %}{% endblock %}
   </body>
 </html>

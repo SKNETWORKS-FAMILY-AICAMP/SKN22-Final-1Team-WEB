@@ -128,6 +128,7 @@
     const showReportBtn = document.getElementById('showReportBtn');
     const listView = document.getElementById('listViewContainer');
     const reportView = document.getElementById('reportViewContainer');
+    let dashboardDesigners = [];
 
     async function fetchCustomers(query = '') {
       if (!customerListBody) return;
@@ -138,6 +139,43 @@
         renderCustomers(data.data || data);
       } catch (e) { customerListBody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 40px; color:var(--status-red);">데이터 로드 실패</td></tr>'; }
     }
+
+    async function fetchDesigners() {
+      try {
+        const response = await fetch('/api/v1/designers/');
+        const data = await response.json();
+        dashboardDesigners = Array.isArray(data) ? data : (data.data || []);
+      } catch (e) {
+        dashboardDesigners = [];
+      }
+    }
+
+    async function assignCustomer(customerId) {
+      const select = document.getElementById(`designerSelect-${customerId}`);
+      if (!select || !select.value) {
+        alert('배정할 디자이너를 선택해 주세요.');
+        return;
+      }
+      try {
+        const response = await fetch(`/api/v1/customers/${customerId}/assign/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}',
+          },
+          body: JSON.stringify({ designer_id: select.value }),
+        });
+        const data = await response.json();
+        if (!response.ok || (data && data.status === 'error')) {
+          alert(data.message || '배정에 실패했습니다.');
+          return;
+        }
+        fetchCustomers(customerSearchInput ? customerSearchInput.value : '');
+      } catch (e) {
+        alert('배정 요청 중 오류가 발생했습니다.');
+      }
+    }
+    window.assignCustomer = assignCustomer;
 
     function renderCustomers(customers) {
       if (!customerListBody) return;
@@ -150,6 +188,11 @@
           <td style="padding: 16px 20px; color: var(--text-secondary); font-size: 14px;">${c.phone}</td>
           <td style="padding: 16px 20px; color: var(--text-secondary); font-size: 13px;">${new Date(c.created_at).toLocaleString()}</td>
           <td style="padding: 16px 20px; text-align: right;">
+            <select id="designerSelect-${c.id}" style="min-width: 140px; height: 34px; border: 1px solid var(--line); border-radius: 10px; margin-right: 8px;">
+              <option value="">디자이너 선택</option>
+              ${dashboardDesigners.map(designer => `<option value="${designer.id}" ${String(c.designer_id || '') === String(designer.id) ? 'selected' : ''}>${designer.name}</option>`).join('')}
+            </select>
+            <button onclick="assignCustomer(${c.id})" style="border: none; cursor: pointer; font-size: 12px; padding: 6px 14px; background: var(--accent-neon); border-radius: 20px; color: var(--bg-dark); font-weight: 700; margin-right: 8px;">배정</button>
             <button onclick="location.href='/partner/customer-detail/${c.id}/'" style="border: none; cursor: pointer; font-size: 12px; padding: 6px 14px; background: var(--bg-dark); border-radius: 20px; color: #fff; font-weight: 600;">상세보기</button>
           </td>
         </tr>
@@ -173,7 +216,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      if ("{{ is_dashboard }}" === "True") { fetchCustomers(); }
+      if ("{{ is_dashboard }}" === "True") { fetchDesigners().then(() => fetchCustomers()); }
       if (authSection) setTimeout(() => authSection.classList.add('ready'), 100);
 
       const loginInputs = ['inputPhone', 'inputShopPw'];

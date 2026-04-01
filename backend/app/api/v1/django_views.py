@@ -438,7 +438,7 @@ class SelectionView(CompatEnvelopeAPIView):
         style_id = _request_value(request, "style_id")
         if not client_id or not style_id:
             return detail_response(
-                "Both client_id and style_id are required.",
+                "client_id와 style_id를 모두 전달해 주세요.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         client = get_object_or_404(Client, id=client_id)
@@ -447,7 +447,7 @@ class SelectionView(CompatEnvelopeAPIView):
                 "status": "selected",
                 "client_id": client.id,
                 "style_id": int(style_id),
-                "message": "Selection has been staged for the follow-up consult request.",
+                "message": "선택한 스타일이 상담 요청 단계로 전달되었습니다.",
             }
         )
 

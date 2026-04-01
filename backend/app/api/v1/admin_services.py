@@ -21,6 +21,17 @@ from app.services.storage_service import build_storage_snapshot, resolve_storage
 logger = logging.getLogger(__name__)
 
 
+def _required_field_message(label: str) -> str:
+    if not label:
+        return "필수 정보입니다."
+    last_char = label[-1]
+    code = ord(last_char)
+    if 0xAC00 <= code <= 0xD7A3:
+        has_batchim = (code - 0xAC00) % 28 != 0
+        return f"{label}{'은' if has_batchim else '는'} 필수 정보입니다."
+    return f"{label}는 필수 정보입니다."
+
+
 def _normalize_phone(value: str) -> str:
     return value.replace("-", "").strip()
 
@@ -197,7 +208,7 @@ def _client_age_fields(client: Client) -> dict:
 def _scoped_client_queryset(*, admin: AdminAccount | None = None, designer: Designer | None = None):
     queryset = Client.objects.all()
     if designer is not None:
-        return queryset.filter(designer=designer)
+        return queryset.filter(designer=designer).distinct()
 
     if admin is None:
         return queryset
@@ -241,6 +252,26 @@ def register_admin(*, payload: dict) -> dict:
         "agree_third_party_sharing": bool(payload.get("agree_third_party_sharing")),
         "agree_marketing": bool(payload.get("agree_marketing", False)),
     }
+
+    required_values = [
+        ("대표자 성함", (payload.get("name") or "").strip()),
+        ("매장명", (payload.get("store_name") or "").strip()),
+        ("관리자 연락처", phone),
+        ("사업자등록번호", business_number),
+        ("비밀번호", payload.get("password") or ""),
+    ]
+    for label, value in required_values:
+        if not value:
+            raise ValueError(_required_field_message(label))
+
+    required_consents = [
+        ("이용약관 동의", consent_snapshot["agree_terms"]),
+        ("개인정보 수집 및 이용 동의", consent_snapshot["agree_privacy"]),
+        ("제3자 제공 동의", consent_snapshot["agree_third_party_sharing"]),
+    ]
+    for label, is_checked in required_consents:
+        if not is_checked:
+            raise ValueError(_required_field_message(label))
 
     if AdminAccount.objects.filter(phone=phone).exists():
         raise ValueError("이미 등록된 관리자 연락처입니다.")

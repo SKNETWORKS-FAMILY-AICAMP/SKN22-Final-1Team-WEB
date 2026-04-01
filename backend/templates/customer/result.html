@@ -11,21 +11,12 @@
     margin-top: 32px;
   }
 
-  @media (max-width: 768px) {
-    .result-grid {
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 16px;
-    }
-    .style-info { padding: 16px; }
-    .style-info .section-title { font-size: 16px !important; }
-  }
-
   .style-card {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
     overflow: hidden;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.25s ease;
     display: flex;
     flex-direction: column;
     box-shadow: var(--shadow-main);
@@ -33,14 +24,19 @@
   }
 
   .style-card:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+    transform: translateY(-6px);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.08);
+  }
+
+  .style-card.selected {
+    border: 3px solid var(--accent-neon);
+    box-shadow: var(--shadow-neon);
   }
 
   .style-image-wrapper {
     position: relative;
     width: 100%;
-    aspect-ratio: 4/5;
+    aspect-ratio: 4 / 5;
     overflow: hidden;
   }
 
@@ -48,17 +44,6 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: transform 0.6s ease;
-  }
-
-  .style-card:hover .style-image { transform: scale(1.05); }
-
-  .style-info {
-    padding: 16px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
   }
 
   .match-badge {
@@ -71,31 +56,37 @@
     border-radius: var(--radius-pill);
     font-size: 11px;
     font-weight: 800;
-    box-shadow: var(--shadow-floating);
   }
 
-  .style-card.selected {
-    border: 3px solid var(--accent-neon);
-    box-shadow: var(--shadow-neon);
+  .style-info {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
   }
 
-  /* Selection Summary Bar */
   .selection-bar {
     position: sticky;
     bottom: 32px;
-    margin-top: 48px;
+    margin-top: 40px;
     background: var(--bg-dark);
     color: white;
-    padding: 20px 32px;
+    padding: 20px 24px;
     border-radius: var(--radius-lg);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     z-index: 100;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
-  /* Modal & Toast */
+  .selection-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
   #toast {
     position: fixed;
     bottom: 40px;
@@ -106,229 +97,296 @@
     padding: 16px 32px;
     border-radius: var(--radius-pill);
     font-weight: 700;
-    transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.4s ease;
     z-index: 1000;
     box-shadow: var(--shadow-neon);
   }
-  #toast.show { transform: translateX(-50%) translateY(0); }
 
-  .modal {
-    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(12px);
-    display: flex; align-items: center; justify-content: center; z-index: 2000;
-    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+  #toast.show {
+    transform: translateX(-50%) translateY(0);
   }
-  .modal.show { opacity: 1; pointer-events: auto; }
-  .modal-content { width: 90%; max-width: 900px; background: white; border-radius: var(--radius-lg); overflow: hidden; position: relative; }
 
-  .thumb.active { border: 3px solid var(--accent-neon); transform: scale(1.1); }
-  .watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0.15; z-index: 5; overflow: hidden; }
-  .watermark span { font-size: 24px; font-weight: 900; color: white; transform: rotate(-45deg); white-space: nowrap; text-transform: uppercase; }
+  @media (max-width: 768px) {
+    .result-grid {
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
+    }
 
-  @keyframes spin { to { transform: rotate(360deg); } }
+    .selection-actions {
+      flex-direction: column;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 04. <span>최적의 스타일 제안</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">당신의 매력을 돋보이게 할 최적의 스타일입니다.</p>
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 04. <span>추천 결과 확인</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">마음에 드는 스타일을 고르거나 바로 상담을 요청할 수 있습니다.</p>
 </div>
 {% endblock %}
 
 {% block content %}
 <div id="loadingResults" style="padding: 100px 0; text-align: center;">
   <div style="width: 64px; height: 64px; border: 4px solid var(--line); border-top-color: var(--accent-neon); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 24px;"></div>
-  <p class="section-title">AI가 최적의 조합을 찾는 중...</p>
+  <p class="section-title">AI가 최적의 조합을 찾는 중입니다...</p>
 </div>
 
-<div id="resultGrid" class="result-grid is-hidden">
-  <!-- Dynamic Cards -->
+<div id="retryPanel" class="panel is-hidden" style="margin: 0 auto 24px; max-width: 1080px; padding: 20px 24px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+    <div>
+      <h3 class="section-title" style="font-size: 18px; margin-bottom: 6px;">마음에 드는 결과가 없나요?</h3>
+      <p class="section-copy" style="font-size: 13px;">현재 결과를 바탕으로 <strong>취향 70% · 얼굴 30%</strong> 비중으로 한 번 더 재분석 후 재출력할 수 있습니다.</p>
+    </div>
+    <button id="retryTopBtn" class="btn btn-dark" style="height: 48px; padding: 0 24px;">취향 70% · 얼굴 30% 재분석</button>
+  </div>
 </div>
 
-<!-- Selection Summary (Missing elements added here) -->
+<div id="resultGrid" class="result-grid is-hidden"></div>
+
 <div id="selectionSummary" class="selection-bar is-hidden">
   <div style="display: flex; flex-direction: column; gap: 4px;">
-    <p style="font-size: 12px; color: rgba(255,255,255,0.5); font-weight: 600; text-transform: uppercase;">Selected Style</p>
+    <p style="font-size: 12px; color: rgba(255,255,255,0.55); font-weight: 600; text-transform: uppercase;">Selected Style</p>
     <h4 id="selectedInfo" style="font-size: 18px; font-weight: 800; color: var(--accent-neon);">스타일을 선택해 주세요</h4>
   </div>
-  <button id="saveBtn" class="btn btn-primary" style="height: 52px; padding: 0 40px; border-radius: 14px; background: var(--accent-neon); color: var(--bg-dark); font-weight: 800;" disabled>상담 예약하기</button>
-</div>
-
-<div id="toast">선택하신 정보가 저장되었습니다.</div>
-
-<!-- Modal & Consent remains same -->
-<div id="referenceModal" class="modal">
-  <div class="modal-content">
-    <button id="modalClose" style="position: absolute; top: 24px; right: 24px; width: 48px; height: 48px; border-radius: 50%; background: white; border: none; cursor: pointer; font-size: 24px; z-index: 10; box-shadow: var(--shadow-floating);">&times;</button>
-    <div style="display: flex; height: 600px;">
-      <div style="flex: 1; background: #000; display: flex; align-items: center; justify-content: center;">
-        <img id="mainRefImg" src="" alt="Reference" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-      </div>
-      <div style="width: 320px; display: flex; flex-direction: column; background: white; border-left: 1px solid var(--line);">
-        <div style="padding: 32px;">
-          <h3 id="modalStyleName" class="section-title" style="margin-bottom: 12px;">스타일명</h3>
-          <p id="modalRefDesc" class="section-copy" style="font-size: 14px;">설명입니다.</p>
-        </div>
-        <div id="thumbContainer" style="margin-top: auto; padding: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: var(--bg-light);"></div>
-      </div>
-    </div>
+  <div class="selection-actions">
+    <button id="retryBtn" class="btn btn-dark" style="height: 52px; padding: 0 24px; border: 1px solid rgba(255,255,255,0.2);">스타일 재추천</button>
+    <button id="directConsultBtn" class="btn btn-dark" style="height: 52px; padding: 0 24px; border: 1px solid rgba(255,255,255,0.2);">추천 없이 바로 상담 요청</button>
+    <button id="saveBtn" class="btn btn-primary" style="height: 52px; padding: 0 40px; border-radius: 14px; background: var(--accent-neon); color: var(--bg-dark); font-weight: 800;" disabled>선택한 스타일로 상담 요청</button>
   </div>
 </div>
 
-<!-- Privacy Consent Modal -->
-<div id="consentModal" class="modal">
-  <div class="modal-content" style="max-width: 500px; padding: 40px; border-radius: 24px;">
-    <h3 class="section-title" style="margin-bottom: 24px;">개인정보 수집 및 이용 동의</h3>
-    <div style="margin-bottom: 32px; display: flex; flex-direction: column; gap: 16px;">
-      <label style="display: flex; gap: 12px; cursor: pointer;">
-        <input type="checkbox" id="consentFace" checked style="width: 20px; height: 20px;">
-        <span style="font-size: 14px;">[필수] 얼굴 사진 수집 및 이용 동의</span>
-      </label>
-      <label style="display: flex; gap: 12px; cursor: pointer;">
-        <input type="checkbox" id="consentStorage" checked style="width: 20px; height: 20px;">
-        <span style="font-size: 14px;">[필수] 서비스 제공 및 기록 저장 동의</span>
-      </label>
-    </div>
-    <div style="display: flex; gap: 12px;">
-      <button id="consentCancel" class="btn btn-dark" style="flex: 1; background: var(--bg-light); color: var(--bg-dark); border: 1px solid var(--line);">취소</button>
-      <button id="consentConfirm" class="btn btn-primary" style="flex: 2; background: var(--bg-dark); color: white;">동의하고 저장하기</button>
-    </div>
-  </div>
-</div>
+<div id="toast">상담 요청이 접수되었습니다.</div>
 {% endblock %}
 
 {% block page_scripts %}
 <script>
   (function() {
     'use strict';
+
     const grid = document.getElementById('resultGrid');
     const loading = document.getElementById('loadingResults');
     const selectionBar = document.getElementById('selectionSummary');
     const saveBtn = document.getElementById('saveBtn');
+    const directConsultBtn = document.getElementById('directConsultBtn');
+    const retryBtn = document.getElementById('retryBtn');
+    const retryTopBtn = document.getElementById('retryTopBtn');
+    const retryPanel = document.getElementById('retryPanel');
     const selectedInfo = document.getElementById('selectedInfo');
     const toast = document.getElementById('toast');
-    
-    const modal = document.getElementById('referenceModal');
-    const modalClose = document.getElementById('modalClose');
-    const mainRefImg = document.getElementById('mainRefImg');
-    const thumbContainer = document.getElementById('thumbContainer');
-    const modalStyleName = document.getElementById('modalStyleName');
-    const modalRefDesc = document.getElementById('modalRefDesc');
-    
-    const consentModal = document.getElementById('consentModal');
-    const consentConfirm = document.getElementById('consentConfirm');
-    const consentCancel = document.getElementById('consentCancel');
-    const consentFace = document.getElementById('consentFace');
-    const consentStorage = document.getElementById('consentStorage');
 
     let selectedStyleId = null;
-    let customerName = "{{ request.session.customer_name }}";
+    let retryMeta = null;
     const customerId = "{{ request.session.customer_id }}";
 
     async function fetchRecommendations() {
       if (!customerId) {
-        alert("세션 정보가 없습니다. 다시 로그인해 주세요.");
-        window.location.href = "/customer/";
+        alert('세션 정보가 없습니다. 다시 시작해 주세요.');
+        window.location.href = '/customer/';
         return;
       }
+
       try {
-        const response = await fetch(`/api/v1/analysis/recommendations/?customer_id=${customerId}`);
+        const response = await fetch(`/api/v1/analysis/recommendations/?client_id=${customerId}`);
         if (response.status === 401 || response.status === 403) {
-          alert("세션이 만료되었습니다.");
-          window.location.href = "/customer/";
+          alert('세션이 만료되었습니다. 다시 시작해 주세요.');
+          window.location.href = '/customer/';
           return;
         }
+
         const data = await response.json();
-        renderResults(Array.isArray(data) ? data : (data.results || []));
+        if (Array.isArray(data)) {
+          retryMeta = null;
+          renderResults(data);
+          return;
+        }
+
+        retryMeta = data;
+        renderResults(data.results || data.items || []);
       } catch (error) {
-        loading.innerHTML = '<p class="section-title" style="color: var(--status-red);">데이터 로드 실패</p>';
+        loading.innerHTML = '<p class="section-title" style="color: var(--status-red);">추천 결과를 불러오지 못했습니다.</p>';
       }
     }
 
     function renderResults(results) {
       grid.innerHTML = '';
       loading.classList.add('is-hidden');
+
       if (!results || results.length === 0) {
-        loading.innerHTML = '<p class="section-title">추천 결과가 없습니다.</p>';
+        loading.innerHTML = '<p class="section-title">추천 결과가 아직 준비되지 않았습니다. 잠시 후 다시 확인해 주세요.</p>';
         loading.classList.remove('is-hidden');
+        selectionBar.classList.remove('is-hidden');
+        selectedInfo.textContent = '추천 결과 없이 바로 상담 요청이 가능합니다.';
+        syncRetryButton();
         return;
       }
+
       grid.classList.remove('is-hidden');
       selectionBar.classList.remove('is-hidden');
-      results.forEach(style => {
+      syncRetryButton();
+
+      results.forEach((style) => {
         const card = document.createElement('div');
         card.className = 'style-card';
         card.dataset.id = style.style_id;
         card.innerHTML = `
           <div class="style-image-wrapper">
-            <img class="style-image" src="${style.synthetic_image_url || 'https://via.placeholder.com/400x400'}" alt="${style.style_name}">
-            <div class="watermark"><span>MirrAI SECURITY</span></div>
-            <span class="match-badge">${style.match_score}% Match</span>
+            <img class="style-image" src="${style.synthetic_image_url || style.sample_image_url || 'https://via.placeholder.com/400x500'}" alt="${style.style_name}">
+            <span class="match-badge">${style.match_score || 0}% Match</span>
           </div>
           <div class="style-info">
-            <h3 class="section-title" style="font-size: 20px;">${style.style_name}</h3>
-            <p class="section-copy" style="font-size: 14px;">${style.reasoning}</p>
-            <div style="margin-top: auto; display: flex; gap: 8px;">
-              <button class="btn btn-dark select-btn" style="flex: 1; height: 44px; font-size: 14px; background: var(--bg-dark); color: white;">선택하기</button>
-              <button class="btn view-ref-btn" style="width: 44px; height: 44px; padding: 0; background: var(--bg-light); border: 1px solid var(--line);">🔍</button>
-            </div>
+            <h3 class="section-title" style="font-size: 20px; margin-bottom: 0;">${style.style_name}</h3>
+            <p class="section-copy" style="font-size: 14px;">${style.reasoning || style.style_description || '추천 설명을 준비 중입니다.'}</p>
+            <button class="btn btn-dark select-btn" type="button" style="margin-top: auto; height: 44px;">이 스타일 선택</button>
           </div>
         `;
         card.addEventListener('click', () => selectStyle(style));
-        card.querySelector('.view-ref-btn').addEventListener('click', (e) => {
-          e.stopPropagation();
-          openReferenceModal(style);
+        card.querySelector('.select-btn').addEventListener('click', (event) => {
+          event.stopPropagation();
+          selectStyle(style);
         });
         grid.appendChild(card);
       });
     }
 
+    function syncRetryButton() {
+      if (!retryBtn) {
+        return;
+      }
+
+      const hasResults = Boolean(grid && grid.children && grid.children.length > 0);
+      const retryConsumed = Boolean(retryMeta && retryMeta.retry_state === 'retry_consumed');
+      const consultationLocked = Boolean(retryMeta && retryMeta.consultation_locked);
+      const shouldShowRetry = hasResults && !retryConsumed && !consultationLocked;
+      const canRetry = Boolean(
+        shouldShowRetry
+        && (
+          !retryMeta
+          || retryMeta.can_retry_recommendations
+          || retryMeta.retry_state === 'available'
+        )
+      );
+
+      retryBtn.style.display = shouldShowRetry ? 'inline-flex' : 'none';
+      retryBtn.disabled = !canRetry;
+      retryBtn.style.opacity = canRetry ? '1' : '0.55';
+      retryBtn.title = canRetry ? '현재 취향 벡터와 얼굴 분석 기준으로 추천을 한 번 더 생성합니다.' : '현재 상태에서는 재분석할 수 없습니다.';
+      if (retryPanel) {
+        retryPanel.classList.toggle('is-hidden', !shouldShowRetry);
+      }
+      if (retryTopBtn) {
+        retryTopBtn.disabled = !canRetry;
+        retryTopBtn.style.opacity = canRetry ? '1' : '0.55';
+      }
+    }
+
     function selectStyle(style) {
       selectedStyleId = style.style_id;
-      document.querySelectorAll('.style-card').forEach(c => c.classList.remove('selected'));
-      document.querySelector(`.style-card[data-id="${selectedStyleId}"]`).classList.add('selected');
-      selectedInfo.innerHTML = `${style.style_name} <span style="color: var(--accent-neon); margin-left: 8px;">${style.match_score}% Match</span>`;
+      document.querySelectorAll('.style-card').forEach((card) => card.classList.remove('selected'));
+      document.querySelector(`.style-card[data-id="${selectedStyleId}"]`)?.classList.add('selected');
+      selectedInfo.innerHTML = `${style.style_name} <span style="color: var(--accent-neon); margin-left: 8px;">${style.match_score || 0}% Match</span>`;
       saveBtn.disabled = false;
+      syncRetryButton();
     }
 
-    function openReferenceModal(style) {
-      modalStyleName.textContent = style.style_name;
-      thumbContainer.innerHTML = '';
-      const refs = style.reference_images || [];
-      refs.forEach((ref, index) => {
-        const thumb = document.createElement('img');
-        thumb.className = 'thumb';
-        thumb.src = ref.image_url;
-        thumb.style = "width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer;";
-        if (index === 0) { thumb.classList.add('active'); mainRefImg.src = ref.image_url; modalRefDesc.textContent = ref.description || '시술 참고용 이미지'; }
-        thumb.addEventListener('click', () => {
-          document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
-          thumb.classList.add('active');
-          mainRefImg.src = ref.image_url;
-        });
-        thumbContainer.appendChild(thumb);
+    async function submitConsultation(payload) {
+      const response = await fetch('/api/v1/analysis/confirm/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify(payload)
       });
-      modal.classList.add('show');
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || '상담 요청에 실패했습니다.');
+      }
+
+      window.location.href = '/customer/consultation/complete/';
     }
 
-    modalClose.addEventListener('click', () => modal.classList.remove('show'));
-    saveBtn.addEventListener('click', () => consentModal.classList.add('show'));
-    consentCancel.addEventListener('click', () => consentModal.classList.remove('show'));
-    consentConfirm.addEventListener('click', async () => {
-      if (!consentFace.checked || !consentStorage.checked) { alert("필수 동의가 필요합니다."); return; }
-      consentModal.classList.remove('show');
+    async function retryRecommendations() {
+      const response = await fetch('/api/v1/analysis/retry-recommendations/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ customer_id: parseInt(customerId, 10) })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || '재분석에 실패했습니다.');
+      }
+
+      selectedStyleId = null;
       saveBtn.disabled = true;
+      retryMeta = data;
+      selectedInfo.textContent = '새 추천 결과를 확인해 주세요.';
+      renderResults(data.items || []);
+    }
+
+    saveBtn.addEventListener('click', async () => {
+      if (!selectedStyleId) {
+        return;
+      }
+
+      saveBtn.disabled = true;
+      directConsultBtn.disabled = true;
+      retryBtn.disabled = true;
       try {
-        const response = await fetch('/api/v1/analysis/consult/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
-          body: JSON.stringify({ customer_id: parseInt(customerId), style_id: selectedStyleId })
+        await submitConsultation({
+          customer_id: parseInt(customerId, 10),
+          style_id: selectedStyleId,
+          source: 'current_recommendations'
         });
-        if (response.ok) {
-          toast.classList.add('show');
-          setTimeout(() => { window.location.href = "/"; }, 2000);
-        }
-      } catch (error) { saveBtn.disabled = false; }
+      } catch (error) {
+        alert(error.message);
+        saveBtn.disabled = false;
+        directConsultBtn.disabled = false;
+        syncRetryButton();
+      }
+    });
+
+    directConsultBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      directConsultBtn.disabled = true;
+      retryBtn.disabled = true;
+      try {
+        await submitConsultation({
+          customer_id: parseInt(customerId, 10),
+          source: 'current_recommendations',
+          direct_consultation: true
+        });
+      } catch (error) {
+        alert(error.message);
+        saveBtn.disabled = false;
+        directConsultBtn.disabled = false;
+        syncRetryButton();
+      }
+    });
+
+    retryBtn.addEventListener('click', async () => {
+      retryBtn.disabled = true;
+      try {
+        await retryRecommendations();
+      } catch (error) {
+        alert(error.message);
+        syncRetryButton();
+      }
+    });
+
+    retryTopBtn?.addEventListener('click', async () => {
+      retryTopBtn.disabled = true;
+      try {
+        await retryRecommendations();
+      } catch (error) {
+        alert(error.message);
+        syncRetryButton();
+      }
     });
 
     fetchRecommendations();

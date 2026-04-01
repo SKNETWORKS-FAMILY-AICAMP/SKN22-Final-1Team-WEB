@@ -384,12 +384,10 @@ class AdminTrendReportView(AdminProtectedAPIView):
 class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
     @extend_schema(summary="Legacy trend report for template dashboard", responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT})
     def get(self, request):
-        admin, error_response = _legacy_shop_required(
-            request,
-            designer_message="디자이너 세션에서는 매장 전체 트렌드 리포트에 접근할 수 없습니다.",
-        )
+        staff, error_response = _legacy_staff_required(request)
         if error_response:
             return error_response
+        admin, designer = staff
 
         days = int(request.query_params.get("days", 7))
         # Trend reporting is store-wide even when a designer session is active.

@@ -396,7 +396,7 @@
           body: JSON.stringify(data)
         });
         if (!response.ok) throw new Error("Survey submission failed");
-        window.location.href = "/customer/result/";
+        window.location.href = "/customer/recommendations/";
       } catch (error) {
         alert("저장 중 오류가 발생했습니다.");
         submitBtn.disabled = false;

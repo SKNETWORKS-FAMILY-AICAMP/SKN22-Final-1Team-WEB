@@ -1,0 +1,35 @@
+{% extends "layouts/base_site.html" %}
+
+{% block page_title %}MirrAI | 고객 선택 메뉴{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 01. <span>다음 행동을 선택해 주세요</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">과거 추천을 확인하거나, 매장 트렌드를 보거나, 새로운 스타일 추천을 시작할 수 있습니다.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px;">
+  <article class="panel" style="padding: 28px; display: flex; flex-direction: column; gap: 16px;">
+    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">History</p>
+    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">과거의 추천 내역</h3>
+    <p class="section-copy" style="font-size: 14px;">해당 계정이 이전에 선택했던 스타일과 상담 이력을 먼저 확인할 수 있습니다.</p>
+    <a href="{% url 'customer_history' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">과거의 추천 내역 보기</a>
+  </article>
+
+  <article class="panel" style="padding: 28px; display: flex; flex-direction: column; gap: 16px;">
+    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">Trend</p>
+    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">매장 내 인기 트렌드</h3>
+    <p class="section-copy" style="font-size: 14px;">최근 매장에서 많이 선택된 스타일을 먼저 확인하고 상담사에게 바로 보낼 수 있습니다.</p>
+    <a href="{% url 'customer_trend' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">트렌드 보기</a>
+  </article>
+
+  <article class="panel" style="padding: 28px; display: flex; flex-direction: column; gap: 16px;">
+    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">New</p>
+    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">새로운 스타일 추천</h3>
+    <p class="section-copy" style="font-size: 14px;">사진 촬영부터 다시 시작해 새로운 추천 결과를 받아볼 수 있습니다.</p>
+    <a href="{% url 'customer_camera' %}" class="btn btn-primary" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">촬영 시작</a>
+  </article>
+</div>
+{% endblock %}
