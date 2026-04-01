@@ -64,7 +64,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
             "status": "NEEDS_RETAKE",
             "face_count": face_count,
             "reason_code": "too_dark",
-            "message": "The image is too dark for reliable face detection. Please retake it in a brighter place.",
+            "message": "이미지가 너무 어두워 얼굴 인식이 어렵습니다. 밝은 곳에서 다시 촬영해 주세요.",
         }
     if brightness > MAX_BRIGHTNESS:
         return {
@@ -72,7 +72,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
             "status": "NEEDS_RETAKE",
             "face_count": face_count,
             "reason_code": "too_bright",
-            "message": "The image is too bright for reliable face detection. Please adjust the lighting and retake it.",
+            "message": "이미지가 너무 밝아 얼굴 인식이 어렵습니다. 조명을 조절한 뒤 다시 촬영해 주세요.",
         }
     if face_count == 0:
         return {
@@ -80,7 +80,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
             "status": "NEEDS_RETAKE",
             "face_count": 0,
             "reason_code": "no_face_detected",
-            "message": "No face was detected. Please look straight at the camera and retake the photo.",
+            "message": "얼굴이 감지되지 않았습니다. 정면을 바라보고 다시 촬영해 주세요.",
         }
     if face_count > 1:
         return {
@@ -88,7 +88,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
             "status": "NEEDS_RETAKE",
             "face_count": face_count,
             "reason_code": "multiple_faces_detected",
-            "message": "More than one face was detected. Please retake the photo with only one person in frame.",
+            "message": "여러 얼굴이 감지되었습니다. 한 명만 화면에 나오도록 다시 촬영해 주세요.",
         }
 
     height, width = gray.shape[:2]
@@ -100,7 +100,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
             "status": "NEEDS_RETAKE",
             "face_count": face_count,
             "reason_code": "face_too_small",
-            "message": "The face appears too small. Please move closer to the camera and retake the photo.",
+            "message": "얼굴이 너무 멀어요. 카메라에 조금 더 가까이 와서 다시 촬영해 주세요.",
         }
     if sharpness < MIN_SHARPNESS:
         return {
@@ -108,7 +108,7 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
             "status": "NEEDS_RETAKE",
             "face_count": face_count,
             "reason_code": "too_blurry",
-            "message": "The image is too blurry for reliable analysis. Please hold still and retake the photo.",
+            "message": "이미지가 흐릿해 정확한 분석이 어렵습니다. 잠시 멈춘 상태에서 다시 촬영해 주세요.",
         }
 
     return {
@@ -116,5 +116,5 @@ def validate_capture_image(*, processed_bytes: bytes) -> dict:
         "status": "PENDING",
         "face_count": face_count,
         "reason_code": "ok",
-        "message": "Face detection succeeded. Analysis is now in progress.",
+        "message": "얼굴 인식이 완료되었습니다. 분석을 진행합니다.",
     }

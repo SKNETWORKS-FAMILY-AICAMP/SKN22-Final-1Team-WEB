@@ -3,29 +3,15 @@
 
 {% block page_title %}MirrAI | Welcome Customer{% endblock %}
 
-{% block extra_head %}
-<style>
-  /* 모달 초기 로딩 깜빡임 방지 */
-  .modal {
-    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px);
-    display: none; align-items: center; justify-content: center; z-index: 2000;
-    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
-  }
-  .modal.show { display: flex; opacity: 1; pointer-events: auto; }
-  .modal-content { width: 90%; background: white; border-radius: 16px; position: relative; }
-</style>
-{% endblock %}
-
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
   <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 01. <span>고객 정보 입력</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">간단한 정보 입력으로 스타일 분석을 시작하세요.</p>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">간단한 정보 입력으로 스타일 분석을 시작해 주세요.</p>
 </div>
 {% endblock %}
 
 {% block content %}
 <style>
-  /* 고객 입력 폼 전용 스타일 고도화 */
   .customer-input-card {
     max-width: 600px;
     margin: 0 auto;
@@ -40,14 +26,15 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    color: var(--bg-dark);
   }
 
   .section-title.compact::before {
-    content: '';
+    content: "";
     display: inline-block;
-    width: 4px; height: 20px;
-    background: var(--bg-dark); border-radius: 2px;
+    width: 4px;
+    height: 20px;
+    background: var(--bg-dark);
+    border-radius: 2px;
   }
 
   .input-grid {
@@ -57,77 +44,138 @@
     margin-bottom: 20px;
   }
 
-  /* 성별 선택 버튼 스타일 개선 */
-  .gender-toggle-group { display: flex; gap: 8px; margin-top: 4px; }
-  .gender-btn {
-    flex: 1; height: 46px; display: flex; align-items: center; justify-content: center;
-    border: 1.5px solid var(--line); border-radius: 12px; cursor: pointer;
-    font-size: 14px; font-weight: 600; color: var(--text-secondary);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); background: white;
+  .gender-toggle-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
   }
-  .gender-btn:hover { border-color: #ccc; background: #fafafa; }
-  .gender-btn.active { background: var(--bg-dark); border-color: var(--bg-dark); color: white; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-  .gender-btn input { display: none; }
 
-  /* 하단 버튼 영역 */
-  .action-row { display: flex; gap: 12px; margin-top: 24px; }
-  .action-row .btn { flex: 1; height: 52px; border-radius: 14px; font-size: 16px; font-weight: 700; }
-  .btn-outline { background: white; color: var(--bg-dark); border: 1.5px solid var(--line) !important; }
-  .btn-outline:hover { background: var(--bg-light); border-color: #ccc !important; }
+  .gender-btn {
+    flex: 1;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: all 0.25s ease;
+    background: white;
+  }
 
-  .agree-box { margin-top: 8px; padding: 12px 16px; background: var(--bg-light); border-radius: 12px; }
-  .field-error { color: var(--status-red); font-size: 11px; margin-top: 4px; font-weight: 600; display: none; }
-  .form-input.is-invalid { border-color: var(--status-red) !important; background-color: rgba(252, 129, 129, 0.05); }
+  .gender-btn:hover {
+    border-color: #ccc;
+    background: #fafafa;
+  }
+
+  .gender-btn.active {
+    background: var(--bg-dark);
+    border-color: var(--bg-dark);
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .gender-btn input {
+    display: none;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+  }
+
+  .action-row .btn {
+    flex: 1;
+    height: 52px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .btn-outline {
+    background: white;
+    color: var(--bg-dark);
+    border: 1.5px solid var(--line) !important;
+  }
+
+  .agree-box {
+    margin-top: 8px;
+    padding: 12px 16px;
+    background: var(--bg-light);
+    border-radius: 12px;
+  }
+
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  .modal.show { opacity: 1; pointer-events: auto; }
+  .modal-content { width: 90%; background: white; border-radius: 16px; position: relative; }
 </style>
 
 <div class="customer-layout" style="display: block;">
-  <div class="panel customer-input-card">
+<div class="panel customer-input-card">
     <h3 class="section-title compact">고객 정보 입력</h3>
-    
+    {% if form_error %}
+      <p style="margin-bottom: 16px; color: #ff3b30; font-size: 14px; font-weight: 700;">{{ form_error }}</p>
+    {% endif %}
+
     <form id="customerForm" action="/customer/" method="post" novalidate>
       {% csrf_token %}
-      
+
       <div class="input-grid">
         <div class="form-field">
           <label class="form-label">성함</label>
           <input type="text" name="name" id="id_name" class="form-input" placeholder="성함 입력" required>
-          <p class="field-error" id="error_name"></p>
         </div>
-        
+
         <div class="form-field">
           <label class="form-label">성별</label>
           <div class="gender-toggle-group">
-            <label class="gender-btn" id="label_male"><input type="radio" name="gender" value="male"><span>남성</span></label>
-            <label class="gender-btn" id="label_female"><input type="radio" name="gender" value="female"><span>여성</span></label>
+            <label class="gender-btn" id="label_male">
+              <input type="radio" name="gender" value="male">
+              <span>남성</span>
+            </label>
+            <label class="gender-btn" id="label_female">
+              <input type="radio" name="gender" value="female">
+              <span>여성</span>
+            </label>
           </div>
-          <p class="field-error" id="error_gender"></p>
         </div>
       </div>
-      
+
       <div class="input-grid">
         <div class="form-field">
           <label class="form-label">연령</label>
-          <select name="age" id="id_age" class="form-input" required style="appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23666%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 12px center; background-size: 16px;">
-            <option value="" disabled selected>연령대 선택</option>
-            <option value="10">10대</option><option value="20">20대</option><option value="30">30대</option><option value="40">40대</option><option value="50">50대 이상</option>
-          </select>
-          <p class="field-error" id="error_age"></p>
+          <input type="number" name="age" id="id_age" class="form-input" placeholder="나이(숫자)" min="0" step="1" required>
         </div>
         <div class="form-field">
           <label class="form-label">연락처</label>
-          <input type="tel" name="phone" id="id_phone" class="form-input" placeholder="연락처 입력 (-제외, 숫자만)" required>
-          <p class="field-error" id="error_phone"></p>
+          <input type="tel" name="phone" id="id_phone" class="form-input" placeholder="010-0000-0000" required>
         </div>
       </div>
-      
+
       <div class="agree-box">
         <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;" id="privacyLabel">
-          <input type="checkbox" id="privacyAgree" style="margin-top: 3px; width: 16px; height: 16px;">
+          <input type="checkbox" id="privacyAgree" name="agree_privacy" style="margin-top: 3px; width: 16px; height: 16px;">
           <span class="section-copy" style="font-size: 13px; line-height: 1.5; color: var(--text-primary);">
             <b>[필수]</b> AI 스타일 분석을 위한 데이터 수집 동의
           </span>
         </label>
-        <p class="field-error" id="error_privacy"></p>
       </div>
 
       <div class="action-row">
@@ -135,31 +183,21 @@
         <a href="/" class="btn btn-outline">메인으로</a>
       </div>
     </form>
-    <p style="text-align: center; font-size: 13px; color: var(--text-secondary); margin-top: 20px; opacity: 0.8;">※ 약 2분 내외의 분석 시간이 소요됩니다.</p>
+
+    <p style="text-align: center; font-size: 13px; color: var(--text-secondary); margin-top: 20px; opacity: 0.8;">
+      약 2분 이내로 분석이 시작됩니다.
+    </p>
   </div>
 
   <div id="termsModal" class="modal">
     <div class="modal-content" style="max-width: 500px; padding: 32px;">
       <h3 class="section-title" style="margin-bottom: 20px; font-size: 20px;">AI 스타일 분석 데이터 수집 동의</h3>
       <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
-        <p><strong>1. 수집 항목</strong>: 성명, 성별, 연령, 연락처, 촬영된 얼굴 이미지</p>
-        <p><strong>2. 수집 및 이용 목적</strong>: </p>
-        <ul><li>AI 기반 얼굴형 정밀 스캔 및 분석</li><li>개인화된 헤어 스타일 추천 리포트 생성</li><li>매장 방문 시 담당 디자이너와의 스마트 상담 지원</li></ul>
-        <p><strong>3. 보유 및 이용 기간</strong>: </p>
-        <ul><li>분석 완료 및 상담 종료 시까지</li><li>관계 법령에 따라 보존이 필요한 경우 해당 기간까지 보관</li></ul>
-        <p style="color: var(--status-red); font-weight: 600;">※ 귀하는 위와 같은 데이터 수집 및 이용에 동의하지 않을 권리가 있으나, 동의하지 않을 경우 분석 서비스 이용이 제한될 수 있습니다.</p>
+        <p><strong>1. 수집 항목</strong>: 성함, 성별, 연령, 연락처, 촬영된 얼굴 이미지</p>
+        <p><strong>2. 이용 목적</strong>: AI 얼굴 분석, 맞춤 스타일 추천, 상담 연계</p>
+        <p><strong>3. 보관 기간</strong>: 분석 및 상담 종료 시까지</p>
       </div>
-      <button class="btn btn-primary" id="confirmTerms" style="width: 100%; margin-top: 24px; background: var(--bg-dark); color: white;">확인하였습니다</button>
-    </div>
-  </div>
-
-  <div class="stack" style="gap: 20px;">
-    <h3 class="section-title" style="font-size: 18px;">분석 프로세스</h3>
-    <div class="stack" style="gap: 12px;">
-      <div style="display: flex; gap: 12px; align-items: center;"><div style="width: 28px; height: 28px; background: var(--bg-dark); color: var(--accent-neon); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex-shrink: 0;">01</div><p class="section-copy" style="font-size: 13px; font-weight: 600;">정보 입력 및 취향 파악</p></div>
-      <div style="display: flex; gap: 12px; align-items: center;"><div style="width: 28px; height: 28px; background: var(--bg-dark); color: var(--accent-neon); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex-shrink: 0;">02</div><p class="section-copy" style="font-size: 13px; font-weight: 600;">AI 페이스 정밀 스캔</p></div>
-      <div style="display: flex; gap: 12px; align-items: center;"><div style="width: 28px; height: 28px; background: var(--bg-dark); color: var(--accent-neon); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex-shrink: 0;">03</div><p class="section-copy" style="font-size: 13px; font-weight: 600;">빅데이터 스타일 매칭</p></div>
-      <div style="display: flex; gap: 12px; align-items: center;"><div style="width: 28px; height: 28px; background: var(--bg-dark); color: var(--accent-neon); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex-shrink: 0;">04</div><p class="section-copy" style="font-size: 13px; font-weight: 600;">개인화된 분석 리포트</p></div>
+      <button class="btn btn-primary" id="confirmTerms" style="width: 100%; margin-top: 24px; background: var(--bg-dark); color: white;">확인했습니다</button>
     </div>
   </div>
 </div>
@@ -180,89 +218,83 @@
     const confirmTerms = document.getElementById('confirmTerms');
     const genderBtns = document.querySelectorAll('.gender-btn');
 
-    const showModal = (e) => {
-      if (e.target === privacyAgree && !privacyAgree.checked) return;
-      if (!privacyAgree.checked) { e.preventDefault(); termsModal.classList.add('show'); }
+    const toggleAgreement = (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (privacyAgree.checked) {
+        privacyAgree.checked = false;
+        return;
+      }
+      termsModal.classList.add('show');
     };
 
-    privacyAgree.addEventListener('click', showModal);
-    privacyLabel.addEventListener('click', (e) => { if (e.target !== privacyAgree) showModal(e); });
-    confirmTerms.addEventListener('click', (e) => { e.preventDefault(); privacyAgree.checked = true; termsModal.classList.remove('show'); });
-    termsModal.addEventListener('click', (e) => { if (e.target === termsModal) termsModal.classList.remove('show'); });
+    function clampAgeValue() {
+      if (ageInput.value === '') return;
+      const parsed = Number(ageInput.value);
+      if (Number.isNaN(parsed)) {
+        ageInput.value = '';
+        return;
+      }
+      if (parsed < 0) {
+        ageInput.value = '0';
+        return;
+      }
+      ageInput.value = String(Math.floor(parsed));
+    }
 
-    genderBtns.forEach(btn => {
-      btn.addEventListener('click', function() {
-        genderBtns.forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        const radio = this.querySelector('input[type="radio"]');
-        if (radio) radio.checked = true;
+    function syncGenderButtons() {
+      genderBtns.forEach((button) => {
+        const input = button.querySelector('input[name="gender"]');
+        button.classList.toggle('active', Boolean(input && input.checked));
+      });
+    }
+
+    genderBtns.forEach((button) => {
+      button.addEventListener('click', () => {
+        const input = button.querySelector('input[name="gender"]');
+        if (!input) return;
+        input.checked = true;
+        syncGenderButtons();
       });
     });
 
-    function clearErrors() {
-      document.querySelectorAll('.field-error').forEach(el => { el.textContent = ''; el.style.display = 'none'; });
-      document.querySelectorAll('.form-input').forEach(el => el.classList.remove('is-invalid'));
-    }
+    privacyAgree.addEventListener('pointerdown', toggleAgreement);
+    privacyLabel.addEventListener('click', (e) => {
+      if (e.target !== privacyAgree) toggleAgreement(e);
+    });
 
-    function showFieldError(field, message) {
-      const target = document.getElementById(`error_${field}`);
-      if (target) {
-        target.textContent = message;
-        target.style.display = 'block';
-      }
-      const input = document.getElementsByName(field)[0] || document.getElementById(`id_${field}`);
-      if (input) input.classList.add('is-invalid');
-    }
+    confirmTerms.addEventListener('click', () => {
+      privacyAgree.checked = true;
+      termsModal.classList.remove('show');
+    });
+
+    termsModal.addEventListener('click', (e) => {
+      if (e.target === termsModal) termsModal.classList.remove('show');
+    });
 
     function validateForm() {
-      clearErrors();
-
-      // 1. 성함
-      if (!nameInput.value.trim()) {
-        showFieldError('name', '성함을 입력해 주세요.');
-        nameInput.focus();
-        return false;
-      }
-
-      // 2. 성별
-      const genderChecked = form.querySelector('input[name="gender"]:checked');
-      if (!genderChecked) {
-        showFieldError('gender', '성별을 선택해 주세요.');
-        document.querySelector('.gender-toggle-group').scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return false;
-      }
-
-      // 3. 연령
-      if (!ageInput.value) {
-        showFieldError('age', '연령대를 선택해 주세요.');
-        ageInput.focus();
-        return false;
-      }
-
-      // 4. 연락처
-      const phoneValue = phoneInput.value.replace(/[^0-9]/g, '');
-      if (!phoneValue) {
-        showFieldError('phone', '연락처를 입력해 주세요.');
-        phoneInput.focus();
-        return false;
-      } else if (phoneValue.length < 10) {
-        showFieldError('phone', '연락처를 정확히 입력해 주세요.');
-        phoneInput.focus();
-        return false;
-      }
-
-      // 5. 개인정보 동의
-      if (!privacyAgree.checked) {
-        showFieldError('privacy', '데이터 수집 동의가 필요합니다.');
-        privacyLabel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return false;
-      }
-
+      if (!validator.validateName(nameInput.value)) { alert('이름을 입력해 주세요.'); nameInput.focus(); return false; }
+      const gender = form.querySelector('input[name="gender"]:checked');
+      if (!gender) { alert('성별을 선택해 주세요.'); return false; }
+      if (!validator.validateAge(ageInput.value)) { alert('연령을 정확히 입력해 주세요.'); ageInput.focus(); return false; }
+      if (!validator.validatePhone(phoneInput.value)) { alert('연락처를 정확히 입력해 주세요.'); phoneInput.focus(); return false; }
+      if (!privacyAgree.checked) { alert('서비스 이용을 위해 데이터 수집에 동의해 주세요.'); privacyAgree.focus(); return false; }
       return true;
     }
 
-    phoneInput.addEventListener('input', (e) => { phoneInput.value = validator.formatPhone(e.target.value); });
-    form.addEventListener('submit', (e) => { if (!validateForm()) e.preventDefault(); });
+    phoneInput.addEventListener('input', (e) => {
+      phoneInput.value = validator.formatPhone(e.target.value);
+    });
+    ageInput.addEventListener('input', clampAgeValue);
+    ageInput.addEventListener('change', clampAgeValue);
+
+    form.addEventListener('submit', (e) => {
+      if (!validateForm()) e.preventDefault();
+    });
+
+    syncGenderButtons();
   })();
 </script>
 {% endblock %}

@@ -1212,9 +1212,9 @@ def confirm_style_selection(
         "direct_consultation": direct_consultation,
         "recommendation_id": (selected_row.id if selected_row else None),
         "message": (
-            "A direct consultation request has been sent to the admin."
+            "추천 선택 없이 바로 상담 요청이 접수되었습니다."
             if direct_consultation
-            else "The selected style and analysis summary have been handed off to the admin."
+            else "선택한 스타일과 분석 요약이 상담 요청으로 접수되었습니다."
         ),
     }
 
@@ -1279,7 +1279,7 @@ def cancel_style_selection(
         "client_id": client.id,
         "source": source,
         "next_action": "client_input",
-        "message": "The selected style has been cancelled and the flow can return to the client input step.",
+        "message": "선택한 스타일이 취소되어 다시 처음 단계로 돌아갈 수 있습니다.",
     }
 
 

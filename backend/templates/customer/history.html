@@ -1,0 +1,225 @@
+{% extends "layouts/base_site.html" %}
+
+{% block page_title %}MirrAI | 과거의 추천 내역{% endblock %}
+
+{% block extra_head %}
+<style>
+  .history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px;
+    margin-top: 24px;
+  }
+
+  .history-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    transition: all 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-main);
+    cursor: pointer;
+  }
+
+  .history-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.08);
+  }
+
+  .history-card.selected {
+    border: 3px solid var(--accent-neon);
+    box-shadow: var(--shadow-neon);
+  }
+
+  .history-image-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    overflow: hidden;
+  }
+
+  .history-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .history-info {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+  }
+
+  .history-selection-bar {
+    position: sticky;
+    bottom: 32px;
+    margin-top: 40px;
+    background: var(--bg-dark);
+    color: white;
+    padding: 20px 24px;
+    border-radius: var(--radius-lg);
+    z-index: 100;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .history-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  @media (max-width: 768px) {
+    .history-grid {
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+    }
+
+    .history-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">Step 01. <span>과거의 추천 내역</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">이 계정이 과거에 받았던 추천 결과를 다시 확인하고, 원하는 스타일을 상담사에게 보낼 수 있습니다.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="stack" style="gap: 24px; max-width: 1080px; margin: 0 auto;">
+  <div class="panel" style="padding: 28px;">
+    <h3 class="section-title" style="margin-bottom: 10px;">과거 해당 계정의 추천 내역</h3>
+    <p class="section-copy" style="margin-bottom: 0;">{{ history_message|default:"과거의 추천 내역을 확인할 수 있습니다." }}</p>
+  </div>
+
+  {% if history_items %}
+    <div id="historyGrid" class="history-grid">
+      {% for item in history_items %}
+        <article
+          class="history-card"
+          data-recommendation-id="{{ item.recommendation_id }}"
+          data-style-name="{{ item.style_name|escape }}"
+          data-match-score="{{ item.match_score|default:0 }}"
+          data-style-description="{{ item.style_description|default:''|escape }}"
+        >
+          <div class="history-image-wrapper">
+            <img
+              class="history-image"
+              src="{{ item.sample_image_url|default:'https://via.placeholder.com/400x500' }}"
+              alt="{{ item.style_name }}"
+            >
+            <span style="position: absolute; top: 12px; left: 12px; padding: 4px 12px; background: var(--accent-neon); color: var(--bg-dark); border-radius: var(--radius-pill); font-size: 11px; font-weight: 800;">
+              {{ item.match_score|default:0 }}% Match
+            </span>
+          </div>
+          <div class="history-info">
+            <h3 class="section-title" style="font-size: 18px; margin-bottom: 0;">{{ item.style_name }}</h3>
+            <p class="section-copy" style="font-size: 13px;">{{ item.reasoning|default:item.style_description }}</p>
+            <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;">
+              <span style="font-size: 12px; color: var(--text-secondary);">{{ item.created_at|date:"Y-m-d H:i" }}</span>
+              {% if item.is_chosen %}
+                <span style="font-size: 12px; font-weight: 700; color: var(--accent-neon);">선택 완료</span>
+              {% endif %}
+            </div>
+            <button type="button" class="btn btn-dark history-select-btn" style="margin-top: auto; height: 44px;">선택하기</button>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="panel" style="padding: 32px; text-align: center;">아직 과거의 추천 내역이 없습니다.</div>
+  {% endif %}
+
+  <div id="historySelectionBar" class="history-selection-bar {% if not history_items %}is-hidden{% endif %}">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <p style="font-size: 12px; color: rgba(255,255,255,0.55); font-weight: 600; text-transform: uppercase;">선택한 스타일</p>
+      <h4 id="selectedHistoryInfo" style="font-size: 18px; font-weight: 800; color: var(--accent-neon);">선택된 스타일이 없습니다.</h4>
+    </div>
+    <div class="history-actions">
+      <a href="{% url 'customer_menu' %}" class="btn btn-dark" style="height: 48px; display: inline-flex; align-items: center; justify-content: center;">이전으로</a>
+      <button id="historyConsultBtn" type="button" class="btn btn-primary" style="height: 48px;" {% if not history_items %}disabled{% endif %}>이 스타일 선택(상담사 전송)</button>
+      <a href="{% url 'customer_camera' %}" class="btn btn-dark" style="height: 48px; display: inline-flex; align-items: center; justify-content: center;">새로운 스타일 추천(촬영)</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  (function () {
+    const customerId = "{{ request.session.customer_id|default:'' }}";
+    const selectedInfo = document.getElementById("selectedHistoryInfo");
+    const consultBtn = document.getElementById("historyConsultBtn");
+    const cards = Array.from(document.querySelectorAll(".history-card"));
+    const selectedState = {
+      recommendationId: null,
+      styleName: null,
+      matchScore: null,
+    };
+
+    function setSelectedCard(card) {
+      cards.forEach((row) => row.classList.remove("selected"));
+      card.classList.add("selected");
+      selectedState.recommendationId = Number(card.dataset.recommendationId);
+      selectedState.styleName = card.dataset.styleName || "선택한 스타일";
+      selectedState.matchScore = card.dataset.matchScore || 0;
+      selectedInfo.textContent = `${selectedState.styleName} · ${selectedState.matchScore}% Match`;
+      consultBtn.disabled = false;
+    }
+
+    async function submitHistoryConsultation() {
+      if (!selectedState.recommendationId || !customerId) {
+        return;
+      }
+
+      consultBtn.disabled = true;
+      try {
+        const response = await fetch("/api/v1/analysis/confirm/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": "{{ csrf_token }}"
+          },
+          body: JSON.stringify({
+            customer_id: parseInt(customerId, 10),
+            recommendation_id: selectedState.recommendationId,
+            source: "former_recommendations"
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || "상담 요청에 실패했습니다.");
+        }
+
+        window.location.href = "/customer/consultation/complete/";
+      } catch (error) {
+        alert(error.message || "상담 요청에 실패했습니다.");
+        consultBtn.disabled = false;
+      }
+    }
+
+    cards.forEach((card) => {
+      card.addEventListener("click", () => setSelectedCard(card));
+      card.querySelector(".history-select-btn")?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setSelectedCard(card);
+      });
+    });
+
+    consultBtn?.addEventListener("click", submitHistoryConsultation);
+  })();
+</script>
+{% endblock %}

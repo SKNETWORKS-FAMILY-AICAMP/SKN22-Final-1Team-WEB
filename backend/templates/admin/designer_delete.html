@@ -1,0 +1,48 @@
+{% extends "layouts/base_site.html" %}
+
+{% block page_title %}MirrAI | 디자이너 삭제{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">파트너 센터 <span>기존 디자이너 삭제</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">디자이너를 비활성화하여 선택 목록에서 제외할 수 있습니다.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="customer-layout" style="display: block;">
+  <div class="panel" style="max-width: 960px; margin: 0 auto; padding: 32px !important; border-radius: 24px !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;">
+    <h3 class="section-title" style="margin-bottom: 12px;">{{ active_shop.store_name }} 디자이너 비활성화</h3>
+    <p class="section-copy" style="margin-bottom: 24px;">삭제 대신 비활성화되어 기존 고객 기록은 유지됩니다.</p>
+
+    {% if form_error %}
+      <div class="panel" style="background: rgba(252, 129, 129, 0.1); border: 1px solid var(--status-red); padding: 12px 16px; margin-bottom: 20px; border-radius: 12px;">
+        <p style="color: var(--status-red); font-size: 13px; font-weight: 700; margin: 0;">{{ form_error }}</p>
+      </div>
+    {% endif %}
+
+    {% if designers %}
+      <div class="stack" style="gap: 16px;">
+        {% for designer in designers %}
+          <form method="post" action="{% url 'partner_designer_delete' %}" class="panel" style="padding: 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+            {% csrf_token %}
+            <input type="hidden" name="designer_id" value="{{ designer.id }}">
+            <div>
+              <h4 style="font-size: 16px; margin-bottom: 4px;">{{ designer.name }}</h4>
+              <p class="section-copy" style="margin-bottom: 0;">{{ designer.phone|default:"-" }}</p>
+            </div>
+            <button type="submit" class="btn btn-dark" style="height: 44px;">비활성화</button>
+          </form>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="panel" style="padding: 24px; text-align: center;">비활성화할 디자이너가 없습니다.</div>
+    {% endif %}
+
+    <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 24px;">
+      <a href="{% url 'partner_designer_management' %}" class="btn btn-primary" style="height: 48px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none;">디자이너 관리로 돌아가기</a>
+      <a href="{% url 'partner_login' %}" class="btn btn-dark" style="height: 48px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none;">디자이너 선택으로 돌아가기</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
