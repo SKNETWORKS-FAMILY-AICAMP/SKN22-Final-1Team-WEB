@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from app.api.v1.recommendation_logic import build_preference_vector
 from app.api.v1.services_django import build_survey_snapshot, persist_generated_batch
+from app.services.legacy_model_sync import sync_legacy_model_tables_if_present
 from app.models_django import (
     AdminAccount,
     CaptureRecord,
@@ -148,6 +149,7 @@ class Command(BaseCommand):
         clients = self._upsert_clients(shop=shop, designers=designers, seeded_at=seeded_at)
         self._upsert_downstream_data(shop=shop, clients=clients)
         self._upsert_consultation_notes(shop=shop, designers=designers, clients=clients)
+        sync_legacy_model_tables_if_present()
 
         self.stdout.write(self.style.SUCCESS("Reusable test accounts have been seeded."))
         self.stdout.write("")
