@@ -3,24 +3,31 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.contrib.auth.hashers import make_password
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
+from django.db import connection
 from django.utils import timezone
 
-from app.api.v1.recommendation_logic import build_preference_vector
-from app.api.v1.services_django import build_survey_snapshot, persist_generated_batch
-from app.services.legacy_model_sync import sync_legacy_model_tables_if_present
-from app.models_django import (
-    AdminAccount,
-    CaptureRecord,
-    Client,
-    ClientSessionNote,
-    ConsultationRequest,
-    Designer,
-    FaceAnalysis,
-    FormerRecommendation,
-    Style,
-    StyleSelection,
-    Survey,
+from app.api.v1.admin_services import create_client_note
+from app.api.v1.services_django import confirm_style_selection, get_latest_survey, persist_generated_batch, upsert_survey
+from app.models_model_team import (
+    LegacyClientAnalysis,
+    LegacyClientResult,
+    LegacyClientResultDetail,
+    LegacyDesigner,
+    LegacyShop,
+)
+from app.services.model_team_bridge import (
+    complete_legacy_capture_analysis,
+    create_admin_record,
+    create_designer_record,
+    create_legacy_capture_upload_record,
+    get_admin_by_phone,
+    get_legacy_active_consultation_items,
+    get_legacy_admin_id,
+    get_legacy_designer_id,
+    get_designers_for_admin,
+    upsert_client_record,
 )
 
 
@@ -142,6 +149,7 @@ class Command(BaseCommand):
     help = "Seed reusable partner/customer verification accounts and downstream test data."
 
     def handle(self, *args, **options):
+        self._ensure_legacy_schema()
         seeded_at = timezone.now()
 
         shop = self._upsert_shop()
@@ -149,7 +157,6 @@ class Command(BaseCommand):
         clients = self._upsert_clients(shop=shop, designers=designers, seeded_at=seeded_at)
         self._upsert_downstream_data(shop=shop, clients=clients)
         self._upsert_consultation_notes(shop=shop, designers=designers, clients=clients)
-        sync_legacy_model_tables_if_present()
 
         self.stdout.write(self.style.SUCCESS("Reusable test accounts have been seeded."))
         self.stdout.write("")
@@ -170,98 +177,141 @@ class Command(BaseCommand):
         self.stdout.write("  Yoon Ara / 010-9000-1003 / Kim Mina assigned / current recommendations ready")
         self.stdout.write("  Han Seo / 010-9000-1004 / assignment pending")
 
-    def _upsert_shop(self) -> AdminAccount:
-        business_number = _build_valid_business_number("101234567")
-        admin_defaults = {
-            "name": "테스트 매장 관리자",
-            "store_name": "MirrAI Test Shop",
-            "role": "owner",
-            "business_number": business_number,
-            "password_hash": make_password("1234"),
-            "consent_snapshot": {
-                "agree_terms": True,
-                "agree_privacy": True,
-                "agree_third_party_sharing": True,
-                "agree_marketing": False,
-            },
-            "consented_at": timezone.now(),
-            "is_active": True,
+    def _ensure_legacy_schema(self):
+        existing_tables = set(connection.introspection.table_names())
+        required_tables = {
+            "shop",
+            "designer",
+            "client",
+            "client_survey",
+            "client_analysis",
+            "client_result",
+            "client_result_detail",
+            "hairstyle",
         }
-        shop, _ = AdminAccount.objects.update_or_create(
-            phone="01080001000",
-            defaults=admin_defaults,
-        )
-        return shop
+        if required_tables.issubset(existing_tables):
+            return
+        call_command("prepare_model_team_schema", stdout=self.stdout)
 
-    def _upsert_designers(self, *, shop: AdminAccount) -> list[Designer]:
+    def _upsert_shop(self):
+        business_number = _build_valid_business_number("101234567")
+        consent_snapshot = {
+            "agree_terms": True,
+            "agree_privacy": True,
+            "agree_third_party_sharing": True,
+            "agree_marketing": False,
+        }
+        existing = LegacyShop.objects.filter(phone="01080001000").order_by("-backend_admin_id", "shop_id").first()
+        if existing is None:
+            return create_admin_record(
+                name="테스트 매장 관리자",
+                store_name="MirrAI Test Shop",
+                role="owner",
+                phone="01080001000",
+                business_number=business_number,
+                password_hash=make_password("1234"),
+                consent_snapshot=consent_snapshot,
+                consented_at=timezone.now(),
+            )
+
+        existing.login_id = "01080001000"
+        existing.shop_name = "MirrAI Test Shop"
+        existing.biz_number = business_number
+        existing.owner_phone = "01080001000"
+        existing.password = make_password("1234")
+        existing.admin_pin = "1000"
+        existing.name = "테스트 매장 관리자"
+        existing.store_name = "MirrAI Test Shop"
+        existing.role = "owner"
+        existing.phone = "01080001000"
+        existing.business_number = business_number
+        existing.password_hash = make_password("1234")
+        existing.is_active = True
+        existing.consent_snapshot = consent_snapshot
+        existing.consented_at = timezone.now()
+        existing.updated_at = timezone.now().isoformat()
+        existing.save()
+        return get_admin_by_phone(phone="01080001000")
+
+    def _upsert_designers(self, *, shop) -> list:
         designer_specs = (
             ("김미나", "010-8111-2001", "2468"),
             ("박준", "010-8111-2002", "1357"),
         )
-        designers: list[Designer] = []
+        designers: list = []
         for name, phone, pin in designer_specs:
-            designer, _ = Designer.objects.update_or_create(
-                shop=shop,
-                name=name,
-                defaults={
-                    "phone": phone.replace("-", ""),
-                    "pin_hash": make_password(pin),
-                    "is_active": True,
-                },
+            normalized_phone = phone.replace("-", "")
+            row = (
+                LegacyDesigner.objects.filter(
+                    backend_shop_ref_id=shop.id,
+                    name=name,
+                )
+                .order_by("-backend_designer_id", "designer_id")
+                .first()
             )
-            designers.append(designer)
+            if row is None:
+                designers.append(
+                    create_designer_record(
+                        admin=shop,
+                        name=name,
+                        phone=normalized_phone,
+                        pin_hash=make_password(pin),
+                    )
+                )
+                continue
+
+            row.shop_id = get_legacy_admin_id(admin=shop) or row.shop_id
+            row.designer_name = name
+            row.login_id = normalized_phone
+            row.password = make_password(pin)
+            row.is_active = True
+            row.updated_at = timezone.now().isoformat()
+            row.backend_shop_ref_id = shop.id
+            row.name = name
+            row.phone = normalized_phone
+            row.pin_hash = make_password(pin)
+            row.save()
+            designers.append(get_designers_for_admin(admin=shop)[len(designers)])
         return designers
 
     def _upsert_clients(
         self,
         *,
-        shop: AdminAccount,
-        designers: list[Designer],
+        shop,
+        designers: list,
         seeded_at,
-    ) -> dict[str, Client]:
-        clients: dict[str, Client] = {}
+    ) -> dict[str, object]:
+        clients: dict[str, object] = {}
         current_year = timezone.localdate().year
 
         for spec in CLIENT_SPECS:
             assigned_designer = designers[spec.designer_index] if spec.designer_index is not None else None
-            client, _ = Client.objects.update_or_create(
+            client = upsert_client_record(
                 phone=spec.phone,
-                defaults={
-                    "name": spec.name,
-                    "gender": spec.gender,
-                    "shop": shop,
-                    "designer": assigned_designer,
-                    "assigned_at": (seeded_at if assigned_designer is not None else None),
-                    "assignment_source": spec.assignment_source,
-                    "age_input": spec.age_input,
-                    "birth_year_estimate": current_year - spec.age_input,
-                },
+                name=spec.name,
+                gender=spec.gender,
+                age_input=spec.age_input,
+                birth_year_estimate=current_year - spec.age_input,
+                shop=shop,
+                designer=assigned_designer,
+                assignment_source=spec.assignment_source,
             )
-            Survey.objects.update_or_create(
-                client=client,
-                defaults={
-                    **spec.survey,
-                    "preference_vector": build_preference_vector(**spec.survey),
-                },
-            )
+            upsert_survey(client, spec.survey)
             clients[spec.phone] = client
         return clients
 
     def _upsert_downstream_data(
         self,
         *,
-        shop: AdminAccount,
-        clients: dict[str, Client],
+        shop,
+        clients: dict[str, object],
     ) -> None:
         for spec in DOWNSTREAM_SPECS:
             client = clients[spec.phone]
-            survey = Survey.objects.get(client=client)
+            survey = get_latest_survey(client)
+            self._reset_legacy_downstream(client=client)
             capture = self._upsert_capture(client=client)
-            analysis = self._upsert_analysis(client=client, spec=spec)
-
-            StyleSelection.objects.filter(client=client, source="seed_test_accounts").delete()
-            ConsultationRequest.objects.filter(client=client, source="seed_test_accounts").delete()
-            FormerRecommendation.objects.filter(client=client, source="generated").delete()
+            analysis = self._upsert_analysis(client=client, capture=capture, spec=spec)
 
             _, rows = persist_generated_batch(
                 client=client,
@@ -274,79 +324,49 @@ class Command(BaseCommand):
             if spec.choose_rank is not None:
                 chosen_row = next((row for row in rows if row.rank == spec.choose_rank), None)
                 if chosen_row is not None:
-                    chosen_row.is_chosen = True
-                    chosen_row.chosen_at = timezone.now()
-                    chosen_row.is_sent_to_admin = True
-                    chosen_row.sent_at = timezone.now()
-                    chosen_row.save(
-                        update_fields=["is_chosen", "chosen_at", "is_sent_to_admin", "sent_at"]
-                    )
-
-                    StyleSelection.objects.create(
+                    confirm_style_selection(
                         client=client,
-                        selected_recommendation=chosen_row,
-                        style_id=chosen_row.style_id_snapshot,
+                        recommendation_id=chosen_row.id,
+                        admin_id=get_legacy_admin_id(admin=shop),
                         source="seed_test_accounts",
-                        survey_snapshot=build_survey_snapshot(client),
-                        match_score=chosen_row.match_score,
-                        is_sent_to_admin=True,
                     )
 
-                    ConsultationRequest.objects.create(
-                        client=client,
-                        admin=shop,
-                        designer=client.designer,
-                        selected_style=chosen_row.style,
-                        selected_recommendation=chosen_row,
-                        source="seed_test_accounts",
-                        survey_snapshot=build_survey_snapshot(client),
-                        analysis_data_snapshot={
-                            "seeded": True,
-                            "face_shape": analysis.face_shape,
-                            "golden_ratio": analysis.golden_ratio_score,
-                        },
-                        status="PENDING",
-                        is_active=True,
-                        is_read=False,
-                    )
+    def _reset_legacy_downstream(self, *, client) -> None:
+        LegacyClientResultDetail.objects.filter(backend_client_ref_id=client.id).delete()
+        LegacyClientResult.objects.filter(backend_client_ref_id=client.id).delete()
+        LegacyClientAnalysis.objects.filter(backend_client_ref_id=client.id).delete()
 
-    def _upsert_capture(self, *, client: Client) -> CaptureRecord:
-        capture, _ = CaptureRecord.objects.update_or_create(
+    def _upsert_capture(self, *, client):
+        return create_legacy_capture_upload_record(
             client=client,
+            original_path=f"seed/captures/{client.phone}/original.jpg",
+            processed_path=f"seed/captures/{client.phone}/processed.jpg",
             filename=f"seed-client-{client.phone}.jpg",
-            defaults={
-                "original_path": f"seed/captures/{client.phone}/original.jpg",
-                "processed_path": f"seed/captures/{client.phone}/processed.jpg",
-                "status": "DONE",
-                "face_count": 1,
-                "landmark_snapshot": {
-                    "left_eye": {"point": {"x": 0.35, "y": 0.38}},
-                    "right_eye": {"point": {"x": 0.65, "y": 0.38}},
-                    "mouth_center": {"point": {"x": 0.5, "y": 0.68}},
-                    "chin_center": {"point": {"x": 0.5, "y": 0.88}},
-                },
-                "deidentified_path": f"seed/captures/{client.phone}/deidentified.jpg",
-                "privacy_snapshot": {
-                    "retention": "seed_test_accounts",
-                    "consent_verified": True,
-                },
-                "error_note": "",
+            status="DONE",
+            face_count=1,
+            landmark_snapshot={
+                "left_eye": {"point": {"x": 0.35, "y": 0.38}},
+                "right_eye": {"point": {"x": 0.65, "y": 0.38}},
+                "mouth_center": {"point": {"x": 0.5, "y": 0.68}},
+                "chin_center": {"point": {"x": 0.5, "y": 0.88}},
             },
+            deidentified_path=f"seed/captures/{client.phone}/deidentified.jpg",
+            privacy_snapshot={
+                "retention": "seed_test_accounts",
+                "consent_verified": True,
+            },
+            error_note="",
         )
-        return capture
 
-    def _upsert_analysis(self, *, client: Client, spec: DownstreamSeedSpec) -> FaceAnalysis:
-        analysis, _ = FaceAnalysis.objects.update_or_create(
-            client=client,
-            image_url=f"seed/analysis/{client.phone}/front.jpg",
-            defaults={
+    def _upsert_analysis(self, *, client, capture, spec: DownstreamSeedSpec):
+        _, analysis = complete_legacy_capture_analysis(
+            record_id=capture.id,
+            face_shape=spec.face_shape,
+            golden_ratio_score=spec.golden_ratio_score,
+            landmark_snapshot={
                 "face_shape": spec.face_shape,
-                "golden_ratio_score": spec.golden_ratio_score,
-                "landmark_snapshot": {
-                    "seeded": True,
-                    "face_shape": spec.face_shape,
-                    "client_phone": client.phone,
-                },
+                "seeded": True,
+                "client_phone": client.phone,
             },
         )
         return analysis
@@ -354,9 +374,9 @@ class Command(BaseCommand):
     def _upsert_consultation_notes(
         self,
         *,
-        shop: AdminAccount,
-        designers: list[Designer],
-        clients: dict[str, Client],
+        shop,
+        designers: list,
+        clients: dict[str, object],
     ) -> None:
         note_specs = (
             (
@@ -372,19 +392,13 @@ class Command(BaseCommand):
         )
 
         for client, designer, note_content in note_specs:
-            consultation = (
-                ConsultationRequest.objects.filter(client=client, is_active=True)
-                .order_by("-created_at")
-                .first()
-            )
-            if consultation is None:
+            legacy_items = get_legacy_active_consultation_items(client=client) or []
+            if not legacy_items:
                 continue
-            ClientSessionNote.objects.update_or_create(
-                consultation=consultation,
+            create_client_note(
                 client=client,
+                consultation_id=int(legacy_items[0]["consultation_id"]),
+                content=note_content,
+                admin=shop,
                 designer=designer,
-                defaults={
-                    "admin": shop,
-                    "content": note_content,
-                },
             )
