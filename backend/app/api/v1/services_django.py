@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
@@ -216,6 +216,12 @@ def _legacy_survey_namespace(*, survey_id: int, client: "Client", normalized_pay
     )
 
 
+def _legacy_preference_vector_storage(preference_vector: list[float]) -> str:
+    if connection.vendor == "postgresql":
+        return "{" + ",".join(str(float(value)) for value in preference_vector) + "}"
+    return str(preference_vector)
+
+
 def _persist_legacy_survey(*, client: "Client", normalized_payload: dict, preference_vector: list[float]) -> SimpleNamespace | None:
     if not _legacy_survey_writable():
         return None
@@ -240,7 +246,7 @@ def _persist_legacy_survey(*, client: "Client", normalized_payload: dict, prefer
             "hair_condition": normalized_payload.get("scalp_type"),
             "hair_color": normalized_payload.get("hair_colour"),
             "budget": normalized_payload.get("budget_range"),
-            "preference_vector": preference_vector,
+            "preference_vector": _legacy_preference_vector_storage(preference_vector),
             "updated_at": created_at.isoformat(),
             "backend_survey_id": None,
             "backend_client_ref_id": client.id,

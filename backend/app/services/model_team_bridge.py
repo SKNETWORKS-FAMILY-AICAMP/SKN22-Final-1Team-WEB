@@ -838,7 +838,7 @@ def create_legacy_capture_upload_record(
         designer_id=(get_legacy_designer_id(designer=client.designer) or ""),
         original_image_url=original_path,
         face_type=None,
-        face_ratio_vector=json.dumps([], ensure_ascii=False),
+        face_ratio_vector=_legacy_preference_vector_storage([]),
         golden_ratio_score=None,
         landmark_data=json.dumps({}, ensure_ascii=False),
         created_at=now.isoformat(),
@@ -912,7 +912,7 @@ def complete_legacy_capture_analysis(
         candidate = landmark_snapshot.get("face_ratio_vector")
         if isinstance(candidate, list):
             face_ratio_vector = candidate
-    row.face_ratio_vector = json.dumps(face_ratio_vector, ensure_ascii=False)
+    row.face_ratio_vector = _legacy_preference_vector_storage(face_ratio_vector)
     row.updated_at_ts = timezone.now()
     row.save(
         update_fields=[
@@ -1567,7 +1567,7 @@ def _sync_survey_row(cursor, survey: Survey) -> None:
             survey.scalp_type,
             survey.hair_colour,
             survey.budget_range,
-            json.dumps(survey.preference_vector or [], ensure_ascii=False),
+            _legacy_preference_vector_storage(survey.preference_vector),
             survey.created_at,
         ],
     )
@@ -1656,6 +1656,13 @@ def _as_legacy_text(value) -> str:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
+
+
+def _legacy_preference_vector_storage(preference_vector) -> str:
+    values = list(preference_vector or [])
+    if connection.vendor == "postgresql":
+        return "{" + ",".join(str(float(value)) for value in values) + "}"
+    return json.dumps(values, ensure_ascii=False)
 
 
 def sync_model_team_admin_state(*, admin: AdminAccount) -> bool:
@@ -1760,7 +1767,7 @@ def sync_model_team_survey_state(*, survey: Survey) -> bool:
             "hair_condition": survey.scalp_type,
             "hair_color": survey.hair_colour,
             "budget": survey.budget_range,
-            "preference_vector": json.dumps(survey.preference_vector or [], ensure_ascii=False),
+            "preference_vector": _legacy_preference_vector_storage(survey.preference_vector),
             "updated_at": _as_legacy_text(survey.created_at),
             "backend_survey_id": survey.id,
             "backend_client_ref_id": survey.client_id,

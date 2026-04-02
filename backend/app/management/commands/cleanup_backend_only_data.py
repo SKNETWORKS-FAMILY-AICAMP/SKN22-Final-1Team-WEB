@@ -57,11 +57,16 @@ class CleanupSummary:
 
 
 class Command(BaseCommand):
-    help = "Remove backend-only canonical data while preserving all model-team legacy data."
+    help = "Remove canonical backend data after cutover. Preserve only client_session_notes by default."
 
     def add_arguments(self, parser):
         parser.add_argument("--apply", action="store_true", help="Actually delete backend-only canonical rows.")
         parser.add_argument("--strict", action="store_true", help="Require every legacy table to exist.")
+        parser.add_argument(
+            "--preserve-canonical-refs",
+            action="store_true",
+            help="Preserve canonical rows that are still referenced by legacy backend_* columns.",
+        )
 
     def handle(self, *args, **options):
         legacy_tables = self._existing_legacy_tables()
@@ -72,11 +77,19 @@ class Command(BaseCommand):
         if not legacy_tables:
             raise CommandError("No legacy tables were found. cleanup_backend_only_data requires model-team tables.")
 
-        preserve = self._build_preserve_sets()
+        preserve = self._build_preserve_sets() if options["preserve_canonical_refs"] else self._empty_preserve_sets()
         summary = self._cleanup_backend_only_data(preserve=preserve, apply=options["apply"])
 
         mode = "applied" if options["apply"] else "dry-run"
         self.stdout.write(self.style.SUCCESS(f"backend-only cleanup {mode} completed."))
+        self.stdout.write(
+            "preserve strategy: "
+            + (
+                "legacy backend_* references"
+                if options["preserve_canonical_refs"]
+                else "none (client_session_notes only)"
+            )
+        )
         self.stdout.write(
             "preserved: "
             f"admins={summary.preserved_admins}, designers={summary.preserved_designers}, clients={summary.preserved_clients}, "
@@ -133,6 +146,20 @@ class Command(BaseCommand):
             "selections": preserve_selections,
             "consultations": preserve_consultations,
             "styles": preserve_styles,
+        }
+
+    def _empty_preserve_sets(self) -> dict[str, set[int]]:
+        return {
+            "admins": set(),
+            "designers": set(),
+            "clients": set(),
+            "surveys": set(),
+            "captures": set(),
+            "analyses": set(),
+            "recommendations": set(),
+            "selections": set(),
+            "consultations": set(),
+            "styles": set(),
         }
 
     def _cleanup_backend_only_data(self, *, preserve: dict[str, set[int]], apply: bool) -> CleanupSummary:
