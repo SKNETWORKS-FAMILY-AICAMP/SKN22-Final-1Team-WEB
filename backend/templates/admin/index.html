@@ -6,8 +6,21 @@
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span id="heroTitleText">파트너 센터</span></h2>
-  <p class="section-copy" id="heroSubText" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">매장 운영 및 디자이너 관리 대시보드입니다.</p>
+  {% if is_dashboard %}
+    <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">
+      <span id="heroTitleText">{% if is_designer_session %}디자이너 대시보드{% else %}매장 대시보드{% endif %}</span>
+    </h2>
+    <p class="section-copy" id="heroSubText" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">
+      {% if is_designer_session %}
+        담당 고객과 상담 흐름을 관리하는 디자이너 전용 화면입니다.
+      {% else %}
+        매장 운영 현황과 디자이너 배정 상태를 확인하는 매장 전용 화면입니다.
+      {% endif %}
+    </p>
+  {% else %}
+    <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span id="heroTitleText">파트너 센터</span></h2>
+    <p class="section-copy" id="heroSubText" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">매장 운영 및 디자이너 관리 대시보드입니다.</p>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -82,7 +95,15 @@
   {% if is_dashboard %}
     <article class="main-content panel stack dashboard-panel">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
-        <div><h2 class="section-title" style="margin-bottom: 4px;">{{ designer.name|default:admin.store_name }} 님</h2><p class="section-copy">{{ admin.store_name }} 대시보드</p></div>
+        <div>
+          {% if is_designer_session %}
+            <h2 class="section-title" style="margin-bottom: 4px;">{{ designer.name }} 디자이너 대시보드</h2>
+            <p class="section-copy">{{ admin.store_name }} 매장 고객 현황</p>
+          {% else %}
+            <h2 class="section-title" style="margin-bottom: 4px;">{{ admin.store_name }} 매장 대시보드</h2>
+            <p class="section-copy">고객 현황과 디자이너 배정 상태를 한눈에 확인할 수 있습니다.</p>
+          {% endif %}
+        </div>
         <div style="display: flex; gap: 12px; align-items: center;">
           {% if not request.session.designer_id %}
             <select id="designerSelect" class="form-control" style="width: auto; height: 36px; font-size: 13px; padding: 0 12px; border-radius: 8px;">
@@ -158,7 +179,16 @@
         if (data.status === 'success') {
           updateStatus("로그인 성공!", "success");
           const urlParams = new URLSearchParams(window.location.search);
-          const nextUrl = urlParams.get('next') || "{% url 'partner_designer_select' %}";
+          const defaultNextUrl = (
+            data.redirect && data.redirect !== '/partner/login/'
+          )
+            ? data.redirect
+            : (
+              data.next_step === 'designer_select'
+                ? "{% url 'partner_designer_select' %}"
+                : "{% url 'partner_dashboard' %}"
+            );
+          const nextUrl = urlParams.get('next') || defaultNextUrl;
           setTimeout(() => { window.location.href = nextUrl; }, 600);
         } else { handleFail(data.message); }
       } catch (e) { handleFail("통신 오류가 발생했습니다."); }
@@ -175,12 +205,14 @@
     const reportView = document.getElementById('reportViewContainer');
     let dashboardDesigners = [];
 
-    async function fetchDesigners() {
+    async function fetchDashboardDesigners() {
       if (!designerSelect) return;
       try {
-        const response = await fetch('/api/v1/admin/designers/');
+        const response = await fetch('/api/v1/designers/');
         const data = await response.json();
-        const designers = data.data || data;
+        const designers = Array.isArray(data) ? data : (data.data || []);
+        dashboardDesigners = designers;
+        designerSelect.innerHTML = '<option value="">디자이너</option>';
         if (Array.isArray(designers)) {
           designers.forEach(d => {
             const opt = document.createElement('option');
@@ -236,16 +268,6 @@
         return matchesName && matchesDesigner && matchesPeriod;
       });
       renderCustomers(filtered);
-    }
-
-    async function fetchDesigners() {
-      try {
-        const response = await fetch('/api/v1/designers/');
-        const data = await response.json();
-        dashboardDesigners = Array.isArray(data) ? data : (data.data || []);
-      } catch (e) {
-        dashboardDesigners = [];
-      }
     }
 
     async function assignCustomer(customerId) {
@@ -321,7 +343,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      if ("{{ is_dashboard }}" === "True") { fetchDesigners(); fetchCustomers(); }
+      if ("{{ is_dashboard }}" === "True") { fetchDashboardDesigners(); fetchCustomers(); }
       if (authSection) setTimeout(() => authSection.classList.add('ready'), 100);
       const loginInputs = ['inputPhone', 'inputShopPw'];
       loginInputs.forEach(id => {
