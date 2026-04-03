@@ -153,6 +153,12 @@
 {% block content %}
 <div class="panel customer-input-card survey-mode">
   <h3 class="section-title compact">스타일 취향 설문</h3>
+  {% if request.GET.reanalysis %}
+    <div style="margin-bottom: 18px; padding: 14px 16px; border-radius: 14px; background: rgba(12, 10, 7, 0.04); border: 1px solid rgba(12, 10, 7, 0.08);">
+      <strong style="display: block; margin-bottom: 6px; color: var(--bg-dark);">재분석용 취향 다시 선택</strong>
+      <p style="margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6;">이전에 저장된 취향 대신 새로운 취향으로 다시 추천을 생성하는 흐름입니다.</p>
+    </div>
+  {% endif %}
   
   <form id="surveyForm" action="/api/v1/survey/" method="post" novalidate>
     {% csrf_token %}
@@ -394,8 +400,8 @@
     </div>
 
     <div class="action-row">
-      <button type="submit" id="submitBtn" class="btn btn-primary">취향 분석 완료</button>
-      <a href="{% url 'customer_camera' %}" class="btn btn-outline">이전 단계</a>
+      <button type="submit" id="submitBtn" class="btn btn-primary">{% if request.GET.reanalysis %}취향 다시 선택 완료{% else %}취향 분석 완료{% endif %}</button>
+      <a href="{% url 'customer_camera' %}" class="btn btn-outline">{% if request.GET.reanalysis %}이전 화면{% else %}이전 단계{% endif %}</a>
     </div>
   </form>
 </div>
@@ -407,6 +413,9 @@
     'use strict';
     const form = document.getElementById('surveyForm');
     const submitBtn = document.getElementById('submitBtn');
+    const urlParams = new URLSearchParams(window.location.search);
+    const isReanalysisFlow = urlParams.get('reanalysis') === '1';
+    const reanalysisCustomerId = urlParams.get('customer_id');
 
     document.querySelectorAll('.survey-card').forEach(card => {
       card.addEventListener('click', function() {
@@ -426,6 +435,9 @@
       formData.forEach((value, key) => {
         if (key !== 'csrfmiddlewaretoken') data[key] = value;
       });
+      if (isReanalysisFlow && reanalysisCustomerId) {
+        data.customer_id = reanalysisCustomerId;
+      }
 
       // 필수 체크 (6개 항목 모두 답변했는지 확인)
       const answeredCount = Object.keys(data).filter(key => key.startsWith('q')).length;
@@ -447,11 +459,11 @@
           body: JSON.stringify(data)
         });
         if (!response.ok) throw new Error("Survey submission failed");
-        window.location.href = "/customer/recommendations/";
+        window.location.href = isReanalysisFlow ? "/customer/recommendations/?reanalysis=1" : "/customer/recommendations/";
       } catch (error) {
         alert("저장 중 오류가 발생했습니다.");
         submitBtn.disabled = false;
-        submitBtn.textContent = "취향 분석 완료";
+        submitBtn.textContent = isReanalysisFlow ? "취향 다시 선택 완료" : "취향 분석 완료";
       }
     });
   })();

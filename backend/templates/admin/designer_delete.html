@@ -12,7 +12,7 @@
 {% block content %}
 <div class="customer-layout" style="display: block;">
   <div class="panel" style="max-width: 960px; margin: 0 auto; padding: 32px !important; border-radius: 24px !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;">
-    <h3 class="section-title" style="margin-bottom: 12px;">{{ active_shop.store_name }} 디자이너 비활성화</h3>
+    <h3 class="section-title" style="margin-bottom: 12px;">{{ active_shop.store_name|default:request.session.admin_store_name|default:request.session.admin_name|default:"MirrAI Partner" }} 디자이너 비활성화</h3>
     <p class="section-copy" style="margin-bottom: 24px;">삭제 대신 비활성화되어 기존 고객 기록은 유지됩니다.</p>
 
     {% if form_error %}

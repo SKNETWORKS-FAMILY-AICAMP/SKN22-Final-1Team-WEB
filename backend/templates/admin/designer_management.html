@@ -14,7 +14,7 @@
   <div class="panel" style="max-width: 960px; margin: 0 auto; padding: 32px !important; border-radius: 24px !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;">
     <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;">
       <div>
-        <h3 class="section-title" style="margin-bottom: 6px;">{{ active_shop.store_name }}</h3>
+        <h3 class="section-title" style="margin-bottom: 6px;">{{ active_shop.store_name|default:request.session.admin_store_name|default:request.session.admin_name|default:"MirrAI Partner" }}</h3>
         <p class="section-copy" style="margin-bottom: 0;">현재 등록된 디자이너를 관리합니다.</p>
       </div>
       <div style="display: flex; gap: 12px; flex-wrap: wrap;">
