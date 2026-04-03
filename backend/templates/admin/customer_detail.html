@@ -1028,7 +1028,12 @@
       const surveyCreatedAt = customer.survey && customer.survey.created_at;
       const firstAnalysis = Array.isArray(customer.face_analyses) ? customer.face_analyses[0] : null;
       const firstCapture = Array.isArray(customer.captures) ? customer.captures[0] : null;
-      const hasReusablePreference = hasSurveyData(customer) && hasFaceAnalysis(customer);
+      const reanalysis = customer.reanalysis || {};
+      const hasReusablePreference = (
+        reanalysis.has_reusable_preference !== undefined
+          ? Boolean(reanalysis.has_reusable_preference)
+          : (hasSurveyData(customer) && hasFaceAnalysis(customer))
+      );
 
       detailContent.innerHTML = `
         <div class="info-group">
@@ -1076,16 +1081,35 @@
 
       const openRetryChoiceBtn = document.getElementById('openRetryChoiceBtn');
       if (openRetryChoiceBtn) {
-        openRetryChoiceBtn.addEventListener('click', () => openRetryChoice(hasReusablePreference));
+        openRetryChoiceBtn.addEventListener('click', () => openRetryChoice(customer));
       }
 
       bindDiagnosisCard();
     }
 
-    function openRetryChoice(hasReusablePreference) {
-      retryKeepPreferenceBtn.disabled = !hasReusablePreference;
-      retryKeepPreferenceBtn.style.opacity = hasReusablePreference ? '1' : '0.55';
-      retryKeepPreferenceBtn.title = hasReusablePreference ? '' : '설문과 얼굴 분석 데이터가 있어야 기존 취향 유지 재분석을 실행할 수 있습니다.';
+    function openRetryChoice(customer) {
+      const reanalysis = customer && customer.reanalysis ? customer.reanalysis : {};
+      const keepPreferenceAvailable = (
+        reanalysis.can_keep_preference !== undefined
+          ? Boolean(reanalysis.can_keep_preference)
+          : false
+      );
+      const chooseAgainAvailable = (
+        reanalysis.can_choose_again !== undefined
+          ? Boolean(reanalysis.can_choose_again)
+          : true
+      );
+
+      retryKeepPreferenceBtn.disabled = !keepPreferenceAvailable;
+      retryKeepPreferenceBtn.style.opacity = keepPreferenceAvailable ? '1' : '0.55';
+      retryKeepPreferenceBtn.title = keepPreferenceAvailable ? '' : (
+        reanalysis.keep_preference_block_reason || '설문과 얼굴 분석 데이터가 있어야 기존 취향 유지 재분석을 실행할 수 있습니다.'
+      );
+      retryChooseAgainBtn.disabled = !chooseAgainAvailable;
+      retryChooseAgainBtn.style.opacity = chooseAgainAvailable ? '1' : '0.55';
+      retryChooseAgainBtn.title = chooseAgainAvailable ? '' : (
+        reanalysis.choose_again_block_reason || '현재 상태에서는 취향 다시 선택을 진행할 수 없습니다.'
+      );
       resetRetryStatus();
       retryChoiceModal.classList.remove('is-hidden');
       retryChoiceModal.setAttribute('aria-hidden', 'false');
@@ -1135,9 +1159,14 @@
     }
 
     function retryWithNewPreference() {
+      const reanalysis = currentCustomer && currentCustomer.reanalysis ? currentCustomer.reanalysis : {};
+      if (reanalysis.can_choose_again === false) {
+        showRetryStatus(reanalysis.choose_again_block_reason || '취향 다시 선택은 현재 상태에서 진행할 수 없습니다.');
+        return;
+      }
       retryChooseAgainBtn.disabled = true;
       retryChooseAgainBtn.textContent = '안내 중...';
-      showRetryStatus('취향 다시 선택 흐름은 백엔드 세션 연결 후 이어질 예정입니다.');
+      window.location.href = reanalysis.start_url || `/partner/customer-detail/${encodeURIComponent(clientId)}/reanalysis/`;
     }
 
     retryKeepPreferenceBtn.addEventListener('click', retryWithSavedPreference);

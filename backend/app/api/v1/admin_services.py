@@ -13,7 +13,13 @@ from django.utils import timezone
 
 from app.api.v1.admin_auth import issue_admin_token_pair
 from app.api.v1.recommendation_logic import STYLE_CATALOG
-from app.api.v1.services_django import ensure_catalog_styles, get_latest_analysis, get_latest_survey, serialize_recommendation_row
+from app.api.v1.services_django import (
+    _build_legacy_retry_recommendation_meta,
+    ensure_catalog_styles,
+    get_latest_analysis,
+    get_latest_survey,
+    serialize_recommendation_row,
+)
 from app.models_model_team import LegacyClient, LegacyClientResult
 from app.services.age_profile import build_client_age_profile
 from app.services.ai_facade import get_ai_health
@@ -903,11 +909,35 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
     legacy_analysis_history = get_legacy_analysis_history(client=client, limit=20)
     analysis_history = legacy_analysis_history
     legacy_selection_history = get_legacy_confirmed_selection_items(admin=admin, designer=designer, client=client) or []
+    legacy_recommendation_items = get_legacy_former_recommendation_items(client=client) or []
     legacy_chosen_recommendations = [
         row
-        for row in (get_legacy_former_recommendation_items(client=client) or [])
+        for row in legacy_recommendation_items
         if row.get("is_chosen")
     ]
+    has_active_consultation = bool(latest_consultation or legacy_active_consultation)
+    retry_meta = _build_legacy_retry_recommendation_meta(
+        items=legacy_recommendation_items,
+        has_active_consultation=has_active_consultation,
+    )
+    has_reusable_preference = bool(latest_survey and latest_analysis)
+    can_keep_preference = bool(has_reusable_preference and retry_meta["can_retry_recommendations"])
+    keep_preference_block_reason = None
+    if not has_reusable_preference:
+        keep_preference_block_reason = "reusable_preference_missing"
+    elif not can_keep_preference:
+        keep_preference_block_reason = retry_meta.get("retry_block_reason")
+
+    can_choose_again = not has_active_consultation
+    choose_again_block_reason = None if can_choose_again else "consultation_started"
+    if has_active_consultation:
+        reanalysis_state = "consultation_locked"
+    elif can_keep_preference:
+        reanalysis_state = "keep_preference_available"
+    elif can_choose_again:
+        reanalysis_state = "choose_again_available"
+    else:
+        reanalysis_state = "blocked"
 
     return {
         "status": "ready",
@@ -935,6 +965,18 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
             _serialize_recommendation(row)
             for row in legacy_chosen_recommendations
         ],
+        "reanalysis": {
+            "state": reanalysis_state,
+            "start_url": f"/partner/customer-detail/{client.id}/reanalysis/",
+            "has_reusable_preference": has_reusable_preference,
+            "can_keep_preference": can_keep_preference,
+            "can_choose_again": can_choose_again,
+            "keep_preference_block_reason": keep_preference_block_reason,
+            "choose_again_block_reason": choose_again_block_reason,
+            "retry_state": retry_meta.get("retry_state"),
+            "retry_block_reason": retry_meta.get("retry_block_reason"),
+            "consultation_locked": has_active_consultation,
+        },
         "active_consultation": (
                 {
                     "consultation_id": latest_consultation.id,

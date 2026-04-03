@@ -298,6 +298,7 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
                 "phone": payload["client"]["phone"],
                 "survey": payload.get("latest_survey"),
                 "face_analyses": payload["analysis_history"],
+                "reanalysis": payload.get("reanalysis"),
                 "captures": [
                     {
                         "processed_path": (

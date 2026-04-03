@@ -962,7 +962,9 @@ def get_legacy_former_recommendation_items(*, client: Client) -> list[dict]:
 
     result_row = (
         LegacyClientResult.objects.filter(_legacy_client_q(client=client))
-        .order_by("-selected_recommendation_id", "-result_id")
+        # 상담 신청이 시작된 과거 row라도, 재촬영 후 생성된 최신 Top-5 배치를
+        # 현재 추천으로 우선 노출해야 한다.
+        .order_by("-result_id")
         .first()
     )
     if not result_row:

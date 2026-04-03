@@ -338,6 +338,29 @@ def customer_resume_page(request):
 
 
 @never_cache
+def customer_reanalysis_start_page(request, pk: int):
+    if _has_standalone_customer_session(request=request):
+        return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
+
+    admin, designer = _resolve_active_shop_and_designer(request=request)
+    if admin is None:
+        return redirect("partner_index")
+
+    client = get_client_by_identifier(identifier=pk)
+    if client is None:
+        return redirect("partner_index")
+
+    if designer is not None:
+        if client.designer_id != designer.id:
+            return redirect("partner_staff_dashboard")
+    elif client.shop_id != admin.id:
+        return redirect("partner_dashboard")
+
+    set_customer_session(request=request, client=client)
+    return redirect(f"{reverse('customer_survey')}?reanalysis=1&customer_id={client.id}")
+
+
+@never_cache
 def admin_login_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")

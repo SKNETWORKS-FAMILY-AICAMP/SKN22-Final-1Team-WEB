@@ -236,7 +236,6 @@
 
       grid.classList.remove('is-hidden');
       selectionBar.classList.remove('is-hidden');
-      syncRetryButton();
 
       results.forEach((style) => {
         const card = document.createElement('div');
@@ -260,6 +259,8 @@
         });
         grid.appendChild(card);
       });
+
+      syncRetryButton();
     }
 
     function syncRetryButton() {
