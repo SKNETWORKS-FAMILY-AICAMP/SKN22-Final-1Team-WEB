@@ -68,14 +68,13 @@ MirrAI의 파트너 센터는 사용자의 인증 상태에 따라 서로 다른
 
 ```text
 .
-├── backend/                # Django 통합 서버 (핵심 아키텍처)
-│   ├── app/                # 비즈니스 로직, API(v1), 뷰 및 데이터 모델
-│   ├── mirrai_project/     # Django 프로젝트 설정 (WhiteNoise, 배포 설정)
-│   ├── static/             # 정적 자산 (shared/, customer/, admin/ - Responsive CSS/JS)
-│   ├── templates/          # HTML 템플릿 (MVT 통합 레이아웃)
-│   ├── seed_100_data.py    # 대량 테스트 데이터 생성 스크립트 (100명 고객 생성)
-│   ├── manage.py           # Django 관리 스크립트
-│   └── requirements.txt    # 최적화된 파이썬 패키지 (WhiteNoise, Boto3 등)
+├── app/                    # 비즈니스 로직, API(v1), 뷰 및 데이터 모델
+├── mirrai_project/         # Django 프로젝트 설정 (WhiteNoise, 배포 설정)
+├── static/                 # 정적 자산 (shared/, customer/, admin/ - Responsive CSS/JS)
+├── templates/              # HTML 템플릿 (MVT 통합 레이아웃)
+├── seed_100_data.py        # 대량 테스트 데이터 생성 스크립트 (100명 고객 생성)
+├── manage.py               # Django 관리 스크립트
+├── requirements.txt        # 최적화된 파이썬 패키지 (WhiteNoise, Boto3 등)
 ├── docs/                   # DevOps 가이드 및 기술 문서
 ├── terraform/              # AWS 인프라 자동화 코드 (IaC)
 ├── .github/workflows/      # CI/CD 자동화 파이프라인 (GitHub Actions)
@@ -89,7 +88,6 @@ MirrAI의 파트너 센터는 사용자의 인증 상태에 따라 서로 다른
 ### 1) 패키지 설치 및 DB 초기화
 
 ```bash
-cd backend
 pip install -r requirements.txt
 python manage.py migrate
 ```
@@ -97,7 +95,6 @@ python manage.py migrate
 트렌드 크롤링/정제/LLM 정제/ChromaDB 생성까지 로컬에서 같이 돌릴 경우:
 
 ```bash
-cd backend
 pip install -r requirements-trends.txt
 playwright install chromium
 ```
@@ -108,10 +105,10 @@ playwright install chromium
 
 ```bash
 # 기본 시드 데이터
-python backend/manage.py seed_test_accounts
+python manage.py seed_test_accounts
 
 # 대량 테스트 데이터 (고객 100명, 디자이너 10명 및 방문 기록 생성)
-python backend/seed_100_data.py
+python seed_100_data.py
 ```
 
 - **테스트 계정**: `01080001000` (비밀번호: 1234)

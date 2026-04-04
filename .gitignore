@@ -1,17 +1,42 @@
-# Virtual Environment files moved to root
+# Virtual Environment
 /Include/
 /Lib/
 /Scripts/
 /pyvenv.cfg
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Environment variables
 .env
+local_settings.py
 
 # Terraform
 .terraform/
@@ -32,30 +57,34 @@ Thumbs.db
 # Database & Storage
 *.sqlite3
 *.db
-backend/mirrai.db
-backend/storage/
-backend/data/rag/
-backend/server_log.txt
-backend/.tmp_pdf/
+mirrai.db
+storage/
+data/rag/
+server_log.txt
+.tmp_pdf/
 PDF/
+media/
+staticfiles/
 
 # Security & Keys
-.env
 *.pem
 *.key
 keys/
 
 # Local Scripts & Resources
-backend/seed_test_data.py
+seed_test_data.py
 choi_sample/
 tasks/
 .agents/
 pm/
 review/
+detect_encoding.py
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Node / Frontend
 **/node_modules/
@@ -65,15 +94,31 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Local static/dev server logs
+# Logs
+*.log
 frontend/*.log
 frontend/**/*.log
 
-# Root accidental lockfile (no root package.json)
+# Root accidental lockfile
 /package-lock.json
 
 # EB deployment artifact
 deploy.zip
 
-# Temporary scripts
-detect_encoding.py
+# Front Feedback
+front_feedback/
+
+# Django Specific / App Tests
+docs/
+tests/
+app/tests/
+!app/tests/
+app/tests/*
+!app/tests/test_seed_test_accounts.py
+
+# Front Feedback
+!front_feedback/
+!front_feedback/**
+front_feedback/**/past/
+front_feedback/from_front/
+front_feedback/to_backend/

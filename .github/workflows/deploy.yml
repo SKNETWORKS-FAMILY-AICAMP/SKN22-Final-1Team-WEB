@@ -5,7 +5,13 @@ on:
     branches:
       - main
     paths:
-      - 'backend/**'
+      - 'app/**'
+      - 'mirrai_project/**'
+      - 'static/**'
+      - 'templates/**'
+      - 'Dockerfile'
+      - 'manage.py'
+      - 'requirements.txt'
       - 'Dockerrun.aws.json'
       - '.github/workflows/deploy.yml'
 
@@ -44,7 +50,6 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          cd backend
           docker build -t "$IMAGE_URI" .
           docker push "$IMAGE_URI"
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
