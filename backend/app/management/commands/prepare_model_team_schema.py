@@ -4,6 +4,185 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 
+POSTGRES_CREATE_TABLE_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS shop (
+        shop_id TEXT PRIMARY KEY,
+        login_id TEXT NOT NULL,
+        shop_name TEXT NOT NULL,
+        biz_number TEXT,
+        owner_phone TEXT,
+        password TEXT NOT NULL,
+        admin_pin TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        backend_admin_id BIGINT,
+        name TEXT,
+        store_name TEXT,
+        role TEXT,
+        phone TEXT,
+        business_number TEXT,
+        password_hash TEXT,
+        is_active BOOLEAN,
+        consent_snapshot JSONB,
+        consented_at TIMESTAMPTZ
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS designer (
+        designer_id TEXT PRIMARY KEY,
+        shop_id TEXT NOT NULL,
+        designer_name TEXT NOT NULL,
+        login_id TEXT NOT NULL,
+        password TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        backend_designer_id BIGINT,
+        backend_shop_ref_id BIGINT,
+        name TEXT,
+        phone TEXT,
+        pin_hash TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS client (
+        client_id TEXT PRIMARY KEY,
+        shop_id TEXT NOT NULL,
+        client_name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        gender TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        backend_client_id BIGINT,
+        backend_shop_ref_id BIGINT,
+        backend_designer_ref_id BIGINT,
+        name TEXT,
+        assigned_at TIMESTAMPTZ,
+        assignment_source TEXT,
+        age_input SMALLINT,
+        birth_year_estimate SMALLINT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS client_survey (
+        survey_id INTEGER PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        hair_length TEXT,
+        hair_mood TEXT,
+        hair_condition TEXT,
+        hair_color TEXT,
+        budget TEXT,
+        preference_vector TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        backend_survey_id BIGINT,
+        backend_client_ref_id BIGINT,
+        target_length TEXT,
+        target_vibe TEXT,
+        scalp_type TEXT,
+        hair_colour TEXT,
+        budget_range TEXT,
+        preference_vector_json JSONB,
+        created_at_ts TIMESTAMPTZ
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS client_analysis (
+        analysis_id INTEGER PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        designer_id TEXT NOT NULL,
+        original_image_url TEXT,
+        face_type TEXT,
+        face_ratio_vector TEXT NOT NULL,
+        golden_ratio_score REAL,
+        landmark_data TEXT,
+        created_at TEXT NOT NULL,
+        backend_analysis_id BIGINT,
+        backend_client_ref_id BIGINT,
+        backend_designer_ref_id BIGINT,
+        backend_capture_record_id BIGINT,
+        processed_path TEXT,
+        filename TEXT,
+        status TEXT,
+        face_count INTEGER,
+        error_note TEXT,
+        updated_at_ts TIMESTAMPTZ,
+        deidentified_path TEXT,
+        capture_landmark_snapshot JSONB,
+        privacy_snapshot JSONB,
+        analysis_image_url TEXT,
+        analysis_landmark_snapshot JSONB
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS client_result (
+        result_id INTEGER PRIMARY KEY,
+        analysis_id INTEGER NOT NULL,
+        client_id TEXT NOT NULL,
+        selected_hairstyle_id INTEGER,
+        selected_image_url TEXT,
+        is_confirmed BOOLEAN NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        backend_selection_id BIGINT,
+        backend_consultation_id BIGINT,
+        backend_client_ref_id BIGINT,
+        backend_admin_ref_id BIGINT,
+        backend_designer_ref_id BIGINT,
+        source TEXT,
+        survey_snapshot JSONB,
+        analysis_data_snapshot JSONB,
+        status TEXT,
+        is_active BOOLEAN,
+        is_read BOOLEAN,
+        closed_at TIMESTAMPTZ,
+        selected_recommendation_id BIGINT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS client_result_detail (
+        detail_id INTEGER PRIMARY KEY,
+        result_id INTEGER NOT NULL,
+        hairstyle_id INTEGER NOT NULL,
+        rank INTEGER NOT NULL,
+        similarity_score REAL NOT NULL,
+        final_score REAL,
+        simulated_image_url TEXT,
+        recommendation_reason TEXT,
+        backend_recommendation_id BIGINT,
+        backend_client_ref_id BIGINT,
+        backend_capture_record_id BIGINT,
+        batch_id UUID,
+        source TEXT,
+        style_name_snapshot TEXT,
+        style_description_snapshot TEXT,
+        keywords_json JSONB,
+        sample_image_url TEXT,
+        regeneration_snapshot JSONB,
+        reasoning_snapshot JSONB,
+        is_chosen BOOLEAN,
+        chosen_at TIMESTAMPTZ,
+        is_sent_to_admin BOOLEAN,
+        sent_at TIMESTAMPTZ,
+        created_at_ts TIMESTAMPTZ
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS hairstyle (
+        hairstyle_id INTEGER PRIMARY KEY,
+        chroma_id TEXT NOT NULL,
+        style_name TEXT NOT NULL,
+        image_url TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        backend_style_id BIGINT,
+        name TEXT,
+        vibe TEXT,
+        description TEXT
+    )
+    """,
+)
+
+
 POSTGRES_STATEMENTS = (
     # shop
     "ALTER TABLE IF EXISTS shop ADD COLUMN IF NOT EXISTS backend_admin_id BIGINT",
@@ -93,6 +272,22 @@ POSTGRES_STATEMENTS = (
     "ALTER TABLE IF EXISTS hairstyle ADD COLUMN IF NOT EXISTS name VARCHAR(100)",
     "ALTER TABLE IF EXISTS hairstyle ADD COLUMN IF NOT EXISTS vibe VARCHAR(50)",
     "ALTER TABLE IF EXISTS hairstyle ADD COLUMN IF NOT EXISTS description TEXT",
+    # client_session_notes
+    """
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN
+            SELECT conname
+            FROM pg_constraint
+            WHERE conrelid = 'client_session_notes'::regclass
+              AND contype = 'f'
+        LOOP
+            EXECUTE format('ALTER TABLE client_session_notes DROP CONSTRAINT IF EXISTS %I', r.conname);
+        END LOOP;
+    END
+    $$;
+    """,
 )
 
 SQLITE_TABLE_STATEMENTS = (
@@ -280,6 +475,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if connection.vendor == "postgresql":
             with connection.cursor() as cursor:
+                for statement in POSTGRES_CREATE_TABLE_STATEMENTS:
+                    cursor.execute(statement)
                 for statement in POSTGRES_STATEMENTS:
                     cursor.execute(statement)
 

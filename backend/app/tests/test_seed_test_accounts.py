@@ -65,7 +65,10 @@ class SeedTestAccountsCommandTests(TestCase):
             ).exists()
         )
         self.assertTrue(
-            ConsultationRequest.objects.filter(client_id=full_flow_client.backend_client_id, is_active=True).exists()
+            ConsultationRequest.objects.filter(
+                backend_client_ref_id=full_flow_client.backend_client_id,
+                is_active=True,
+            ).exists()
         )
 
         self.assertTrue(

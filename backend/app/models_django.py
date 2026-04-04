@@ -1,4 +1,4 @@
-﻿from django.db import models
+from django.db import models
 
 from app.services.age_profile import build_age_profile
 
@@ -223,34 +223,19 @@ class StyleSelection(models.Model):
 
 
 class ConsultationRequest(models.Model):
-    client = models.ForeignKey(
-        Client,
-        on_delete=models.CASCADE,
-        related_name="consultations",
-        db_index=True,
-    )
-    admin = models.ForeignKey(
-        AdminAccount,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="consultations",
-    )
-    designer = models.ForeignKey(
-        "Designer",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="consultations",
-    )
-    selected_style = models.ForeignKey(Style, on_delete=models.SET_NULL, null=True, blank=True)
-    selected_recommendation = models.ForeignKey(
-        FormerRecommendation,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="consultations",
-    )
+    id = models.IntegerField(primary_key=True, db_column="result_id")
+    analysis_id = models.IntegerField(null=True, blank=True)
+    client_id = models.CharField(max_length=255, null=True, blank=True)
+    selected_hairstyle_id = models.IntegerField(null=True, blank=True)
+    selected_image_url = models.TextField(null=True, blank=True)
+    is_confirmed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    backend_selection_id = models.BigIntegerField(null=True, blank=True)
+    backend_consultation_id = models.BigIntegerField(null=True, blank=True)
+    backend_client_ref_id = models.BigIntegerField(null=True, blank=True)
+    backend_admin_ref_id = models.BigIntegerField(null=True, blank=True)
+    backend_designer_ref_id = models.BigIntegerField(null=True, blank=True)
     source = models.CharField(max_length=30, default="current_recommendations")
     survey_snapshot = models.JSONField(null=True, blank=True)
     analysis_data_snapshot = models.JSONField(null=True, blank=True)
@@ -258,10 +243,14 @@ class ConsultationRequest(models.Model):
     is_active = models.BooleanField(default=True, db_index=True)
     is_read = models.BooleanField(default=False, db_index=True)
     closed_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    selected_recommendation_id = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
-        db_table = "consultation_requests"
+        db_table = "client_result"
+
+    @property
+    def result_id(self):
+        return self.id
 
 
 class ClientSessionNote(models.Model):
@@ -295,4 +284,3 @@ class ClientSessionNote(models.Model):
 
     class Meta:
         db_table = "client_session_notes"
-
