@@ -54,7 +54,10 @@ LOCAL_DATABASE_URL = env("LOCAL_DATABASE_URL", default="sqlite:///db.sqlite3")
 SUPABASE_USE_REMOTE_DB = env.bool("SUPABASE_USE_REMOTE_DB", default=False)
 ACTIVE_DATABASE_URL = SUPABASE_DB_URL if SUPABASE_USE_REMOTE_DB and SUPABASE_DB_URL else LOCAL_DATABASE_URL
 DATABASES = {
-    "default": environ.Env.db_url_config(ACTIVE_DATABASE_URL)
+    "default": {
+        **environ.Env.db_url_config(ACTIVE_DATABASE_URL),
+        "CONN_MAX_AGE": 60,
+    }
 }
 
 SUPABASE_URL = env("SUPABASE_URL", default="")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Iterable
 
@@ -97,10 +98,11 @@ def _normalize_phone(value: str | None) -> str:
     return "".join(char for char in str(value or "") if char.isdigit())
 
 
-def _table_columns(table_name: str) -> set[str]:
+@lru_cache(maxsize=None)
+def _table_columns(table_name: str) -> frozenset[str]:
     with connection.cursor() as cursor:
         description = connection.introspection.get_table_description(cursor, table_name)
-    return {column.name for column in description}
+    return frozenset(column.name for column in description)
 
 
 def _has_table(table_name: str) -> bool:

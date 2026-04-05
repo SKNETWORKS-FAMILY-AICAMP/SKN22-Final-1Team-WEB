@@ -1125,15 +1125,17 @@ def get_former_recommendations(client: "Client") -> dict:
     }
 
 
-def _ensure_current_batch(client: "Client") -> tuple[str | None, list[dict], str | None]:
-    latest_analysis = get_latest_analysis(client)
-    latest_capture = get_latest_capture(client)
-    latest_survey = get_latest_survey(client)
-
+def _ensure_current_batch(
+    client: "Client",
+    *,
+    latest_capture,
+    latest_survey,
+    latest_analysis,
+    legacy_items: list[dict],
+) -> tuple[str | None, list[dict], str | None]:
     if not latest_capture or not latest_analysis:
         return None, [], "needs_capture"
 
-    legacy_items = get_legacy_former_recommendation_items(client=client) or []
     if legacy_items:
         return str(legacy_items[0].get("batch_id") or ""), legacy_items, None
 
@@ -1435,7 +1437,13 @@ def get_current_recommendations(client: "Client") -> dict:
             message="Existing model-team recommendation data is being reused.",
         )
 
-    batch_id, rows, status_code = _ensure_current_batch(client)
+    batch_id, rows, status_code = _ensure_current_batch(
+        client,
+        latest_capture=latest_capture,
+        latest_survey=latest_survey,
+        latest_analysis=latest_analysis,
+        legacy_items=legacy_items,
+    )
     if status_code == "needs_capture":
         return {
             "status": "needs_capture",

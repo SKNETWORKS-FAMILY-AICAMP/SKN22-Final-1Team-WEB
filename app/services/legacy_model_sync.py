@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from functools import lru_cache
 
 from django.db import connection
 
@@ -74,13 +75,15 @@ def _legacy_gender(value: str | None) -> str:
     return "F"
 
 
-def _table_names() -> set[str]:
-    return set(connection.introspection.table_names())
+@lru_cache(maxsize=None)
+def _table_names() -> frozenset[str]:
+    return frozenset(connection.introspection.table_names())
 
 
-def _existing_legacy_tables() -> list[str]:
+@lru_cache(maxsize=None)
+def _existing_legacy_tables() -> tuple[str, ...]:
     existing = _table_names()
-    return [table for table in LEGACY_TABLES if table in existing]
+    return tuple(table for table in LEGACY_TABLES if table in existing)
 
 
 def _require_legacy_tables(*, strict: bool) -> None:

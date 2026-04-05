@@ -33,6 +33,13 @@ DESIGNER_NAME_SESSION_KEY = "designer_name"
 OWNER_DASHBOARD_ALLOWED_SESSION_KEY = "owner_dashboard_allowed"
 
 
+def _update_session_if_changed(request: HttpRequest, updates: dict) -> None:
+    if any(request.session.get(k) != v for k, v in updates.items()):
+        for k, v in updates.items():
+            request.session[k] = v
+        request.session.modified = True
+
+
 def set_customer_session(*, request: HttpRequest, client: Client) -> None:
     request.session[CUSTOMER_ID_SESSION_KEY] = client.id
     request.session[CUSTOMER_LEGACY_ID_SESSION_KEY] = get_legacy_client_id(client=client)
@@ -52,19 +59,21 @@ def get_session_customer(*, request: HttpRequest) -> Client | None:
     if legacy_client_id:
         client = get_client_by_legacy_id(legacy_client_id=legacy_client_id)
         if client is not None:
-            request.session[CUSTOMER_ID_SESSION_KEY] = client.id
-            request.session[CUSTOMER_LEGACY_ID_SESSION_KEY] = get_legacy_client_id(client=client)
-            request.session[CUSTOMER_NAME_SESSION_KEY] = client.name
-            request.session.modified = True
+            _update_session_if_changed(request, {
+                CUSTOMER_ID_SESSION_KEY: client.id,
+                CUSTOMER_LEGACY_ID_SESSION_KEY: get_legacy_client_id(client=client),
+                CUSTOMER_NAME_SESSION_KEY: client.name,
+            })
             return client
 
     client_id = request.session.get(CUSTOMER_ID_SESSION_KEY)
     if client_id:
         client = get_client_by_identifier(identifier=client_id)
         if client is not None:
-            request.session[CUSTOMER_LEGACY_ID_SESSION_KEY] = get_legacy_client_id(client=client)
-            request.session[CUSTOMER_NAME_SESSION_KEY] = client.name
-            request.session.modified = True
+            _update_session_if_changed(request, {
+                CUSTOMER_LEGACY_ID_SESSION_KEY: get_legacy_client_id(client=client),
+                CUSTOMER_NAME_SESSION_KEY: client.name,
+            })
             return client
     return None
 
@@ -92,21 +101,23 @@ def get_session_admin(*, request: HttpRequest) -> AdminAccount | None:
     if legacy_admin_id:
         admin = get_admin_by_legacy_id(legacy_admin_id=legacy_admin_id)
         if admin is not None:
-            request.session[ADMIN_ID_SESSION_KEY] = admin.id
-            request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
-            request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
-            request.session[ADMIN_NAME_SESSION_KEY] = admin.name
-            request.session.modified = True
+            _update_session_if_changed(request, {
+                ADMIN_ID_SESSION_KEY: admin.id,
+                ADMIN_LEGACY_ID_SESSION_KEY: get_legacy_admin_id(admin=admin),
+                ADMIN_STORE_NAME_SESSION_KEY: admin.store_name,
+                ADMIN_NAME_SESSION_KEY: admin.name,
+            })
             return admin
 
     admin_id = request.session.get(ADMIN_ID_SESSION_KEY)
     if admin_id:
         admin = get_admin_by_identifier(identifier=admin_id)
         if admin is not None:
-            request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
-            request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
-            request.session[ADMIN_NAME_SESSION_KEY] = admin.name
-            request.session.modified = True
+            _update_session_if_changed(request, {
+                ADMIN_LEGACY_ID_SESSION_KEY: get_legacy_admin_id(admin=admin),
+                ADMIN_STORE_NAME_SESSION_KEY: admin.store_name,
+                ADMIN_NAME_SESSION_KEY: admin.name,
+            })
             return admin
     return None
 
@@ -132,19 +143,21 @@ def get_session_designer(*, request: HttpRequest) -> Designer | None:
     if legacy_designer_id:
         designer = get_designer_by_legacy_id(legacy_designer_id=legacy_designer_id)
         if designer is not None:
-            request.session[DESIGNER_ID_SESSION_KEY] = designer.id
-            request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
-            request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
-            request.session.modified = True
+            _update_session_if_changed(request, {
+                DESIGNER_ID_SESSION_KEY: designer.id,
+                DESIGNER_LEGACY_ID_SESSION_KEY: get_legacy_designer_id(designer=designer),
+                DESIGNER_NAME_SESSION_KEY: designer.name,
+            })
             return designer
 
     designer_id = request.session.get(DESIGNER_ID_SESSION_KEY)
     if designer_id:
         designer = get_designer_by_identifier(identifier=designer_id)
         if designer is not None:
-            request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
-            request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
-            request.session.modified = True
+            _update_session_if_changed(request, {
+                DESIGNER_LEGACY_ID_SESSION_KEY: get_legacy_designer_id(designer=designer),
+                DESIGNER_NAME_SESSION_KEY: designer.name,
+            })
             return designer
     return None
 
