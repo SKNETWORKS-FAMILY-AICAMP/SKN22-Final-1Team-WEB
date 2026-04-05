@@ -93,6 +93,36 @@ LEGACY_HAIRSTYLE_MODEL_COLUMNS = {
     "backend_style_id", "name", "vibe", "description",
 }
 
+LEGACY_ANALYSIS_ONLY_FIELDS = (
+    "analysis_id",
+    "backend_analysis_id",
+    "original_image_url",
+    "processed_path",
+    "analysis_image_url",
+    "face_type",
+    "golden_ratio_score",
+    "landmark_data",
+    "analysis_landmark_snapshot",
+    "created_at",
+    "updated_at_ts",
+)
+
+LEGACY_CAPTURE_ONLY_FIELDS = (
+    "analysis_id",
+    "backend_capture_record_id",
+    "original_image_url",
+    "processed_path",
+    "filename",
+    "status",
+    "face_count",
+    "capture_landmark_snapshot",
+    "deidentified_path",
+    "privacy_snapshot",
+    "error_note",
+    "created_at",
+    "updated_at_ts",
+)
+
 
 def _normalize_phone(value: str | None) -> str:
     return "".join(char for char in str(value or "") if char.isdigit())
@@ -703,6 +733,7 @@ def get_latest_legacy_analysis(*, client: Client):
 
     row = (
         LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client))
+        .only(*LEGACY_ANALYSIS_ONLY_FIELDS)
         .order_by("-backend_analysis_id", "-analysis_id")
         .first()
     )
@@ -726,6 +757,7 @@ def get_legacy_analysis_history(*, client: Client, limit: int = 20) -> list[Simp
 
     rows = list(
         LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client))
+        .only(*LEGACY_ANALYSIS_ONLY_FIELDS)
         .order_by("-updated_at_ts", "-analysis_id")[: int(limit)]
     )
     history: list[SimpleNamespace] = []
@@ -754,6 +786,7 @@ def get_latest_legacy_capture(*, client: Client):
 
     row = (
         LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client))
+        .only(*LEGACY_CAPTURE_ONLY_FIELDS)
         .order_by("-updated_at_ts", "-analysis_id")
         .first()
     )
@@ -811,12 +844,25 @@ def get_legacy_capture_history(*, client: Client, limit: int = 20) -> list[Simpl
 
     rows = list(
         LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client))
+        .only(*LEGACY_CAPTURE_ONLY_FIELDS)
         .order_by("-updated_at_ts", "-analysis_id")[: int(limit)]
     )
     history: list[SimpleNamespace] = []
     for row in rows:
         history.append(_build_legacy_capture_namespace(row=row, client=client))
     return history
+
+
+def get_legacy_analysis_count(*, client: Client) -> int:
+    if not _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
+        return 0
+    return int(LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client)).count())
+
+
+def get_legacy_capture_count(*, client: Client) -> int:
+    if not _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
+        return 0
+    return int(LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client)).count())
 
 
 def create_legacy_capture_upload_record(
