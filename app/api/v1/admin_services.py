@@ -2,6 +2,7 @@
 import logging
 import os
 import re
+import time
 from collections import Counter
 from typing import TYPE_CHECKING
 from urllib import error, request
@@ -17,6 +18,7 @@ from app.api.v1.services_django import (
     _build_legacy_retry_recommendation_meta,
     ensure_catalog_styles,
     get_latest_analysis,
+    get_latest_capture,
     get_latest_survey,
     serialize_recommendation_row,
 )
@@ -36,7 +38,9 @@ from app.services.model_team_bridge import (
     get_legacy_admin_id,
     get_legacy_activity_client_map_by_day,
     get_legacy_analysis_history,
+    get_legacy_analysis_count,
     get_legacy_capture_history,
+    get_legacy_capture_count,
     get_legacy_client_id,
     get_legacy_confirmed_selection_items,
     get_legacy_designer_id,
@@ -942,6 +946,20 @@ def _fetch_note_rows(*, client: "Client", limit: int = 20) -> list[dict]:
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
+def _count_note_rows(*, client: "Client") -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM client_session_notes
+            WHERE client_id = %s
+            """,
+            [client.id],
+        )
+        row = cursor.fetchone()
+    return int(row[0] if row else 0)
+
+
 def _create_note_row(
     *,
     consultation_id: int,
@@ -978,6 +996,98 @@ def _create_note_row(
         cursor.execute("SELECT last_insert_rowid()")
         row = cursor.fetchone()
         return int(row[0])
+
+
+def _measure_step(timings: dict[str, int], key: str, callback):
+    started_at = time.perf_counter()
+    result = callback()
+    timings[key] = max(0, int((time.perf_counter() - started_at) * 1000))
+    return result
+
+
+def _serialize_note_rows(notes: list[dict]) -> list[dict]:
+    return [
+        {
+            "note_id": note["id"],
+            "consultation_id": note["consultation_id"],
+            "admin_id": note["admin_id"],
+            "admin_name": (
+                getattr(get_admin_by_identifier(identifier=note["admin_id"]), "name", None)
+                if note.get("admin_id") else None
+            ),
+            "designer_id": note["designer_id"],
+            "designer_name": (
+                getattr(get_designer_by_identifier(identifier=note["designer_id"]), "name", None)
+                if note.get("designer_id") else None
+            ),
+            "content": note["content"],
+            "created_at": note["created_at"],
+        }
+        for note in notes
+    ]
+
+
+def _get_client_history_payload(
+    *,
+    client: "Client",
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+    limit: int = 20,
+) -> dict:
+    timings_ms: dict[str, int] = {}
+    note_rows = _measure_step(
+        timings_ms,
+        "notes",
+        lambda: _fetch_note_rows(client=client, limit=limit),
+    )
+    capture_history = _measure_step(
+        timings_ms,
+        "capture_history",
+        lambda: get_legacy_capture_history(client=client, limit=limit),
+    )
+    analysis_history = _measure_step(
+        timings_ms,
+        "analysis_history",
+        lambda: get_legacy_analysis_history(client=client, limit=limit),
+    )
+    style_selection_history = _measure_step(
+        timings_ms,
+        "style_selection_history",
+        lambda: get_legacy_confirmed_selection_items(admin=admin, designer=designer, client=client) or [],
+    )
+    legacy_recommendation_items = _measure_step(
+        timings_ms,
+        "recommendation_history",
+        lambda: get_legacy_former_recommendation_items(client=client) or [],
+    )
+    chosen_recommendation_history = [
+        _serialize_recommendation(row)
+        for row in legacy_recommendation_items
+        if row.get("is_chosen")
+    ]
+    return {
+        "capture_history": [_serialize_capture(record) for record in capture_history],
+        "analysis_history": [_serialize_analysis(analysis) for analysis in analysis_history],
+        "style_selection_history": [
+            _serialize_style_selection(selection)
+            for selection in style_selection_history
+        ],
+        "chosen_recommendation_history": chosen_recommendation_history,
+        "notes": _serialize_note_rows(note_rows),
+        "history": {
+            "deferred": False,
+            "source": "legacy_bridge",
+            "limit": int(limit),
+            "timings_ms": timings_ms,
+            "counts": {
+                "captures": len(capture_history),
+                "analyses": len(analysis_history),
+                "notes": len(note_rows),
+                "style_selections": len(style_selection_history),
+                "chosen_recommendations": len(chosen_recommendation_history),
+            },
+        },
+    }
 
 
 def _build_consultation_bridge_from_legacy_item(
@@ -1215,30 +1325,27 @@ def assign_client_to_designer(
     }
 
 
-def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+def get_client_detail(
+    *,
+    client: "Client",
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+    include_history: bool = False,
+    history_limit: int = 20,
+) -> dict:
     scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
     if scoped_client_ids and client.id not in scoped_client_ids:
         raise ValueError("Client is outside the current admin scope.")
 
     latest_survey = get_latest_survey(client)
     latest_analysis = get_latest_analysis(client)
+    latest_capture = get_latest_capture(client)
     legacy_items = get_legacy_active_consultation_items(admin=admin, designer=designer, client=client) or []
     legacy_active_consultation = legacy_items[0] if legacy_items else None
     latest_consultation = None
-    notes = _fetch_note_rows(client=client, limit=20)
     customer_note, customer_note_storage_ready = _fetch_customer_profile_note(client=client)
     designer_diagnosis_card, diagnosis_storage_ready = _fetch_designer_diagnosis_card(client=client)
-    legacy_capture_history = get_legacy_capture_history(client=client, limit=20)
-    capture_history = legacy_capture_history
-    legacy_analysis_history = get_legacy_analysis_history(client=client, limit=20)
-    analysis_history = legacy_analysis_history
-    legacy_selection_history = get_legacy_confirmed_selection_items(admin=admin, designer=designer, client=client) or []
     legacy_recommendation_items = get_legacy_former_recommendation_items(client=client) or []
-    legacy_chosen_recommendations = [
-        row
-        for row in legacy_recommendation_items
-        if row.get("is_chosen")
-    ]
     has_active_consultation = bool(latest_consultation or legacy_active_consultation)
     active_consultation_payload = _serialize_active_consultation_payload(
         client=client,
@@ -1268,6 +1375,33 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
     else:
         reanalysis_state = "blocked"
 
+    if include_history:
+        history_payload = _get_client_history_payload(
+            client=client,
+            admin=admin,
+            designer=designer,
+            limit=history_limit,
+        )
+    else:
+        history_payload = {
+            "capture_history": ([_serialize_capture(latest_capture)] if latest_capture else []),
+            "analysis_history": ([_serialize_analysis(latest_analysis)] if latest_analysis else []),
+            "style_selection_history": [],
+            "chosen_recommendation_history": [],
+            "notes": [],
+            "history": {
+                "deferred": True,
+                "source": "legacy_bridge",
+                "history_url": f"/api/v1/customers/{client.id}/history/",
+                "limit": int(history_limit),
+                "counts": {
+                    "captures": get_legacy_capture_count(client=client),
+                    "analyses": get_legacy_analysis_count(client=client),
+                    "notes": _count_note_rows(client=client),
+                },
+            },
+        }
+
     return {
         "status": "ready",
         "client": {
@@ -1284,16 +1418,11 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
         },
         "latest_survey": _serialize_survey(latest_survey),
         "latest_analysis": _serialize_analysis(latest_analysis),
-        "capture_history": [_serialize_capture(record) for record in capture_history],
-        "analysis_history": [_serialize_analysis(analysis) for analysis in analysis_history],
-        "style_selection_history": [
-            _serialize_style_selection(selection)
-            for selection in legacy_selection_history
-        ],
-        "chosen_recommendation_history": [
-            _serialize_recommendation(row)
-            for row in legacy_chosen_recommendations
-        ],
+        "latest_capture": _serialize_capture(latest_capture) if latest_capture else None,
+        "capture_history": history_payload["capture_history"],
+        "analysis_history": history_payload["analysis_history"],
+        "style_selection_history": history_payload["style_selection_history"],
+        "chosen_recommendation_history": history_payload["chosen_recommendation_history"],
         "reanalysis": {
             "state": reanalysis_state,
             "start_url": f"/partner/customer-detail/{client.id}/reanalysis/",
@@ -1319,25 +1448,8 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
             customer_note,
             storage_ready=customer_note_storage_ready,
         ),
-        "notes": [
-            {
-                "note_id": note["id"],
-                "consultation_id": note["consultation_id"],
-                "admin_id": note["admin_id"],
-                "admin_name": (
-                    getattr(get_admin_by_identifier(identifier=note["admin_id"]), "name", None)
-                    if note.get("admin_id") else None
-                ),
-                "designer_id": note["designer_id"],
-                "designer_name": (
-                    getattr(get_designer_by_identifier(identifier=note["designer_id"]), "name", None)
-                    if note.get("designer_id") else None
-                ),
-                "content": note["content"],
-                "created_at": note["created_at"],
-            }
-            for note in notes
-        ],
+        "notes": history_payload["notes"],
+        "history": history_payload["history"],
     }
 
 

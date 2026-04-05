@@ -124,6 +124,72 @@ def _legacy_staff_required(request):
     return (admin, designer), None
 
 
+def _truthy_query_param(request, key: str) -> bool:
+    value = request.query_params.get(key)
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _history_limit_from_request(request, default: int = 20, max_limit: int = 100) -> int:
+    raw_value = request.query_params.get("history_limit")
+    if raw_value in (None, ""):
+        return default
+    try:
+        limit = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(limit, max_limit))
+
+
+def _build_legacy_capture_preview_rows(payload: dict) -> list[dict]:
+    return [
+        {
+            "processed_path": (
+                row.get("processed_image_url")
+                or row.get("deidentified_image_url")
+                or row.get("original_image_url")
+            ),
+            "created_at": row.get("created_at"),
+        }
+        for row in payload["capture_history"]
+    ]
+
+
+def _build_legacy_customer_detail_payload(payload: dict) -> dict:
+    return {
+        "id": payload["client"]["client_id"],
+        "legacy_client_id": payload["client"].get("legacy_client_id"),
+        "name": payload["client"]["name"],
+        "phone": payload["client"]["phone"],
+        "survey": payload.get("latest_survey"),
+        "face_analyses": payload["analysis_history"],
+        "reanalysis": payload.get("reanalysis"),
+        "designer_diagnosis": payload.get("designer_diagnosis"),
+        "session_status": payload.get("session_status"),
+        "customer_note": payload.get("customer_note"),
+        "active_consultation": payload.get("active_consultation"),
+        "notes": payload.get("notes", []),
+        "captures": _build_legacy_capture_preview_rows(payload),
+        "history": payload.get("history"),
+    }
+
+
+def _build_legacy_customer_history_payload(payload: dict) -> dict:
+    return {
+        "id": payload["client"]["client_id"],
+        "legacy_client_id": payload["client"].get("legacy_client_id"),
+        "analysis_history": payload["analysis_history"],
+        "face_analyses": payload["analysis_history"],
+        "capture_history": payload["capture_history"],
+        "captures": _build_legacy_capture_preview_rows(payload),
+        "style_selection_history": payload["style_selection_history"],
+        "chosen_recommendation_history": payload["chosen_recommendation_history"],
+        "notes": payload.get("notes", []),
+        "history": payload.get("history"),
+    }
+
+
 def _legacy_shop_required(
     request,
     *,
@@ -277,10 +343,54 @@ class AdminClientDetailView(AdminProtectedAPIView):
     )
     def get(self, request):
         client = _get_client_or_404(request.query_params.get("client_id"))
+        include_history = _truthy_query_param(request, "include_history")
+        history_limit = _history_limit_from_request(request)
         try:
-            return Response(get_client_detail(client=client, admin=request.user))
+            return Response(
+                get_client_detail(
+                    client=client,
+                    admin=request.user,
+                    include_history=include_history,
+                    history_limit=history_limit,
+                )
+            )
         except ValueError as exc:
             return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
+
+
+class AdminClientHistoryView(AdminProtectedAPIView):
+    @extend_schema(
+        summary="Admin client history detail",
+        parameters=[
+            OpenApiParameter("client_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True),
+            OpenApiParameter("history_limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        client = _get_client_or_404(request.query_params.get("client_id"))
+        history_limit = _history_limit_from_request(request)
+        try:
+            payload = get_client_detail(
+                client=client,
+                admin=request.user,
+                include_history=True,
+                history_limit=history_limit,
+            )
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                "status": payload["status"],
+                "client": payload["client"],
+                "history": payload["history"],
+                "analysis_history": payload["analysis_history"],
+                "capture_history": payload["capture_history"],
+                "style_selection_history": payload["style_selection_history"],
+                "chosen_recommendation_history": payload["chosen_recommendation_history"],
+                "notes": payload["notes"],
+            }
+        )
 
 
 class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
@@ -295,38 +405,48 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
         admin, designer = staff
 
         client = _get_client_or_404(pk)
+        include_history = _truthy_query_param(request, "include_history")
+        history_limit = _history_limit_from_request(request)
         try:
-            payload = get_client_detail(client=client, admin=admin, designer=designer)
+            payload = get_client_detail(
+                client=client,
+                admin=admin,
+                designer=designer,
+                include_history=include_history,
+                history_limit=history_limit,
+            )
         except ValueError as exc:
             return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
 
-        return Response(
-            {
-                "id": payload["client"]["client_id"],
-                "legacy_client_id": payload["client"].get("legacy_client_id"),
-                "name": payload["client"]["name"],
-                "phone": payload["client"]["phone"],
-                "survey": payload.get("latest_survey"),
-                "face_analyses": payload["analysis_history"],
-                "reanalysis": payload.get("reanalysis"),
-                "designer_diagnosis": payload.get("designer_diagnosis"),
-                "session_status": payload.get("session_status"),
-                "customer_note": payload.get("customer_note"),
-                "active_consultation": payload.get("active_consultation"),
-                "notes": payload.get("notes", []),
-                "captures": [
-                    {
-                        "processed_path": (
-                            row.get("processed_image_url")
-                            or row.get("deidentified_image_url")
-                            or row.get("original_image_url")
-                        ),
-                        "created_at": row.get("created_at"),
-                    }
-                    for row in payload["capture_history"]
-                ],
-            }
-        )
+        return Response(_build_legacy_customer_detail_payload(payload))
+
+
+class LegacyAdminClientHistoryView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Legacy customer history for template dashboard",
+        parameters=[OpenApiParameter("history_limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False)],
+        responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, pk):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, designer = staff
+
+        client = _get_client_or_404(pk)
+        history_limit = _history_limit_from_request(request)
+        try:
+            payload = get_client_detail(
+                client=client,
+                admin=admin,
+                designer=designer,
+                include_history=True,
+                history_limit=history_limit,
+            )
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
+
+        return Response(_build_legacy_customer_history_payload(payload))
 
 
 class LegacyDesignerDiagnosisCardView(CompatEnvelopeAPIView):
