@@ -320,6 +320,8 @@ class LegacyAllClientsView(CompatEnvelopeAPIView):
                 "name": item["name"],
                 "phone": item["phone"],
                 "created_at": item["created_at"],
+                "last_visit_date": item.get("last_visit_date"),
+                "visit_count": item.get("visit_count", 0),
                 "designer_id": item["designer_id"],
                 "legacy_designer_id": item.get("legacy_designer_id"),
                 "designer_name": item["designer_name"],

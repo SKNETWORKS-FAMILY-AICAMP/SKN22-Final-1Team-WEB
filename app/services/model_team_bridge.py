@@ -1163,6 +1163,62 @@ def _build_legacy_age_profile(row: dict) -> dict | None:
     return build_age_profile(age=age_input, birth_year_estimate=birth_year_estimate, reference_date=timezone.localdate())
 
 
+
+def get_legacy_client_visit_summary_map(
+    *,
+    admin: AdminAccount | None = None,
+    designer: Designer | None = None,
+    client: Client | None = None,
+) -> dict[str, dict]:
+    if not _has_columns("client_result", LEGACY_RESULT_MODEL_COLUMNS):
+        return {}
+
+    rows = list(_legacy_result_queryset(admin=admin, designer=designer, client=client))
+    if not rows:
+        return {}
+
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        legacy_client_id = str(row.client_id or "").strip()
+        backend_client_id = str(row.backend_client_ref_id or "").strip()
+        identity = legacy_client_id or backend_client_id
+        if not identity:
+            continue
+
+        summary = grouped.setdefault(
+            identity,
+            {
+                "legacy_client_id": legacy_client_id,
+                "backend_client_id": backend_client_id,
+                "visit_count": 0,
+                "last_visit_date": None,
+            },
+        )
+        if legacy_client_id and not summary["legacy_client_id"]:
+            summary["legacy_client_id"] = legacy_client_id
+        if backend_client_id and not summary["backend_client_id"]:
+            summary["backend_client_id"] = backend_client_id
+
+        summary["visit_count"] += 1
+        event_at = _coerce_datetime(row.updated_at) or _coerce_datetime(row.created_at)
+        if event_at is not None and (
+            summary["last_visit_date"] is None or event_at > summary["last_visit_date"]
+        ):
+            summary["last_visit_date"] = event_at
+
+    lookup: dict[str, dict] = {}
+    for summary in grouped.values():
+        payload = {
+            "visit_count": int(summary["visit_count"] or 0),
+            "last_visit_date": summary["last_visit_date"],
+        }
+        for key in {
+            str(summary["legacy_client_id"] or "").strip(),
+            str(summary["backend_client_id"] or "").strip(),
+        }:
+            if key:
+                lookup[key] = payload
+    return lookup
 def get_legacy_active_consultation_items(
     *,
     admin: AdminAccount | None = None,
