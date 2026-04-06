@@ -1,7 +1,7 @@
 {% extends "layouts/base_site.html" %}
 {% load static %}
 
-{% block page_title %}MirrAI | Customer Detail{% endblock %}
+{% block page_title %}MirrAI | 고객 상세{% endblock %}
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
@@ -499,6 +499,12 @@
   </div>
 </div>
 
+{% if show_customer_detail_chatbot %}
+<template id="customerDetailChatbotTemplate">
+  {% include "components/chatbot_customer_detail_section.html" %}
+</template>
+{% endif %}
+
 <div id="retryChoiceModal" class="retry-modal is-hidden" aria-hidden="true">
   <div class="retry-modal-card">
     <h3 class="section-title" style="font-size: 22px; margin-bottom: 8px;">재분석 방식 선택</h3>
@@ -532,6 +538,9 @@
 {% endblock %}
 
 {% block page_scripts %}
+{% if show_customer_detail_chatbot %}
+<script src="{% static 'shared/js/chatbot.js' %}"></script>
+{% endif %}
 <script>
   (function () {
     const clientId = "{{ client_id }}";
@@ -540,11 +549,14 @@
     const retryKeepPreferenceBtn = document.getElementById('retryKeepPreferenceBtn');
     const retryChooseAgainBtn = document.getElementById('retryChooseAgainBtn');
     const retryStatusMessage = document.getElementById('retryStatusMessage');
-    const diagnosisStorageKey = `mirrai-designer-diagnosis-${clientId}`;
+    const customerDetailChatbotTemplate = document.getElementById('customerDetailChatbotTemplate');
+    const diagnosisApiUrl = `/api/v1/customers/${clientId}/diagnosis-card/`;
+    const customerNoteApiUrl = `/api/v1/customers/${clientId}/customer-note/`;
 
     let currentCustomer = null;
     let latestRetryPreviewHtml = '';
     let diagnosisEditorCollapsed = false;
+    let currentDiagnosisState = defaultDiagnosisState();
 
     const diagnosisOptionGroups = {
       hairTexture: [
@@ -560,7 +572,7 @@
       ],
       specialNotes: [
         { value: 'bleach_history', label: '탈색 이력' },
-        { value: 'black_red_cover', label: '블랙/레드 덮음' },
+        { value: 'black_red_cover', label: '블랙/레드 덮염' },
         { value: 'natural_curl', label: '곱슬기 있음' },
         { value: 'self_coloring', label: '셀프 염색' },
         { value: 'head_shape_density', label: '두상/모량 특이사항' }
@@ -607,10 +619,31 @@
     }
 
     function normalizeDiagnosisState(state) {
-      const fallback = defaultDiagnosisState();
-      const nextState = Object.assign({}, fallback, state || {});
-      nextState.specialNotes = Array.isArray(nextState.specialNotes) ? nextState.specialNotes : [];
-      nextState.specialMemo = String(nextState.specialMemo || '');
+      const source = state || {};
+      const specialNotesSource = Array.isArray(source.specialNotes)
+        ? source.specialNotes
+        : (Array.isArray(source.special_notes) ? source.special_notes : []);
+      const nextState = {
+        hairTexture: String(source.hairTexture ?? source.hair_texture ?? '').trim(),
+        damageLevel: String(source.damageLevel ?? source.damage_level ?? '').trim(),
+        specialNotes: Array.from(new Set(
+          specialNotesSource
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        )),
+        specialMemo: String(source.specialMemo ?? source.special_memo ?? '').trim(),
+        hasContent: Boolean(source.hasContent ?? source.has_content ?? false),
+        updatedAt: source.updatedAt ?? source.updated_at ?? null,
+        updatedBy: source.updatedBy ?? source.updated_by ?? null,
+        storageReady: source.storageReady ?? source.storage_ready ?? true,
+      };
+      nextState.hasContent = Boolean(
+        nextState.hasContent
+        || nextState.hairTexture
+        || nextState.damageLevel
+        || nextState.specialNotes.length
+        || nextState.specialMemo
+      );
       return nextState;
     }
 
@@ -624,20 +657,28 @@
       );
     }
 
-    function loadDiagnosisState() {
-      try {
-        return normalizeDiagnosisState(JSON.parse(window.localStorage.getItem(diagnosisStorageKey) || '{}'));
-      } catch (error) {
-        return defaultDiagnosisState();
+    function buildDiagnosisRequestPayload(state) {
+      const diagnosisState = normalizeDiagnosisState(state);
+      return {
+        hair_texture: diagnosisState.hairTexture,
+        damage_level: diagnosisState.damageLevel,
+        special_notes: diagnosisState.specialNotes,
+        special_memo: diagnosisState.specialMemo,
+      };
+    }
+
+    function setCurrentDiagnosisState(state) {
+      currentDiagnosisState = normalizeDiagnosisState(state);
+      if (currentCustomer) {
+        currentCustomer.designer_diagnosis = {
+          ...buildDiagnosisRequestPayload(currentDiagnosisState),
+          has_content: currentDiagnosisState.hasContent,
+          updated_at: currentDiagnosisState.updatedAt,
+          updated_by: currentDiagnosisState.updatedBy,
+          storage_ready: currentDiagnosisState.storageReady,
+        };
       }
-    }
-
-    function saveDiagnosisState(state) {
-      window.localStorage.setItem(diagnosisStorageKey, JSON.stringify(normalizeDiagnosisState(state)));
-    }
-
-    function clearDiagnosisState() {
-      window.localStorage.removeItem(diagnosisStorageKey);
+      return currentDiagnosisState;
     }
 
     function buildDiagnosisChipGroup(options, fieldName, multiSelect) {
@@ -763,24 +804,24 @@
             <div class="action-strip">
               <div class="action-copy">
                 <span class="info-label">디자이너 진단 카드</span>
-                <p class="diagnosis-copy">고객 취향 카드 바로 아래에서 같은 방식으로 현재 진단 상태를 정리하고 바로 수정할 수 있습니다.</p>
+                <p class="diagnosis-copy">고객 취향 카드 아래에서 현재 모발 상태를 정리하고 서버에 저장할 수 있습니다. 같은 고객 상세 화면에 다시 들어와도 저장된 진단 내용을 이어서 확인할 수 있습니다.</p>
               </div>
             </div>
 
             <div class="diagnosis-meta">
-              <strong>프론트 임시 저장 모드</strong>
-              <p>지금은 서버 저장 없이 이 브라우저에만 임시 저장됩니다. 백엔드 연결 전까지 빠르게 입력 흐름을 확인하는 용도입니다.</p>
+              <strong>세션 상태 연동</strong>
+              <p id="designerDiagnosisSessionHint">세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다. 세션이 없는 경우 저장된 내용을 읽기 전용으로만 확인할 수 있습니다.</p>
             </div>
 
             <div class="diagnosis-grid">
               <section class="survey-item diagnosis-item" data-diagnosis-card="hairTexture">
                 <div class="diagnosis-item-head">
-                  <span class="survey-tag">모질</span>
+                  <span class="survey-tag">모발 굵기</span>
                   <div class="diagnosis-value-row">
                     <div id="designerDiagnosisHairTextureValue" class="survey-value diagnosis-value is-empty">선택 전</div>
                     <span class="diagnosis-edit-badge">수정 가능</span>
                   </div>
-                  <p class="diagnosis-help">펌제 침투 속도와 방치 시간을 결정하는 기준입니다.</p>
+                  <p class="diagnosis-help">커트 각도와 시술 난도를 결정하는 기준입니다.</p>
                 </div>
                 <div class="diagnosis-chip-group diagnosis-editor-block">
                   ${buildDiagnosisChipGroup(diagnosisOptionGroups.hairTexture, 'hairTexture', false)}
@@ -794,7 +835,7 @@
                     <div id="designerDiagnosisDamageLevelValue" class="survey-value diagnosis-value is-empty">선택 전</div>
                     <span class="diagnosis-edit-badge">수정 가능</span>
                   </div>
-                  <p class="diagnosis-help">시술 가능 여부, 열기구 온도, 전처리 강도를 판단하는 기준입니다.</p>
+                  <p class="diagnosis-help">시술 가능 여부와 약제, 열 처리 강도를 판단하는 기준입니다.</p>
                 </div>
                 <div class="diagnosis-chip-group diagnosis-editor-block">
                   ${buildDiagnosisChipGroup(diagnosisOptionGroups.damageLevel, 'damageLevel', false)}
@@ -810,7 +851,7 @@
                     </div>
                     <span class="diagnosis-edit-badge">복수 선택</span>
                   </div>
-                  <p class="diagnosis-help">시술 사고 방지와 상담 맥락 정리에 필요한 항목입니다. 여러 개를 함께 체크할 수 있습니다.</p>
+                  <p class="diagnosis-help">상담 중 계속 참고해야 할 경고 사항이나 시술 이력을 빠르게 체크해 주세요.</p>
                 </div>
                 <div class="diagnosis-chip-group diagnosis-editor-block">
                   ${buildDiagnosisChipGroup(diagnosisOptionGroups.specialNotes, 'specialNotes', true)}
@@ -824,22 +865,22 @@
                     <div id="designerDiagnosisMemoPreview" class="diagnosis-note-preview is-empty">메모 없음</div>
                     <span class="diagnosis-edit-badge">직접 입력</span>
                   </div>
-                  <p class="diagnosis-help">모발 상태, 상담 포인트, 주의사항처럼 자유롭게 남기고 싶은 내용을 적어둘 수 있습니다.</p>
+                  <p class="diagnosis-help">모발 상태, 상담 포인트, 주의사항처럼 고객에게 따로 남겨둘 내용을 자유롭게 적을 수 있습니다.</p>
                 </div>
                 <div class="diagnosis-editor-block">
-                  <textarea id="designerDiagnosisMemo" class="form-input diagnosis-textarea" placeholder="예: 뿌리 볼륨은 필요하지만 끝선 손상이 있어 열기구 온도를 낮춰야 함"></textarea>
+                  <textarea id="designerDiagnosisMemo" class="form-input diagnosis-textarea" placeholder="예: 뿌리 볼륨은 필요하지만 끝선 손상이 있어 열 기구 강도를 낮춰야 함"></textarea>
                 </div>
               </section>
             </div>
 
             <div class="diagnosis-actions">
               <div id="diagnosisEditActions" class="diagnosis-actions-left">
-                <button type="button" id="saveDiagnosisDraftBtn" class="btn btn-primary" style="height: 46px; padding: 0 20px;">임시 저장</button>
+                <button type="button" id="saveDiagnosisDraftBtn" class="btn btn-primary" style="height: 46px; padding: 0 20px;">저장</button>
                 <button type="button" id="resetDiagnosisDraftBtn" class="btn btn-dark" style="height: 46px; padding: 0 20px;">초기화</button>
               </div>
               <div class="diagnosis-actions-right">
                 <button type="button" id="toggleDiagnosisEditorBtn" class="btn btn-dark" style="height: 46px; padding: 0 20px;">요약만 보기</button>
-                <div id="diagnosisDraftStatus" class="diagnosis-status is-muted">브라우저 임시 저장 전</div>
+                <div id="diagnosisDraftStatus" class="diagnosis-status is-muted">아직 저장 전입니다.</div>
               </div>
             </div>
           </div>
@@ -900,24 +941,70 @@
       statusEl.classList.add(tone === 'success' ? 'is-success' : 'is-muted');
     }
 
+    function setDiagnosisEditorEnabled(isEnabled) {
+      detailContent.querySelectorAll('.diagnosis-chip').forEach((chip) => {
+        chip.classList.toggle('is-disabled', !isEnabled);
+        chip.style.pointerEvents = isEnabled ? '' : 'none';
+        chip.tabIndex = isEnabled ? 0 : -1;
+      });
+
+      const memoField = document.getElementById('designerDiagnosisMemo');
+      if (memoField) {
+        memoField.disabled = !isEnabled;
+      }
+    }
+
     function bindDiagnosisCard() {
       const chips = detailContent.querySelectorAll('.diagnosis-chip');
+      const editBadges = detailContent.querySelectorAll('.diagnosis-edit-badge');
       const memoField = document.getElementById('designerDiagnosisMemo');
       const saveBtn = document.getElementById('saveDiagnosisDraftBtn');
       const resetBtn = document.getElementById('resetDiagnosisDraftBtn');
       const toggleBtn = document.getElementById('toggleDiagnosisEditorBtn');
-      const savedState = loadDiagnosisState();
+      const sessionHint = document.getElementById('designerDiagnosisSessionHint');
+      const sessionStatus = currentCustomer && currentCustomer.session_status ? currentCustomer.session_status : {};
+      const savedState = setCurrentDiagnosisState(currentCustomer && currentCustomer.designer_diagnosis);
       const hasSavedDiagnosis = hasDiagnosisContent(savedState);
+      const storageReady = savedState.storageReady !== false;
+      const sessionActive = Boolean(sessionStatus.is_active);
+      const canWriteDiagnosis = Boolean(sessionStatus.can_write_designer_diagnosis) && storageReady;
 
       applyDiagnosisState(savedState);
       setDiagnosisEditorCollapsed(hasSavedDiagnosis);
+      setDiagnosisEditorEnabled(canWriteDiagnosis);
+      editBadges.forEach((badge) => {
+        badge.textContent = canWriteDiagnosis ? '수정 가능' : '읽기 전용';
+      });
 
-      if (hasSavedDiagnosis) {
-        setDiagnosisStatus('이 브라우저에 저장된 진단 초안을 불러왔습니다.', 'success');
+      if (saveBtn) {
+        saveBtn.disabled = !canWriteDiagnosis;
+        saveBtn.style.opacity = canWriteDiagnosis ? '1' : '0.55';
+      }
+      if (resetBtn) {
+        resetBtn.disabled = !canWriteDiagnosis;
+        resetBtn.style.opacity = canWriteDiagnosis ? '1' : '0.55';
+      }
+      if (sessionHint) {
+        sessionHint.textContent = sessionActive
+          ? '세션 진행 중인 고객입니다. 디자이너 진단 카드를 작성하고 저장할 수 있습니다.'
+          : '세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다. 현재는 저장된 내용을 읽기 전용으로만 확인할 수 있습니다.';
+      }
+
+      if (!storageReady) {
+        setDiagnosisStatus('디자이너 진단 카드 저장 테이블이 아직 준비되지 않았습니다. 마이그레이션 적용 후 다시 시도해 주세요.', 'muted');
+      } else if (!sessionActive) {
+        setDiagnosisStatus('세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다.', 'muted');
+      } else if (hasSavedDiagnosis) {
+        setDiagnosisStatus('저장된 진단 카드 내용을 불러왔습니다.', 'success');
+      } else {
+        setDiagnosisStatus('아직 저장 전입니다.', 'muted');
       }
 
       chips.forEach((chip) => {
         chip.addEventListener('click', () => {
+          if (!canWriteDiagnosis) {
+            return;
+          }
           const field = chip.dataset.field;
           const isMulti = chip.dataset.multi === 'true';
           const wasSelected = chip.classList.contains('is-selected');
@@ -936,33 +1023,103 @@
             }
           }
 
-          updateDiagnosisSummary(collectDiagnosisState());
-          setDiagnosisStatus('변경 내용이 있습니다. 임시 저장을 눌러 보관할 수 있습니다.', 'muted');
+          const nextState = setCurrentDiagnosisState(collectDiagnosisState());
+          updateDiagnosisSummary(nextState);
+          setDiagnosisStatus('변경 사항이 있습니다. 저장 버튼을 눌러 반영해 주세요.', 'muted');
         });
       });
 
       if (memoField) {
         memoField.addEventListener('input', () => {
-          updateDiagnosisSummary(collectDiagnosisState());
-          setDiagnosisStatus('메모가 변경되었습니다. 임시 저장을 눌러 보관할 수 있습니다.', 'muted');
+          if (!canWriteDiagnosis) {
+            return;
+          }
+          const nextState = setCurrentDiagnosisState(collectDiagnosisState());
+          updateDiagnosisSummary(nextState);
+          setDiagnosisStatus('메모가 변경되었습니다. 저장 버튼을 눌러 반영해 주세요.', 'muted');
         });
       }
 
       if (saveBtn) {
-        saveBtn.addEventListener('click', () => {
+        saveBtn.addEventListener('click', async () => {
+          if (!canWriteDiagnosis) {
+            return;
+          }
           const nextState = collectDiagnosisState();
-          saveDiagnosisState(nextState);
-          setDiagnosisEditorCollapsed(true);
-          setDiagnosisStatus('디자이너 진단 카드가 이 브라우저에 임시 저장되었습니다.', 'success');
+          saveBtn.disabled = true;
+          if (resetBtn) {
+            resetBtn.disabled = true;
+          }
+          setDiagnosisStatus('진단 카드를 저장하는 중입니다...', 'muted');
+
+          try {
+            const response = await fetch(diagnosisApiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+              },
+              body: JSON.stringify(buildDiagnosisRequestPayload(nextState))
+            });
+            const rawData = await response.json();
+            const data = rawData.data || rawData;
+            if (!response.ok) {
+              throw new Error(data.detail || data.message || '진단 카드 저장에 실패했습니다.');
+            }
+
+            const savedState = setCurrentDiagnosisState(data.designer_diagnosis || data.card || defaultDiagnosisState());
+            applyDiagnosisState(savedState);
+            setDiagnosisEditorCollapsed(hasDiagnosisContent(savedState));
+            setDiagnosisStatus('저장 완료되었습니다.', 'success');
+          } catch (error) {
+            setDiagnosisStatus(error.message || '진단 카드 저장에 실패했습니다.', 'muted');
+          } finally {
+            saveBtn.disabled = false;
+            if (resetBtn) {
+              resetBtn.disabled = false;
+            }
+          }
         });
       }
 
       if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-          clearDiagnosisState();
-          applyDiagnosisState(defaultDiagnosisState());
-          setDiagnosisEditorCollapsed(false);
-          setDiagnosisStatus('임시 저장된 진단 카드 내용을 초기화했습니다.', 'muted');
+        resetBtn.addEventListener('click', async () => {
+          if (!canWriteDiagnosis) {
+            return;
+          }
+          resetBtn.disabled = true;
+          if (saveBtn) {
+            saveBtn.disabled = true;
+          }
+          setDiagnosisStatus('저장된 진단 카드를 초기화하는 중입니다...', 'muted');
+
+          try {
+            const response = await fetch(diagnosisApiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+              },
+              body: JSON.stringify(buildDiagnosisRequestPayload(defaultDiagnosisState()))
+            });
+            const rawData = await response.json();
+            const data = rawData.data || rawData;
+            if (!response.ok) {
+              throw new Error(data.detail || data.message || '진단 카드 초기화에 실패했습니다.');
+            }
+
+            const clearedState = setCurrentDiagnosisState(data.designer_diagnosis || defaultDiagnosisState());
+            applyDiagnosisState(clearedState);
+            setDiagnosisEditorCollapsed(false);
+            setDiagnosisStatus('진단 카드가 초기화되었습니다.', 'success');
+          } catch (error) {
+            setDiagnosisStatus(error.message || '진단 카드 초기화에 실패했습니다.', 'muted');
+          } finally {
+            resetBtn.disabled = false;
+            if (saveBtn) {
+              saveBtn.disabled = false;
+            }
+          }
         });
       }
 
@@ -971,8 +1128,8 @@
           setDiagnosisEditorCollapsed(!diagnosisEditorCollapsed);
           setDiagnosisStatus(
             diagnosisEditorCollapsed
-              ? '저장된 진단 카드 요약만 보고 있습니다. 수정하려면 수정하기를 눌러 주세요.'
-              : '디자이너 진단 카드를 다시 수정할 수 있습니다.',
+              ? '저장된 요약만 보고 있습니다. 수정하려면 수정하기를 눌러 주세요.'
+              : '진단 카드를 다시 수정할 수 있습니다.',
             'muted'
           );
         });
@@ -1024,6 +1181,13 @@
       `;
     }
 
+    function buildCustomerDetailChatbotSection() {
+      if (!customerDetailChatbotTemplate) {
+        return '';
+      }
+      return customerDetailChatbotTemplate.innerHTML.trim();
+    }
+
     function renderCustomerDetail(customer) {
       const surveyCreatedAt = customer.survey && customer.survey.created_at;
       const firstAnalysis = Array.isArray(customer.face_analyses) ? customer.face_analyses[0] : null;
@@ -1041,6 +1205,11 @@
           <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 0;">
             ${escapeHtml(customer.phone || '연락처 없음')} | 최근 분석일 ${escapeHtml(formatDate(surveyCreatedAt || (firstAnalysis && firstAnalysis.created_at) || (firstCapture && firstCapture.created_at)))}
           </p>
+          <div style="margin-top: 12px;">
+            <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:${customer.session_status && customer.session_status.is_active ? 'rgba(21, 128, 61, 0.12)' : 'rgba(71, 85, 105, 0.12)'}; color:${customer.session_status && customer.session_status.is_active ? '#166534' : '#475569'}; font-size:12px; font-weight:700;">
+              ${customer.session_status && customer.session_status.is_active ? '세션 진행 중 · 진단 카드 작성 가능' : '세션 없음 · 진단 카드 읽기 전용'}
+            </span>
+          </div>
         </div>
 
         <div class="info-group">
@@ -1056,6 +1225,8 @@
         </div>
 
         ${buildDiagnosisSection()}
+
+        ${buildCustomerDetailChatbotSection()}
 
         <div class="info-group">
           <div class="action-strip">
@@ -1073,9 +1244,10 @@
         ${latestRetryPreviewHtml}
 
         <div class="info-group">
-          <span class="info-label">디자이너 상담 메모</span>
-          <textarea class="form-input" style="height: 120px; padding: 16px; font-size: 14px;" placeholder="상담 내용을 입력하세요..."></textarea>
-          <button class="btn btn-dark" style="margin-top: 16px; width: 100%;">상담 내용 저장</button>
+          <span class="info-label">고객 메모</span>
+          <textarea id="customerNoteInput" class="form-input" style="height: 120px; padding: 16px; font-size: 14px;" placeholder="고객 메모를 입력해 주세요..."></textarea>
+          <button id="saveCustomerNoteBtn" class="btn btn-dark" style="margin-top: 16px; width: 100%;">고객 메모 저장</button>
+          <div id="customerNoteStatus" class="diagnosis-status is-muted" style="margin-top: 12px;">저장 전입니다.</div>
         </div>
       `;
 
@@ -1085,6 +1257,65 @@
       }
 
       bindDiagnosisCard();
+      bindCustomerNote(customer);
+      if (window.initMirraiChatbot) {
+        window.initMirraiChatbot();
+      }
+    }
+
+    function bindCustomerNote(customer) {
+      const noteField = document.getElementById('customerNoteInput');
+      const saveBtn = document.getElementById('saveCustomerNoteBtn');
+      const statusEl = document.getElementById('customerNoteStatus');
+
+      if (!noteField || !saveBtn || !statusEl) {
+        return;
+      }
+
+      const customerNote = customer && customer.customer_note ? customer.customer_note : null;
+      if (customerNote && customerNote.content) {
+        noteField.value = customerNote.content;
+      }
+
+      saveBtn.addEventListener('click', async () => {
+        const content = noteField.value.trim();
+        saveBtn.disabled = true;
+        statusEl.textContent = '고객 메모를 저장하는 중입니다...';
+        statusEl.classList.remove('is-success');
+        statusEl.classList.add('is-muted');
+
+        try {
+          const response = await fetch(customerNoteApiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ content })
+          });
+          const rawData = await response.json();
+          const data = rawData.data || rawData;
+          if (!response.ok) {
+            throw new Error(data.detail || data.message || '고객 메모 저장에 실패했습니다.');
+          }
+
+          if (currentCustomer) {
+            currentCustomer.customer_note = data.customer_note || {
+              content,
+              has_content: Boolean(content),
+            };
+          }
+          statusEl.textContent = data.message || '저장 완료되었습니다.';
+          statusEl.classList.remove('is-muted');
+          statusEl.classList.add('is-success');
+        } catch (error) {
+          statusEl.textContent = error.message || '고객 메모 저장에 실패했습니다.';
+          statusEl.classList.remove('is-success');
+          statusEl.classList.add('is-muted');
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
     }
 
     function openRetryChoice(customer) {
@@ -1199,3 +1430,4 @@
   })();
 </script>
 {% endblock %}
+

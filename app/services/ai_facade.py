@@ -5,7 +5,6 @@ import os
 import time
 from math import dist
 from types import SimpleNamespace
-from urllib import error, request
 
 import requests
 
@@ -31,6 +30,18 @@ _AI_HEALTH_CACHE: dict[str, object] = {
 
 def _service_base_url() -> str:
     return os.environ.get("MIRRAI_AI_SERVICE_URL", "").rstrip("/")
+
+
+def _internal_api_token() -> str:
+    return os.environ.get("MIRRAI_INTERNAL_API_TOKEN", "").strip()
+
+
+def _legacy_internal_api_key() -> str:
+    return os.environ.get("MIRRAI_INTERNAL_API_KEY", "").strip()
+
+
+def _service_api_version() -> str:
+    return os.environ.get("MIRRAI_AI_API_VERSION", "").strip()
 
 
 def _runpod_base_url() -> str:
@@ -66,10 +77,10 @@ def _ai_provider() -> str:
     configured = os.environ.get("MIRRAI_AI_PROVIDER", "").strip().lower()
     if configured in {"runpod", "service", "local"}:
         return configured
-    if _runpod_enabled():
-        return "runpod"
     if _service_base_url():
         return "service"
+    if _runpod_enabled():
+        return "runpod"
     return "local"
 
 
@@ -107,24 +118,207 @@ def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, 
         return None
 
 
-def _post_json(path: str, payload: dict) -> dict | None:
+def _service_headers(*, include_json_content_type: bool) -> dict[str, str]:
+    headers = {
+        "Accept": "application/json",
+    }
+    token = _internal_api_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    legacy_api_key = _legacy_internal_api_key()
+    if legacy_api_key:
+        headers["X-Internal-API-Key"] = legacy_api_key
+    api_version = _service_api_version()
+    if api_version:
+        headers["X-MirrAI-API-Version"] = api_version
+    if include_json_content_type:
+        headers["Content-Type"] = "application/json"
+    return headers
+
+
+def _request_service(method: str, path: str, payload: dict | None = None) -> dict | None:
     base_url = _service_base_url()
     if not base_url:
         return None
 
-    body = json.dumps(payload).encode("utf-8")
-    req = request.Request(
-        url=f"{base_url}{path}",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with request.urlopen(req, timeout=_service_timeout()) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        response = requests.request(
+            method=method.upper(),
+            url=f"{base_url}{path}",
+            json=payload if payload is not None else None,
+            headers=_service_headers(include_json_content_type=payload is not None),
+            timeout=(3, _service_timeout()),
+        )
+        try:
+            parsed = response.json()
+        except ValueError:
+            parsed = None
+
+        if response.ok:
+            if isinstance(parsed, dict):
+                return parsed
+            logger.warning(
+                "AI service returned a non-JSON success response. method=%s path=%s status=%s",
+                method.upper(),
+                path,
+                response.status_code,
+            )
+            return None
+
+        error_code = None
+        retryable = None
+        message = response.text[:200]
+        if isinstance(parsed, dict):
+            error_code = parsed.get("error_code")
+            retryable = parsed.get("retryable")
+            message = parsed.get("message") or parsed.get("detail") or message
+        logger.warning(
+            "AI service request failed. method=%s path=%s status=%s error_code=%s retryable=%s message=%s",
+            method.upper(),
+            path,
+            response.status_code,
+            error_code,
+            retryable,
+            message,
+        )
+        return None
+    except requests.RequestException as exc:
         logger.warning("Falling back to local AI facade after remote call failure: %s", exc)
         return None
+
+
+def _response_meta(payload: dict | None) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        "schema_version": payload.get("schema_version"),
+        "response_version": payload.get("response_version"),
+        "request_id": payload.get("request_id"),
+        "processing_time_ms": payload.get("processing_time_ms"),
+    }
+
+
+def _with_response_meta(data: dict, payload: dict | None) -> dict:
+    metadata = {key: value for key, value in _response_meta(payload).items() if value is not None}
+    if metadata:
+        data.setdefault("response_meta", metadata)
+    return data
+
+
+def _unwrap_service_data(payload: dict | None, *, allow_partial_success: bool = False) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+
+    status = str(payload.get("status") or "").lower()
+    data = payload.get("data")
+    if isinstance(data, dict):
+        if status == "success" or (allow_partial_success and status == "partial_success"):
+            normalized = dict(data)
+            partial_failures = payload.get("partial_failures")
+            if allow_partial_success and status == "partial_success" and isinstance(partial_failures, list):
+                normalized["partial_failures"] = list(partial_failures)
+            normalized["service_status"] = status
+            return _with_response_meta(normalized, payload)
+        if status == "error":
+            logger.warning(
+                "AI service returned an error payload. error_code=%s message=%s retryable=%s",
+                payload.get("error_code"),
+                payload.get("message"),
+                payload.get("retryable"),
+            )
+            return None
+    return payload
+
+
+def _normalize_health_payload(payload: dict | None) -> dict | None:
+    data = _unwrap_service_data(payload) or payload
+    if not isinstance(data, dict):
+        return None
+
+    raw_status = str((payload or {}).get("status") or data.get("status") or "success").lower()
+    if raw_status in {"success", "ok", "ready"}:
+        status = "online"
+    elif raw_status == "partial_success":
+        status = "degraded"
+    elif raw_status in {"reachable", "warning"}:
+        status = "reachable"
+    elif raw_status in {"offline", "error"}:
+        status = "offline"
+    else:
+        status = raw_status
+
+    return {
+        "status": status,
+        "mode": "service",
+        "message": data.get("role") or data.get("message") or "ai-microservice",
+        "service_role": data.get("role"),
+        "build_version": data.get("build_version"),
+        "model_version": data.get("model_version"),
+        "uptime_seconds": data.get("uptime_seconds"),
+        "service_status": data.get("service_status") or raw_status,
+        **_response_meta(payload),
+    }
+
+
+def _normalize_analysis_payload(payload: dict | None, *, fallback_image_url: str | None) -> dict | None:
+    data = _unwrap_service_data(payload) or payload
+    if not isinstance(data, dict):
+        return None
+    if data.get("face_shape") is None or data.get("golden_ratio_score") is None:
+        return None
+
+    normalized = dict(data)
+    visualization = normalized.get("visualization")
+    if isinstance(visualization, dict) and visualization.get("image_url") and not normalized.get("image_url"):
+        normalized["image_url"] = visualization["image_url"]
+    normalized.setdefault("image_url", fallback_image_url)
+    return _with_response_meta(normalized, payload)
+
+
+def _normalize_simulation_items(payload: dict | None) -> list[dict] | None:
+    data = _unwrap_service_data(payload, allow_partial_success=True)
+    if not isinstance(data, dict):
+        return None
+
+    items = data.get("items")
+    if not isinstance(items, list):
+        return None
+
+    partial_failures = data.get("partial_failures")
+    normalized_items: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        if normalized.get("match_score") is None and normalized.get("score") is not None:
+            normalized["match_score"] = normalized.get("score")
+        simulation_image_url = normalized.get("simulation_image_url")
+        if simulation_image_url and not normalized.get("synthetic_image_url"):
+            normalized["synthetic_image_url"] = simulation_image_url
+        reasoning_snapshot = dict(normalized.get("reasoning_snapshot") or {})
+        reasoning_snapshot.setdefault("service_status", data.get("service_status"))
+        if isinstance(partial_failures, list) and partial_failures:
+            reasoning_snapshot.setdefault("partial_failures", partial_failures)
+        if normalized.get("llm_explanation") and not normalized.get("reasoning"):
+            normalized["reasoning"] = normalized["llm_explanation"]
+        normalized["reasoning_snapshot"] = reasoning_snapshot
+        normalized_items.append(_with_response_meta(normalized, payload))
+    return normalized_items
+
+
+def _normalize_explain_style_payload(payload: dict | None, *, card: dict) -> dict | None:
+    data = _unwrap_service_data(payload) or payload
+    if not isinstance(data, dict):
+        return None
+
+    returned_card = data.get("card")
+    normalized = dict(card)
+    if isinstance(returned_card, dict):
+        normalized.update(returned_card)
+    for key in ("style_id", "style_name", "sample_image_url", "simulation_image_url", "llm_explanation", "keywords"):
+        if data.get(key) is not None:
+            normalized[key] = data.get(key)
+    return _with_response_meta(normalized, payload)
 
 
 def _compute_ai_health() -> dict:
@@ -156,13 +350,10 @@ def _compute_ai_health() -> dict:
         }
 
     if provider == "service":
-        remote = _post_json("/internal/health", {})
-        if remote:
-            return {
-                "status": remote.get("status", "ok"),
-                "mode": "service",
-                "message": remote.get("role", "ai-microservice"),
-            }
+        remote = _request_service("GET", "/internal/health")
+        normalized = _normalize_health_payload(remote)
+        if normalized:
+            return normalized
         return {
             "status": "offline",
             "mode": "service",
@@ -325,9 +516,10 @@ def simulate_face_analysis(*, image_url: str | None = None, image_bytes: bytes |
     payload = {"image_url": image_url}
     if image_bytes is not None:
         payload["image_base64"] = base64.b64encode(image_bytes).decode("ascii")
-    remote = _post_json("/internal/analyze-face", payload)
-    if remote:
-        return remote
+    remote = _request_service("POST", "/internal/analyze-face", payload)
+    normalized = _normalize_analysis_payload(remote, fallback_image_url=image_url)
+    if normalized:
+        return normalized
     return {
         "face_shape": "Oval",
         "golden_ratio_score": 0.92,
@@ -345,7 +537,8 @@ def generate_recommendation_batch(
 ) -> list[dict]:
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
     if _ai_provider() == "service":
-        remote = _post_json(
+        remote = _request_service(
+            "POST",
             "/internal/generate-simulations",
             {
                 "client_id": client_id,
@@ -354,8 +547,9 @@ def generate_recommendation_batch(
                 "scoring_weights": scoring_weights.as_dict(),
             },
         )
-        if remote and isinstance(remote.get("items"), list):
-            return remote["items"]
+        normalized_items = _normalize_simulation_items(remote)
+        if normalized_items is not None:
+            return normalized_items
 
     survey = SimpleNamespace(client_id=client_id, **(survey_data or {}))
     analysis = SimpleNamespace(**analysis_data)
@@ -369,9 +563,10 @@ def generate_recommendation_batch(
 
 
 def explain_style(*, card: dict) -> dict:
-    remote = _post_json("/internal/explain-style", {"card": card})
-    if remote:
-        return remote
+    remote = _request_service("POST", "/internal/explain-style", {"card": card})
+    normalized = _normalize_explain_style_payload(remote, card=card)
+    if normalized:
+        return normalized
     return {
         "style_id": card.get("style_id"),
         "style_name": card.get("style_name"),

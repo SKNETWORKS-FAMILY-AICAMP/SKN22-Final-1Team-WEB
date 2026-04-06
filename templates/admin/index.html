@@ -145,6 +145,11 @@
       </div>
       <div id="reportViewContainer" style="display: none;"><div style="height: 300px; display: flex; align-items: center; justify-content: center;"><canvas id="trendChart"></canvas></div></div>
     </article>
+    {% if is_designer_session %}
+      <div data-chatbot-placement="designer-dashboard">
+        {% include "components/chatbot.html" %}
+      </div>
+    {% endif %}
   {% else %}
     <article class="main-content panel stack" id="authSection">
       <div id="stepShopLogin">
@@ -161,6 +166,9 @@
 {% endblock %}
 
 {% block page_scripts %}
+{% if is_dashboard and is_designer_session %}
+<script src="{% static 'shared/js/chatbot.js' %}"></script>
+{% endif %}
 <script>
   (function() {
     const authSection = document.getElementById('authSection');
@@ -322,6 +330,10 @@
           const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
           visitText = diffDays === 0 ? '오늘' : `${diffDays}일 전`;
         }
+        const sessionActive = Boolean(c.session_active || c.has_active_consultation);
+        const sessionBadge = sessionActive
+          ? '<span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background: rgba(21, 128, 61, 0.12); color:#166534; font-size:11px; font-weight:700;">세션 진행 중</span>'
+          : '<span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background: rgba(71, 85, 105, 0.12); color:#475569; font-size:11px; font-weight:700;">세션 없음</span>';
         const isAssignmentPending = Boolean(c.is_assignment_pending);
         const assignmentOptions = dashboardDesigners.map(
           designer => `<option value="${designer.id}">${designer.name}</option>`
@@ -343,7 +355,12 @@
         return `
           <tr style="border-bottom: 1px solid var(--line);">
             <td style="padding: 16px 20px;"><span style="font-weight: 700; color: var(--bg-dark);">${c.name}</span></td>
-            <td style="padding: 16px 20px; color: var(--text-primary); font-size: 14px;">${c.designer_name || '미지정'}</td>
+            <td style="padding: 16px 20px; color: var(--text-primary); font-size: 14px;">
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <span>${c.designer_name || '미지정'}</span>
+                ${sessionBadge}
+              </div>
+            </td>
             <td style="padding: 16px 20px; color: var(--text-secondary); font-size: 13px;">${visitText}</td>
             <td style="padding: 16px 20px; color: var(--text-secondary); font-size: 13px;">${c.visit_count || '1'}회</td>
             <td style="padding: 16px 20px; text-align: right;">

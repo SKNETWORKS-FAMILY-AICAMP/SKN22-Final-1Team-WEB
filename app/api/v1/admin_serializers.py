@@ -68,6 +68,59 @@ class ConsultationCloseSerializer(serializers.Serializer):
         return attrs
 
 
+class DesignerDiagnosisCardUpsertSerializer(serializers.Serializer):
+    hair_texture = serializers.CharField(required=False, allow_blank=True)
+    damage_level = serializers.CharField(required=False, allow_blank=True)
+    special_notes = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, trim_whitespace=True),
+        required=False,
+        allow_empty=True,
+    )
+    special_memo = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        valid_hair_textures = {"", "fine", "medium", "coarse"}
+        valid_damage_levels = {"", "level1", "level2", "level3", "level4"}
+        valid_special_notes = {
+            "bleach_history",
+            "black_red_cover",
+            "natural_curl",
+            "self_coloring",
+            "head_shape_density",
+        }
+
+        hair_texture = str(attrs.get("hair_texture", "") or "").strip()
+        damage_level = str(attrs.get("damage_level", "") or "").strip()
+        special_notes = attrs.get("special_notes", []) or []
+
+        if hair_texture not in valid_hair_textures:
+            raise serializers.ValidationError({"hair_texture": "올바른 모질 값을 선택해 주세요."})
+        if damage_level not in valid_damage_levels:
+            raise serializers.ValidationError({"damage_level": "올바른 손상도 값을 선택해 주세요."})
+
+        normalized_notes: list[str] = []
+        for value in special_notes:
+            normalized = str(value or "").strip()
+            if normalized not in valid_special_notes:
+                raise serializers.ValidationError({"special_notes": "지원하는 특이사항 항목만 저장할 수 있습니다."})
+            if normalized not in normalized_notes:
+                normalized_notes.append(normalized)
+
+        attrs["hair_texture"] = hair_texture
+        attrs["damage_level"] = damage_level
+        attrs["special_notes"] = normalized_notes
+        attrs["special_memo"] = str(attrs.get("special_memo", "") or "").strip()
+        return attrs
+
+
+class CustomerProfileNoteUpsertSerializer(serializers.Serializer):
+    content = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        attrs["content"] = str(attrs.get("content", "") or "").strip()
+        return attrs
+
+
 class ChatbotAskSerializer(serializers.Serializer):
     message = serializers.CharField(allow_blank=False, trim_whitespace=True)
 
@@ -127,3 +180,4 @@ class DesignerSerializer(serializers.Serializer):
                 ),
             }
         return super().to_representation(instance)
+

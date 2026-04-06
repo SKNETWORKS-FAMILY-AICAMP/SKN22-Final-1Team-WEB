@@ -18,6 +18,8 @@ from app.api.v1.admin_serializers import (
     AdminTrendFilterSerializer,
     ConsultationCloseSerializer,
     ConsultationNoteCreateSerializer,
+    CustomerProfileNoteUpsertSerializer,
+    DesignerDiagnosisCardUpsertSerializer,
     ChatbotAskSerializer,
     RefreshTokenSerializer,
     DesignerSerializer,
@@ -28,15 +30,19 @@ from app.api.v1.admin_services import (
     close_consultation_session,
     create_client_note,
     get_active_client_sessions,
+    get_client_customer_note,
+    get_client_designer_diagnosis,
     get_admin_profile,
     get_admin_dashboard_summary,
     get_admin_trend_report,
     get_all_clients,
     get_client_detail,
     get_client_recommendation_report,
+    upsert_client_designer_diagnosis,
     get_style_report,
     login_admin,
     register_admin,
+    upsert_client_customer_note,
 )
 from app.session_state import get_session_admin, get_session_designer, set_admin_session
 from app.services.ai_facade import get_ai_health
@@ -243,6 +249,7 @@ class LegacyAllClientsView(CompatEnvelopeAPIView):
         items = [
             {
                 "id": item["client_id"],
+                "client_id": item["client_id"],
                 "legacy_client_id": item.get("legacy_client_id"),
                 "name": item["name"],
                 "phone": item["phone"],
@@ -253,6 +260,9 @@ class LegacyAllClientsView(CompatEnvelopeAPIView):
                 "assigned_at": item["assigned_at"],
                 "assignment_source": item["assignment_source"],
                 "is_assignment_pending": item["is_assignment_pending"],
+                "has_active_consultation": item.get("has_active_consultation", False),
+                "session_active": item.get("session_active", False),
+                "can_write_designer_diagnosis": item.get("can_write_designer_diagnosis", False),
             }
             for item in payload["items"]
         ]
@@ -299,6 +309,11 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
                 "survey": payload.get("latest_survey"),
                 "face_analyses": payload["analysis_history"],
                 "reanalysis": payload.get("reanalysis"),
+                "designer_diagnosis": payload.get("designer_diagnosis"),
+                "session_status": payload.get("session_status"),
+                "customer_note": payload.get("customer_note"),
+                "active_consultation": payload.get("active_consultation"),
+                "notes": payload.get("notes", []),
                 "captures": [
                     {
                         "processed_path": (
@@ -312,6 +327,127 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
                 ],
             }
         )
+
+
+class LegacyDesignerDiagnosisCardView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Legacy designer diagnosis card for template dashboard",
+        responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, pk):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, designer = staff
+
+        client = _get_client_or_404(pk)
+        try:
+            payload = get_client_designer_diagnosis(client=client, admin=admin, designer=designer)
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
+        return Response(payload)
+
+    @extend_schema(
+        summary="Save designer diagnosis card for the active shop session",
+        request=DesignerDiagnosisCardUpsertSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, pk):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, designer = staff
+
+        serializer = DesignerDiagnosisCardUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        client = _get_client_or_404(pk)
+        try:
+            payload = upsert_client_designer_diagnosis(
+                client=client,
+                diagnosis_state=serializer.validated_data,
+                admin=admin,
+                designer=designer,
+            )
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
+
+class LegacyConsultationNoteCreateView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Save consultation note for the active shop session",
+        request=ConsultationNoteCreateSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, pk):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, designer = staff
+
+        payload = dict(request.data)
+        payload["client_id"] = pk
+        serializer = ConsultationNoteCreateSerializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+
+        client = _get_client_or_404(pk)
+        try:
+            response_payload = create_client_note(
+                client=client,
+                consultation_id=serializer.validated_data["consultation_id"],
+                content=serializer.validated_data["content"],
+                admin=admin,
+                designer=designer,
+            )
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(response_payload)
+
+
+class LegacyCustomerProfileNoteView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Customer-level note for the active shop session",
+        responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, pk):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, designer = staff
+
+        client = _get_client_or_404(pk)
+        try:
+            payload = get_client_customer_note(client=client, admin=admin, designer=designer)
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
+        return Response(payload)
+
+    @extend_schema(
+        summary="Save customer-level note for the active shop session",
+        request=CustomerProfileNoteUpsertSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, pk):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, designer = staff
+
+        serializer = CustomerProfileNoteUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        client = _get_client_or_404(pk)
+        try:
+            payload = upsert_client_customer_note(
+                client=client,
+                content=serializer.validated_data.get("content", ""),
+                admin=admin,
+                designer=designer,
+            )
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
 
 
 class LegacyAdminClientAssignView(CompatEnvelopeAPIView):

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from urllib import error, request
 
 from django.contrib.auth.hashers import check_password, make_password
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, OperationalError, ProgrammingError, connection
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -55,8 +55,10 @@ if TYPE_CHECKING:
         AdminAccount,
         CaptureRecord,
         Client,
+        ClientProfileNote,
         ConsultationRequest,
         Designer,
+        DesignerDiagnosisCard,
         FormerRecommendation,
         StyleSelection,
     )
@@ -193,6 +195,311 @@ def _serialize_capture(record) -> dict:
         ),
         "created_at": _record_value(record, "created_at"),
         "updated_at": _record_value(record, "updated_at"),
+    }
+
+
+DESIGNER_DIAGNOSIS_HAIR_TEXTURE_CHOICES = {"fine", "medium", "coarse"}
+DESIGNER_DIAGNOSIS_DAMAGE_LEVEL_CHOICES = {"level1", "level2", "level3", "level4"}
+DESIGNER_DIAGNOSIS_SPECIAL_NOTE_CHOICES = {
+    "bleach_history",
+    "black_red_cover",
+    "natural_curl",
+    "self_coloring",
+    "head_shape_density",
+}
+
+
+def _default_designer_diagnosis_payload(*, storage_ready: bool = True) -> dict:
+    return {
+        "hair_texture": "",
+        "damage_level": "",
+        "special_notes": [],
+        "special_memo": "",
+        "has_content": False,
+        "updated_at": None,
+        "updated_by": None,
+        "storage_ready": storage_ready,
+    }
+
+
+def _normalize_designer_diagnosis_payload(payload: dict | None) -> dict:
+    payload = payload or {}
+    hair_texture = str(payload.get("hair_texture") or payload.get("hairTexture") or "").strip()
+    damage_level = str(payload.get("damage_level") or payload.get("damageLevel") or "").strip()
+    raw_notes = payload.get("special_notes")
+    if raw_notes is None:
+        raw_notes = payload.get("specialNotes")
+    special_notes: list[str] = []
+    if isinstance(raw_notes, list):
+        for value in raw_notes:
+            normalized = str(value or "").strip()
+            if normalized in DESIGNER_DIAGNOSIS_SPECIAL_NOTE_CHOICES and normalized not in special_notes:
+                special_notes.append(normalized)
+    if hair_texture not in DESIGNER_DIAGNOSIS_HAIR_TEXTURE_CHOICES:
+        hair_texture = ""
+    if damage_level not in DESIGNER_DIAGNOSIS_DAMAGE_LEVEL_CHOICES:
+        damage_level = ""
+    special_memo = str(payload.get("special_memo") or payload.get("specialMemo") or "").strip()
+    return {
+        "hair_texture": hair_texture,
+        "damage_level": damage_level,
+        "special_notes": special_notes,
+        "special_memo": special_memo,
+    }
+
+
+def _has_designer_diagnosis_content(payload: dict | None) -> bool:
+    diagnosis = _normalize_designer_diagnosis_payload(payload)
+    return bool(
+        diagnosis["hair_texture"]
+        or diagnosis["damage_level"]
+        or diagnosis["special_notes"]
+        or diagnosis["special_memo"]
+    )
+
+
+def _serialize_designer_diagnosis_editor(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict | None:
+    if designer is not None:
+        return {
+            "role": "designer",
+            "id": designer.id,
+            "legacy_id": get_legacy_designer_id(designer=designer),
+            "name": designer.name,
+        }
+    if admin is not None:
+        return {
+            "role": "admin",
+            "id": admin.id,
+            "legacy_id": get_legacy_admin_id(admin=admin),
+            "name": admin.name,
+        }
+    return None
+
+
+def _fetch_designer_diagnosis_card(*, client: "Client") -> tuple["DesignerDiagnosisCard | None", bool]:
+    from app.models_django import DesignerDiagnosisCard
+
+    client_ref_id = getattr(client, "id", client)
+    legacy_client_ref_id = get_legacy_client_id(client=client)
+    filters = Q(client_ref_id=client_ref_id)
+    if legacy_client_ref_id:
+        filters |= Q(legacy_client_ref_id=legacy_client_ref_id)
+    try:
+        card = DesignerDiagnosisCard.objects.filter(filters).first()
+    except (OperationalError, ProgrammingError):
+        return None, False
+    return card, True
+
+
+def _serialize_designer_diagnosis_card(card: "DesignerDiagnosisCard | None", *, storage_ready: bool = True) -> dict:
+    if not storage_ready:
+        return _default_designer_diagnosis_payload(storage_ready=False)
+    if card is None:
+        return _default_designer_diagnosis_payload()
+    admin = get_admin_by_identifier(identifier=card.admin_ref_id) if card.admin_ref_id else None
+    designer = get_designer_by_identifier(identifier=card.designer_ref_id) if card.designer_ref_id else None
+    return {
+        "hair_texture": card.hair_texture or "",
+        "damage_level": card.damage_level or "",
+        "special_notes": list(card.special_notes or []),
+        "special_memo": card.special_memo or "",
+        "has_content": _has_designer_diagnosis_content({
+            "hair_texture": card.hair_texture,
+            "damage_level": card.damage_level,
+            "special_notes": card.special_notes,
+            "special_memo": card.special_memo,
+        }),
+        "updated_at": card.updated_at,
+        "updated_by": _serialize_designer_diagnosis_editor(admin=admin, designer=designer),
+        "storage_ready": True,
+    }
+
+
+def _default_customer_profile_note_payload(*, storage_ready: bool = True) -> dict:
+    return {
+        "content": "",
+        "has_content": False,
+        "updated_at": None,
+        "updated_by": None,
+        "storage_ready": storage_ready,
+    }
+
+
+def _has_customer_profile_note_content(payload: dict | None) -> bool:
+    payload = payload or {}
+    content = str(payload.get("content") or "").strip()
+    return bool(content)
+
+
+def _fetch_customer_profile_note(*, client: "Client") -> tuple["ClientProfileNote | None", bool]:
+    from app.models_django import ClientProfileNote
+
+    client_ref_id = getattr(client, "id", client)
+    legacy_client_ref_id = get_legacy_client_id(client=client)
+    filters = Q(client_ref_id=client_ref_id)
+    if legacy_client_ref_id:
+        filters |= Q(legacy_client_ref_id=legacy_client_ref_id)
+    try:
+        note = ClientProfileNote.objects.filter(filters).first()
+    except (OperationalError, ProgrammingError):
+        return None, False
+    return note, True
+
+
+def _serialize_customer_profile_note(note: "ClientProfileNote | None", *, storage_ready: bool = True) -> dict:
+    if not storage_ready:
+        return _default_customer_profile_note_payload(storage_ready=False)
+    if note is None:
+        return _default_customer_profile_note_payload()
+    admin = get_admin_by_identifier(identifier=note.admin_ref_id) if note.admin_ref_id else None
+    designer = get_designer_by_identifier(identifier=note.designer_ref_id) if note.designer_ref_id else None
+    return {
+        "content": note.content or "",
+        "has_content": _has_customer_profile_note_content({"content": note.content}),
+        "updated_at": note.updated_at,
+        "updated_by": _serialize_designer_diagnosis_editor(admin=admin, designer=designer),
+        "storage_ready": True,
+    }
+
+
+def _serialize_active_consultation_payload(
+    *,
+    client: "Client",
+    latest_consultation: "ConsultationRequest | None" = None,
+    legacy_active_consultation: dict | None = None,
+) -> dict | None:
+    if latest_consultation is not None:
+        return {
+            "consultation_id": latest_consultation.id,
+            "legacy_client_id": get_legacy_client_id(client=client),
+            "status": latest_consultation.status,
+            "is_active": latest_consultation.is_active,
+            "is_read": latest_consultation.is_read,
+            "source": latest_consultation.source,
+            "designer_id": latest_consultation.designer_id,
+            "legacy_designer_id": (
+                get_legacy_designer_id(designer=latest_consultation.designer)
+                if latest_consultation.designer_id and latest_consultation.designer
+                else None
+            ),
+            "designer_name": (
+                latest_consultation.designer.name
+                if latest_consultation.designer_id and latest_consultation.designer
+                else None
+            ),
+            "created_at": latest_consultation.created_at,
+            "closed_at": latest_consultation.closed_at,
+        }
+    if legacy_active_consultation is not None:
+        return {
+            "consultation_id": legacy_active_consultation["consultation_id"],
+            "legacy_client_id": legacy_active_consultation.get("legacy_client_id"),
+            "status": legacy_active_consultation["status"],
+            "is_active": legacy_active_consultation["is_active"],
+            "is_read": not legacy_active_consultation["has_unread_consultation"],
+            "source": None,
+            "designer_id": legacy_active_consultation["designer_id"],
+            "legacy_designer_id": legacy_active_consultation.get("legacy_designer_id"),
+            "designer_name": legacy_active_consultation["designer_name"],
+            "created_at": legacy_active_consultation["last_activity_at"],
+            "closed_at": None,
+        }
+    return None
+
+
+def _build_session_status_payload(*, is_active: bool, diagnosis_storage_ready: bool = True) -> dict:
+    return {
+        "is_active": bool(is_active),
+        "can_write_designer_diagnosis": bool(is_active and diagnosis_storage_ready),
+        "customer_note_scope": "client",
+    }
+
+
+def get_client_designer_diagnosis(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    client_ref_id = getattr(client, "id", client)
+    legacy_client_ref_id = get_legacy_client_id(client=client)
+    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
+    if scoped_client_ids and client_ref_id not in scoped_client_ids:
+        raise ValueError("Client is outside the current admin scope.")
+
+    card, storage_ready = _fetch_designer_diagnosis_card(client=client)
+    has_active_consultation = bool(get_legacy_active_consultation_items(admin=admin, designer=designer, client=client))
+    return {
+        "status": "ready",
+        "client_id": client_ref_id,
+        "legacy_client_id": legacy_client_ref_id,
+        "designer_diagnosis": _serialize_designer_diagnosis_card(card, storage_ready=storage_ready),
+        "session_status": _build_session_status_payload(
+            is_active=has_active_consultation,
+            diagnosis_storage_ready=storage_ready,
+        ),
+    }
+
+
+def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict | None, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    client_ref_id = getattr(client, "id", client)
+    legacy_client_ref_id = get_legacy_client_id(client=client)
+    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
+    if scoped_client_ids and client_ref_id not in scoped_client_ids:
+        raise ValueError("Client is outside the current admin scope.")
+
+    normalized_state = _normalize_designer_diagnosis_payload(diagnosis_state)
+    has_active_consultation = bool(get_legacy_active_consultation_items(admin=admin, designer=designer, client=client))
+    if not has_active_consultation:
+        raise ValueError("세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다.")
+    from app.models_django import DesignerDiagnosisCard
+
+    filters = Q(client_ref_id=client_ref_id)
+    if legacy_client_ref_id:
+        filters |= Q(legacy_client_ref_id=legacy_client_ref_id)
+    try:
+        card = DesignerDiagnosisCard.objects.filter(filters).first()
+    except (OperationalError, ProgrammingError) as exc:
+        raise ValueError("디자이너 진단 카드 저장 테이블이 아직 준비되지 않았습니다. 마이그레이션 적용 후 다시 시도해 주세요.") from exc
+
+    if not _has_designer_diagnosis_content(normalized_state):
+        if card is not None:
+            card.delete()
+        return {
+            "status": "success",
+            "client_id": client_ref_id,
+            "legacy_client_id": legacy_client_ref_id,
+            "designer_diagnosis": _serialize_designer_diagnosis_card(None),
+        }
+
+    editor_admin = admin or (designer.shop if designer is not None else None)
+    editor_designer = designer
+    editor_admin_id = getattr(editor_admin, "id", editor_admin) if editor_admin is not None else None
+    editor_designer_id = getattr(editor_designer, "id", editor_designer) if editor_designer is not None else None
+
+    if card is None:
+        card = DesignerDiagnosisCard.objects.create(
+            client_ref_id=client_ref_id,
+            legacy_client_ref_id=legacy_client_ref_id,
+            admin_ref_id=editor_admin_id,
+            designer_ref_id=editor_designer_id,
+            hair_texture=normalized_state["hair_texture"],
+            damage_level=normalized_state["damage_level"],
+            special_notes=normalized_state["special_notes"],
+            special_memo=normalized_state["special_memo"],
+        )
+    else:
+        card.client_ref_id = client_ref_id
+        card.legacy_client_ref_id = legacy_client_ref_id
+        card.admin_ref_id = editor_admin_id
+        card.designer_ref_id = editor_designer_id
+        card.hair_texture = normalized_state["hair_texture"]
+        card.damage_level = normalized_state["damage_level"]
+        card.special_notes = normalized_state["special_notes"]
+        card.special_memo = normalized_state["special_memo"]
+        card.save()
+
+    return {
+        "status": "success",
+        "client_id": client_ref_id,
+        "legacy_client_id": legacy_client_ref_id,
+        "designer_diagnosis": _serialize_designer_diagnosis_card(card),
+        "session_status": _build_session_status_payload(is_active=True),
     }
 
 
@@ -805,19 +1112,32 @@ def get_active_client_sessions(*, admin: "AdminAccount | None" = None, designer:
     return {"status": "ready", "items": [_serialize_consultation_like(item) for item in legacy_items]}
 
 
+def _build_active_consultation_client_map(items: list[dict] | None) -> dict[str, dict]:
+    consultation_map: dict[str, dict] = {}
+    for item in items or []:
+        keys = {
+            str(item.get("client_id") or "").strip(),
+            str(item.get("legacy_client_id") or "").strip(),
+        }
+        for key in keys:
+            if key:
+                consultation_map[key] = item
+    return consultation_map
+
+
 def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     clients = _scoped_client_records(admin=admin, designer=designer, query=query)
     legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer) or []
-    legacy_active_by_client: dict[str, dict] = {}
-    legacy_active_by_client = {
-        str(item.get("legacy_client_id") or ""): item
-        for item in legacy_active_items
-        if str(item.get("legacy_client_id") or "")
-    }
+    legacy_active_by_client = _build_active_consultation_client_map(legacy_active_items)
 
     items = []
     for client in clients[:100]:
-        legacy_active = legacy_active_by_client.get(str(get_legacy_client_id(client=client) or ""))
+        legacy_client_id = str(get_legacy_client_id(client=client) or "").strip()
+        backend_client_id = str(client.id or "").strip()
+        legacy_active = (
+            legacy_active_by_client.get(backend_client_id)
+            or legacy_active_by_client.get(legacy_client_id)
+        )
         items.append(
             {
                 "client_id": client.id,
@@ -840,6 +1160,8 @@ def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, des
                 "created_at": client.created_at,
                 "last_consulted_at": (legacy_active.get("last_activity_at") if legacy_active else None),
                 "has_active_consultation": bool(legacy_active and legacy_active.get("is_active")),
+                "session_active": bool(legacy_active and legacy_active.get("is_active")),
+                "can_write_designer_diagnosis": bool(legacy_active and legacy_active.get("is_active")),
             }
         )
     return {"status": "ready", "items": items}
@@ -904,6 +1226,8 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
     legacy_active_consultation = legacy_items[0] if legacy_items else None
     latest_consultation = None
     notes = _fetch_note_rows(client=client, limit=20)
+    customer_note, customer_note_storage_ready = _fetch_customer_profile_note(client=client)
+    designer_diagnosis_card, diagnosis_storage_ready = _fetch_designer_diagnosis_card(client=client)
     legacy_capture_history = get_legacy_capture_history(client=client, limit=20)
     capture_history = legacy_capture_history
     legacy_analysis_history = get_legacy_analysis_history(client=client, limit=20)
@@ -916,6 +1240,11 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
         if row.get("is_chosen")
     ]
     has_active_consultation = bool(latest_consultation or legacy_active_consultation)
+    active_consultation_payload = _serialize_active_consultation_payload(
+        client=client,
+        latest_consultation=latest_consultation,
+        legacy_active_consultation=legacy_active_consultation,
+    )
     retry_meta = _build_legacy_retry_recommendation_meta(
         items=legacy_recommendation_items,
         has_active_consultation=has_active_consultation,
@@ -977,42 +1306,18 @@ def get_client_detail(*, client: "Client", admin: "AdminAccount | None" = None, 
             "retry_block_reason": retry_meta.get("retry_block_reason"),
             "consultation_locked": has_active_consultation,
         },
-        "active_consultation": (
-                {
-                    "consultation_id": latest_consultation.id,
-                    "legacy_client_id": get_legacy_client_id(client=client),
-                    "status": latest_consultation.status,
-                    "is_active": latest_consultation.is_active,
-                    "is_read": latest_consultation.is_read,
-                "source": latest_consultation.source,
-                "designer_id": latest_consultation.designer_id,
-                "legacy_designer_id": (
-                    get_legacy_designer_id(designer=latest_consultation.designer)
-                    if latest_consultation.designer_id and latest_consultation.designer
-                    else None
-                ),
-                "designer_name": latest_consultation.designer.name if latest_consultation.designer_id and latest_consultation.designer else None,
-                "created_at": latest_consultation.created_at,
-                "closed_at": latest_consultation.closed_at,
-            }
-            if latest_consultation
-            else (
-                {
-                    "consultation_id": legacy_active_consultation["consultation_id"],
-                    "legacy_client_id": legacy_active_consultation.get("legacy_client_id"),
-                    "status": legacy_active_consultation["status"],
-                    "is_active": legacy_active_consultation["is_active"],
-                    "is_read": not legacy_active_consultation["has_unread_consultation"],
-                    "source": None,
-                    "designer_id": legacy_active_consultation["designer_id"],
-                    "legacy_designer_id": legacy_active_consultation.get("legacy_designer_id"),
-                    "designer_name": legacy_active_consultation["designer_name"],
-                    "created_at": legacy_active_consultation["last_activity_at"],
-                    "closed_at": None,
-                }
-                if legacy_active_consultation
-                else None
-            )
+        "designer_diagnosis": _serialize_designer_diagnosis_card(
+            designer_diagnosis_card,
+            storage_ready=diagnosis_storage_ready,
+        ),
+        "active_consultation": active_consultation_payload,
+        "session_status": _build_session_status_payload(
+            is_active=has_active_consultation,
+            diagnosis_storage_ready=diagnosis_storage_ready,
+        ),
+        "customer_note": _serialize_customer_profile_note(
+            customer_note,
+            storage_ready=customer_note_storage_ready,
         ),
         "notes": [
             {
@@ -1109,7 +1414,88 @@ def create_client_note(*, client: "Client", consultation_id: int, content: str, 
         "consultation_id": consultation["id"],
         "client_id": client.id,
         "legacy_client_id": get_legacy_client_id(client=client),
-        "message": "The consultation note has been saved.",
+        "message": "저장 완료되었습니다.",
+    }
+
+
+def get_client_customer_note(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    client_ref_id = getattr(client, "id", client)
+    legacy_client_ref_id = get_legacy_client_id(client=client)
+    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
+    if scoped_client_ids and client_ref_id not in scoped_client_ids:
+        raise ValueError("Client is outside the current admin scope.")
+
+    note, storage_ready = _fetch_customer_profile_note(client=client)
+    return {
+        "status": "ready",
+        "client_id": client_ref_id,
+        "legacy_client_id": legacy_client_ref_id,
+        "customer_note": _serialize_customer_profile_note(note, storage_ready=storage_ready),
+    }
+
+
+def upsert_client_customer_note(
+    *,
+    client: "Client",
+    content: str,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> dict:
+    client_ref_id = getattr(client, "id", client)
+    legacy_client_ref_id = get_legacy_client_id(client=client)
+    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
+    if scoped_client_ids and client_ref_id not in scoped_client_ids:
+        raise ValueError("Client is outside the current admin scope.")
+
+    normalized_content = str(content or "").strip()
+    from app.models_django import ClientProfileNote
+
+    filters = Q(client_ref_id=client_ref_id)
+    if legacy_client_ref_id:
+        filters |= Q(legacy_client_ref_id=legacy_client_ref_id)
+    try:
+        note = ClientProfileNote.objects.filter(filters).first()
+    except (OperationalError, ProgrammingError) as exc:
+        raise ValueError("고객 메모 저장 테이블이 아직 준비되지 않았습니다. 마이그레이션 적용 후 다시 시도해 주세요.") from exc
+
+    editor_admin = admin or (designer.shop if designer is not None else None)
+    editor_designer = designer
+    editor_admin_id = getattr(editor_admin, "id", editor_admin) if editor_admin is not None else None
+    editor_designer_id = getattr(editor_designer, "id", editor_designer) if editor_designer is not None else None
+
+    if not normalized_content:
+        if note is not None:
+            note.delete()
+        return {
+            "status": "success",
+            "client_id": client_ref_id,
+            "legacy_client_id": legacy_client_ref_id,
+            "message": "저장 완료되었습니다.",
+            "customer_note": _default_customer_profile_note_payload(),
+        }
+
+    if note is None:
+        note = ClientProfileNote.objects.create(
+            client_ref_id=client_ref_id,
+            legacy_client_ref_id=legacy_client_ref_id,
+            admin_ref_id=editor_admin_id,
+            designer_ref_id=editor_designer_id,
+            content=normalized_content,
+        )
+    else:
+        note.client_ref_id = client_ref_id
+        note.legacy_client_ref_id = legacy_client_ref_id
+        note.admin_ref_id = editor_admin_id
+        note.designer_ref_id = editor_designer_id
+        note.content = normalized_content
+        note.save()
+
+    return {
+        "status": "success",
+        "client_id": client_ref_id,
+        "legacy_client_id": legacy_client_ref_id,
+        "message": "저장 완료되었습니다.",
+        "customer_note": _serialize_customer_profile_note(note),
     }
 
 
@@ -1358,4 +1744,5 @@ def get_style_report(*, style_id: int, days: int = 7, admin: "AdminAccount | Non
         "related_styles": related,
         "report_snapshot": report_snapshot,
     }
+
 

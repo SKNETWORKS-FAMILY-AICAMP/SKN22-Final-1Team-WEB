@@ -5,7 +5,7 @@ from functools import lru_cache
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Iterable
 
-from django.db import connection, transaction
+from django.db import DataError, connection, transaction
 from django.db.models import Count, Max, Q
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
@@ -215,7 +215,10 @@ def get_admin_by_legacy_id(*, legacy_admin_id: str | None) -> AdminAccount | Non
         return None
 
     if _has_columns("shop", LEGACY_SHOP_MODEL_COLUMNS):
-        legacy_shop = LegacyShop.objects.filter(shop_id=legacy_admin_id).first()
+        try:
+            legacy_shop = LegacyShop.objects.filter(shop_id=legacy_admin_id).first()
+        except DataError:
+            return None
         if legacy_shop is not None:
             return _admin_from_legacy_row(legacy_shop)
     return None
@@ -225,14 +228,14 @@ def get_admin_by_identifier(*, identifier: str | int | None) -> AdminAccount | N
     if identifier in (None, ""):
         return None
     text = str(identifier).strip()
-    legacy_first = get_admin_by_legacy_id(legacy_admin_id=text)
-    if legacy_first is not None:
-        return legacy_first
     if text.isdigit():
         if _has_columns("shop", LEGACY_SHOP_MODEL_COLUMNS):
             legacy_shop = LegacyShop.objects.filter(backend_admin_id=int(text)).first()
             if legacy_shop is not None:
                 return _admin_from_legacy_row(legacy_shop)
+    legacy_first = get_admin_by_legacy_id(legacy_admin_id=text)
+    if legacy_first is not None:
+        return legacy_first
     return None
 
 

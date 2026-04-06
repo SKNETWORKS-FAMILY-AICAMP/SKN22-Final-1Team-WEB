@@ -64,7 +64,18 @@ urlpatterns = [
     path("partner/dashboard/enter/", enter_partner_dashboard, name="partner_dashboard_enter"),
     path("partner/dashboard/", admin_dashboard_page, name="partner_dashboard"),
     path("partner/staff/", designer_dashboard_page, name="partner_staff_dashboard"),
-    path("partner/customer-detail/<int:pk>/", lambda r, pk: render(r, "admin/customer_detail.html", {"client_id": pk}), name="partner_customer_detail"),
+    path(
+        "partner/customer-detail/<int:pk>/",
+        lambda r, pk: render(
+            r,
+            "admin/customer_detail.html",
+            {
+                "client_id": pk,
+                "show_customer_detail_chatbot": True,
+            },
+        ),
+        name="partner_customer_detail",
+    ),
     path("partner/customer-detail/<int:pk>/reanalysis/", customer_reanalysis_start_page, name="partner_customer_reanalysis_start"),
     path("partner/logout/", logout_page, name="partner_logout"),
     path("partner/staff/logout/", designer_logout_page, name="designer_logout"),

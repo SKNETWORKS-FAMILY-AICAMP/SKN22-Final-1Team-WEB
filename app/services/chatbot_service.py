@@ -82,7 +82,7 @@ def _build_dummy_reply(*, message: str) -> dict[str, Any]:
         "status": "success",
         "reply": (
             "현재 백엔드 챗봇은 임시 더미 응답 모드입니다.\n"
-            "모델 팀 챗봇 엔드포인트가 연결되면 실제 시술 가이드 답변으로 대체됩니다.\n"
+            "모델 팀 챗봇 연동이 안정적으로 확인되면 실제 시술 가이드 응답으로 대체됩니다.\n"
             f"입력 질문: {message}"
         ),
         "timestamp": timezone.now().isoformat(),

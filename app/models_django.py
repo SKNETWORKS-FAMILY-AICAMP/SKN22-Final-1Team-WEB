@@ -284,3 +284,32 @@ class ClientSessionNote(models.Model):
 
     class Meta:
         db_table = "client_session_notes"
+
+
+class ClientProfileNote(models.Model):
+    client_ref_id = models.BigIntegerField(unique=True, db_index=True)
+    legacy_client_ref_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    admin_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    designer_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    content = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "client_profile_notes"
+
+
+class DesignerDiagnosisCard(models.Model):
+    client_ref_id = models.BigIntegerField(unique=True, db_index=True)
+    legacy_client_ref_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    admin_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    designer_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    hair_texture = models.CharField(max_length=20, blank=True, default="")
+    damage_level = models.CharField(max_length=20, blank=True, default="")
+    special_notes = models.JSONField(default=list, blank=True)
+    special_memo = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "designer_diagnosis_cards"

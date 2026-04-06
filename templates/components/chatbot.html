@@ -1,4 +1,4 @@
-<div id="mirraiChatbot">
+<div id="mirraiChatbot" data-chatbot-component="mirrai-admin">
   <button type="button" class="chatbot-trigger" id="chatbotTrigger" title="시술 가이드 챗봇">
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -25,13 +25,13 @@
     <div class="chat-messages" id="chatMessages">
       <div class="message bot">
         안녕하세요. MirrAI 시술 가이드 AI입니다.
-        원하는 스타일의 시술 순서, 준비물, 주의사항을 질문해보세요.
+        원하시는 시술 순서, 준비물, 주의사항을 질문해 보세요.
         <span class="time" id="chatStartTime"></span>
       </div>
 
       <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
         <button type="button" class="badge" onclick="sendQuickMessage('C컬 시술 순서를 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">C컬 시술 순서</button>
-        <button type="button" class="badge" onclick="sendQuickMessage('염색 후 주의사항을 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">염색 후 주의사항</button>
+        <button type="button" class="badge" onclick="sendQuickMessage('염색 전 주의사항을 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">염색 전 주의사항</button>
         <button type="button" class="badge" onclick="sendQuickMessage('레이어드 컷 가이드를 알려줘')" style="cursor: pointer; border: 1px solid var(--line);">레이어드 컷 가이드</button>
       </div>
     </div>
@@ -45,7 +45,7 @@
     </div>
 
     <form class="chat-input-area" id="chatForm">
-      <input type="text" id="chatInput" class="chat-input" placeholder="질문을 입력해주세요." autocomplete="off">
+      <input type="text" id="chatInput" class="chat-input" placeholder="질문을 입력해 주세요." autocomplete="off">
       <button type="submit" class="chat-send-btn">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -55,5 +55,3 @@
     </form>
   </div>
 </div>
-
-<script src="/static/shared/js/chatbot.js"></script>
