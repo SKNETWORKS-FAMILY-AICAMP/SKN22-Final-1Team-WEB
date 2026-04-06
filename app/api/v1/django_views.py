@@ -1,4 +1,5 @@
 ﻿import io
+import json
 import threading
 import logging
 
@@ -36,7 +37,11 @@ from app.api.v1.services_django import (
     upsert_survey,
 )
 from app.services.age_profile import build_client_age_profile
-from app.services.capture_validation import sanitize_original_upload, validate_capture_image
+from app.services.capture_validation import (
+    build_capture_validation_snapshot,
+    sanitize_original_upload,
+    validate_capture_image,
+)
 from app.services.face_processing import build_deidentified_capture, extract_landmark_snapshot
 from app.services.model_team_bridge import (
     create_legacy_capture_upload_record,
@@ -73,6 +78,22 @@ def _get_client_or_404(identifier):
     if client is None:
         raise Http404("Client not found.")
     return client
+
+
+def _parse_front_capture_context(request) -> dict | None:
+    raw_value = request.data.get("front_capture_context")
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, dict):
+        return raw_value
+    if not isinstance(raw_value, str):
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError:
+        logger.warning("[capture_upload_front_context_invalid] payload_type=%s", type(raw_value).__name__)
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 class LoginView(CompatEnvelopeAPIView):
@@ -204,6 +225,7 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                     "client_id": {"type": "string"},
                     "customer_id": {"type": "string"},
                     "customer": {"type": "string"},
+                    "front_capture_context": {"type": "string"},
                     "file": {"type": "string", "format": "binary"},
                 },
                 "required": ["client_id", "file"],
@@ -235,6 +257,12 @@ class CaptureUploadView(CompatEnvelopeAPIView):
 
         validation = validate_capture_image(processed_bytes=processed_bytes)
         landmark_snapshot = extract_landmark_snapshot(processed_bytes=processed_bytes)
+        front_capture_context = _parse_front_capture_context(request)
+        capture_validation_snapshot = build_capture_validation_snapshot(
+            validation=validation,
+            landmark_snapshot=landmark_snapshot,
+            front_capture_context=front_capture_context,
+        )
         if settings.MIRRAI_PERSIST_CAPTURE_IMAGES:
             deidentified_bytes, privacy_snapshot = build_deidentified_capture(
                 processed_bytes=processed_bytes,
@@ -264,6 +292,11 @@ class CaptureUploadView(CompatEnvelopeAPIView):
                 "reason": "capture_images_not_persisted",
             }
 
+        privacy_snapshot = {
+            **privacy_snapshot,
+            "capture_validation": capture_validation_snapshot,
+        }
+
         record = create_legacy_capture_upload_record(
             client=client,
             original_path=original_path,
@@ -284,14 +317,56 @@ class CaptureUploadView(CompatEnvelopeAPIView):
         )
 
         logger.info(
-            "[capture_upload] client_id=%s status=%s storage_mode=%s has_required_assets=%s",
+            (
+                "[capture_upload] client_id=%s status=%s reason=%s face_count=%s "
+                "storage_mode=%s has_required_assets=%s"
+            ),
             client.id,
             validation["status"],
+            validation["reason_code"],
+            validation["face_count"],
             storage_snapshot["storage_mode"],
             storage_snapshot["has_required_capture_assets"],
         )
+        logger.info(
+            (
+                "[capture_upload_validation] client_id=%s brightness=%s sharpness=%s "
+                "face_area_ratio=%s thresholds=%s"
+            ),
+            client.id,
+            capture_validation_snapshot["diagnostics"].get("brightness"),
+            capture_validation_snapshot["diagnostics"].get("sharpness"),
+            capture_validation_snapshot["diagnostics"].get("face_area_ratio"),
+            capture_validation_snapshot["thresholds"],
+        )
+        if capture_validation_snapshot["front_capture_context_present"]:
+            logger.info(
+                (
+                    "[capture_upload_compare] client_id=%s front_all_valid=%s front_message_key=%s "
+                    "front_summary=%s backend_reason=%s backend_failed_after_front_ready=%s"
+                ),
+                client.id,
+                capture_validation_snapshot["front_all_valid"],
+                capture_validation_snapshot["front_message_key"],
+                capture_validation_snapshot["front_checklist_summary"],
+                capture_validation_snapshot["reason_code"],
+                capture_validation_snapshot["backend_failed_after_front_ready"],
+            )
 
         if not validation["is_valid"]:
+            logger.warning(
+                (
+                    "[capture_upload_failed] client_id=%s record_id=%s reason=%s face_count=%s "
+                    "landmark_face_count=%s brightness=%s sharpness=%s"
+                ),
+                client.id,
+                record.id,
+                validation["reason_code"],
+                validation["face_count"],
+                capture_validation_snapshot["landmark_face_count"],
+                capture_validation_snapshot["diagnostics"].get("brightness"),
+                capture_validation_snapshot["diagnostics"].get("sharpness"),
+            )
             return Response(
                 {
                     "status": "needs_retake",
