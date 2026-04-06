@@ -226,6 +226,95 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
         self.assertEqual(payload["status"], "online")
         self.assertEqual(payload["message"], "runpod-gpu")
 
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_recommendation_metadata_is_attached_to_reasoning_snapshot(self, mock_score_recommendations, mock_post):
+        mock_score_recommendations.return_value = [
+            {
+                "style_id": 201,
+                "style_name": "Side-Parted Lob",
+                "style_description": "",
+                "keywords": ["lob"],
+                "match_score": 0.77,
+                "rank": 0,
+                "reasoning_snapshot": {"summary": "local summary"},
+            }
+        ]
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "seed": 42,
+                            "clip_score": 0.298,
+                            "mask_used": "sam2",
+                            "image_base64": "ZmFrZS1pbWFnZQ==",
+                            "recommended_style": {
+                                "style_id": "shaggy-midi",
+                                "style_name": "Shaggy Midi Cut",
+                                "recommendation_score": 0.8437,
+                            },
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 0,
+                            "style_id": "shaggy-midi",
+                            "style_name": "Shaggy Midi Cut",
+                            "score": 0.8437,
+                            "description": "Mid-length shag with crown texture.",
+                            "face_shape_detected": "oval",
+                            "golden_ratio_score": 0.649,
+                            "face_shapes": ["round", "oval", "oblong"],
+                        }
+                    ],
+                    "rag_context": "[자료 1] 제목: shaggy midi",
+                    "elapsed_seconds": 58.7,
+                    "build_tag": "build-2026-04-06",
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "https://cdn.example.com/original.png",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0]["simulation_image_url"].startswith("data:image/png;base64,"))
+        self.assertEqual(items[0]["llm_explanation"], "Mid-length shag with crown texture.")
+        snapshot = items[0]["reasoning_snapshot"]["runpod"]
+        self.assertEqual(snapshot["build_tag"], "build-2026-04-06")
+        self.assertEqual(snapshot["face_shape_detected"], "oval")
+        self.assertEqual(snapshot["golden_ratio_score"], 0.649)
+        self.assertEqual(snapshot["runtime"]["endpoint_id"], "stable-endpoint")
+        self.assertIn("shaggy midi", snapshot["rag_context_excerpt"].lower())
+
 
 class InternalAiServiceContractTests(SimpleTestCase):
     def setUp(self):

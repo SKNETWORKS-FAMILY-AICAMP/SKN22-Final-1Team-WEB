@@ -425,6 +425,33 @@ def _build_preference_payload(survey_data: dict | None) -> dict:
     return payload
 
 
+def _build_runpod_preference_payload(survey_data: dict | None) -> dict:
+    survey_data = survey_data or {}
+    length = canonical_length(survey_data.get("target_length"))
+    mood = canonical_vibe(survey_data.get("target_vibe"))
+    hair_type = canonical_scalp(survey_data.get("scalp_type"))
+    budget = canonical_budget(survey_data.get("budget_range"))
+
+    mood_mapping = {
+        "natural": "natural",
+        "chic": "trendy",
+        "cute": "cute",
+        "elegant": "classic",
+    }
+
+    payload: dict[str, object] = {}
+    if length != "unknown":
+        payload["length"] = "medium" if length == "bob" else length
+    mapped_mood = mood_mapping.get(mood)
+    if mapped_mood:
+        payload["mood"] = [mapped_mood]
+    if hair_type in {"straight", "waved", "curly"}:
+        payload["hair_type"] = {"waved": "wavy"}.get(hair_type, hair_type)
+    if budget != "unknown":
+        payload["budget"] = {"mid": "medium"}.get(budget, budget)
+    return payload
+
+
 def _build_preference_text(survey_data: dict | None) -> str | None:
     survey_data = survey_data or {}
     parts = [
@@ -471,6 +498,42 @@ def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     }
 
 
+def _match_runpod_recommendation(
+    *,
+    recommendations: list[dict],
+    index: int,
+    result: dict,
+) -> dict | None:
+    if index < len(recommendations) and isinstance(recommendations[index], dict):
+        return recommendations[index]
+
+    recommended_style = result.get("recommended_style") or {}
+    recommended_style_id = str(recommended_style.get("style_id") or "").strip()
+    recommended_style_name = str(recommended_style.get("style_name") or "").strip().lower()
+    if not recommended_style_id and not recommended_style_name:
+        return None
+
+    for recommendation in recommendations:
+        if not isinstance(recommendation, dict):
+            continue
+        candidate_id = str(recommendation.get("style_id") or "").strip()
+        candidate_name = str(recommendation.get("style_name") or "").strip().lower()
+        if recommended_style_id and candidate_id and candidate_id == recommended_style_id:
+            return recommendation
+        if recommended_style_name and candidate_name and candidate_name == recommended_style_name:
+            return recommendation
+    return None
+
+
+def _rag_context_excerpt(value: object, *, limit: int = 280) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
 def _augment_items_with_runpod(
     *,
     items: list[dict],
@@ -491,7 +554,7 @@ def _augment_items_with_runpod(
         "top_k": min(len(items), 5),
         "return_base64": True,
     }
-    preference = _build_preference_payload(survey_data)
+    preference = _build_runpod_preference_payload(survey_data)
     preference_text = _build_preference_text(survey_data)
     if preference:
         runpod_payload["preference"] = preference
@@ -509,24 +572,49 @@ def _augment_items_with_runpod(
     if not isinstance(results, list) or not results:
         return items
 
+    recommendations = remote.get("recommendations")
+    if not isinstance(recommendations, list):
+        recommendations = []
+
+    rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
+    build_tag = str(remote.get("build_tag") or "").strip() or None
+    runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
+
     augmented: list[dict] = []
     for index, item in enumerate(items):
         enriched = dict(item)
         if index < len(results):
             result = results[index] or {}
+            recommendation_meta = _match_runpod_recommendation(
+                recommendations=recommendations,
+                index=index,
+                result=result,
+            )
             image_base64 = result.get("image_base64")
             if image_base64:
                 data_url = f"data:image/png;base64,{image_base64}"
                 enriched["simulation_image_url"] = data_url
                 enriched["synthetic_image_url"] = data_url
             snapshot = dict(enriched.get("reasoning_snapshot") or {})
-            snapshot["runpod"] = {
+            runpod_snapshot = {
                 "provider": "runpod",
                 "clip_score": result.get("clip_score"),
                 "mask_used": result.get("mask_used"),
                 "elapsed_seconds": remote.get("elapsed_seconds"),
                 "recommended_style": result.get("recommended_style"),
+                "build_tag": build_tag,
+                "runtime": runpod_runtime,
+                "rag_context_excerpt": rag_context_excerpt,
             }
+            if recommendation_meta:
+                runpod_snapshot["recommendation"] = recommendation_meta
+                runpod_snapshot["face_shape_detected"] = recommendation_meta.get("face_shape_detected")
+                runpod_snapshot["golden_ratio_score"] = recommendation_meta.get("golden_ratio_score")
+                runpod_snapshot["face_shapes"] = recommendation_meta.get("face_shapes")
+                if recommendation_meta.get("description"):
+                    enriched["llm_explanation"] = enriched.get("llm_explanation") or recommendation_meta.get("description")
+                    enriched["style_description"] = enriched.get("style_description") or recommendation_meta.get("description")
+            snapshot["runpod"] = runpod_snapshot
             enriched["reasoning_snapshot"] = snapshot
         augmented.append(enriched)
     return augmented

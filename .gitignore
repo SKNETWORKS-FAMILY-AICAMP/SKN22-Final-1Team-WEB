@@ -110,6 +110,9 @@ front_feedback/
 
 # Django Specific / App Tests
 docs/
+!docs/
+docs/*
+!docs/runpod_direct_b_refactor_report_0406_ver1.md
 tests/
 app/tests/
 !app/tests/
