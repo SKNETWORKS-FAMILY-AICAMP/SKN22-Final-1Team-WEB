@@ -115,6 +115,7 @@ app/tests/
 !app/tests/
 app/tests/*
 !app/tests/test_seed_test_accounts.py
+!app/tests/test_ai_facade.py
 
 # Front Feedback
 !front_feedback/

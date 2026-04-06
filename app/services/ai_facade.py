@@ -53,7 +53,11 @@ def _runpod_api_key() -> str:
 
 
 def _runpod_endpoint_id() -> str:
-    return os.environ.get("RUNPOD_ENDPOINT_ID", "").strip()
+    for env_name in ("RUNPOD_ENDPOINT_ID", "STABLE_DIFFUSION_ENDPOINT", "RUNPOD_TRENDS_ENDPOINT_ID"):
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _runpod_health_timeout() -> tuple[int, int]:
@@ -73,14 +77,30 @@ def _runpod_enabled() -> bool:
     return bool(_runpod_api_key() and _runpod_endpoint_id())
 
 
+def _service_enabled() -> bool:
+    return bool(_service_base_url())
+
+
 def _ai_provider() -> str:
     configured = os.environ.get("MIRRAI_AI_PROVIDER", "").strip().lower()
-    if configured in {"runpod", "service", "local"}:
-        return configured
-    if _service_base_url():
-        return "service"
+    if configured == "runpod":
+        if _runpod_enabled():
+            return "runpod"
+        if _service_enabled():
+            return "service"
+        return "local"
+    if configured == "service":
+        if _service_enabled():
+            return "service"
+        if _runpod_enabled():
+            return "runpod"
+        return "local"
+    if configured == "local":
+        return "local"
     if _runpod_enabled():
         return "runpod"
+    if _service_enabled():
+        return "service"
     return "local"
 
 
