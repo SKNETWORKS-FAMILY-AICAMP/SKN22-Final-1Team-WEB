@@ -22,12 +22,31 @@
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
   const HAND_MEDIAPIPE_MODEL_URL =
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+  const TFJS_VERSION = "4.13.0";
+  const TFJS_FACE_LANDMARKS_VERSION = "1.0.6";
+  const TFJS_SCRIPT_URL =
+    "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@" +
+    TFJS_VERSION +
+    "/dist/tf.min.js";
+  const TFJS_WASM_SCRIPT_URL =
+    "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@" +
+    TFJS_VERSION +
+    "/dist/tf-backend-wasm.js";
+  const TFJS_WASM_ROOT_URL =
+    "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@" +
+    TFJS_VERSION +
+    "/dist/";
+  const TFJS_FACE_LANDMARKS_SCRIPT_URL =
+    "https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@" +
+    TFJS_FACE_LANDMARKS_VERSION +
+    "/dist/face-landmarks-detection.min.js";
 
   const LANDMARK_INDEX = {
     noseTip: 1,
     leftEyeOuter: 33,
     rightEyeOuter: 263
   };
+  const runtimeProfile = getRuntimeProfile();
 
   const videoEl = document.getElementById("cameraPreview");
   const statusEl = document.getElementById("cameraStatus");
@@ -88,8 +107,20 @@
   let previewUrl = null;
   let faceLandmarker = null;
   let handLandmarker = null;
+  let tfjsFaceDetector = null;
+  let faceLandmarkerDelegate = null;
+  let handLandmarkerDelegate = null;
+  let faceLandmarkerRunningMode = null;
+  let handLandmarkerRunningMode = null;
+  let handLandmarkerLoadPromise = null;
+  let faceRecoveryPromise = null;
   let mediaPipeLoadPromise = null;
+  let tfjsFaceDetectorPromise = null;
+  let tfjsLibrariesPromise = null;
   let autoCaptureSupported = true;
+  let obstructionDetectionEnabled = !runtimeProfile.disableHandLandmarker;
+  let autoCaptureRetryTimer = null;
+  let autoCaptureRecoveryAttempts = 0;
   let detectorFrameHandle = null;
   let countdownTimer = null;
   let countdownDeadline = 0;
@@ -99,6 +130,386 @@
   let lastDetectionAt = 0;
   let lastGuidanceKey = "";
   let audioContext = null;
+  let analysisCanvas = null;
+  let analysisCanvasContext = null;
+  const externalScriptPromises = new Map();
+  const AUTO_CAPTURE_RECOVERY_DELAY_MS = 1200;
+  const MAX_AUTO_CAPTURE_RECOVERY_ATTEMPTS = 3;
+
+  function getRuntimeProfile() {
+    const userAgent = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    const maxTouchPoints = navigator.maxTouchPoints || 0;
+    const isiPadOS = platform === "MacIntel" && maxTouchPoints > 1;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) || isiPadOS;
+    const isMacDesktop = /Mac/i.test(platform) && !isiPadOS;
+    const isApplePlatform = isIOS || isMacDesktop;
+    const isSafari =
+      /Safari/i.test(userAgent) &&
+      !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS|SamsungBrowser/i.test(userAgent);
+    const iosVersionMatch = userAgent.match(/OS (\d+)_/);
+
+    return {
+      isIOS,
+      isMacDesktop,
+      isApplePlatform,
+      isSafari,
+      iosMajorVersion: iosVersionMatch ? Number(iosVersionMatch[1]) : null,
+      disableHandLandmarker: isApplePlatform,
+      useTfjsFaceLandmarks: isApplePlatform,
+      preferredDelegate: "CPU",
+      preferredRunningMode: isApplePlatform ? "IMAGE" : "VIDEO",
+      detectionIntervalMs: isApplePlatform ? 220 : DETECTION_INTERVAL_MS,
+      cameraWidth: isIOS ? 960 : 1280,
+      cameraHeight: 720,
+      analysisWidth: isApplePlatform ? 512 : 640
+    };
+  }
+
+  function getChecklistTargetCount() {
+    return obstructionDetectionEnabled ? 5 : 4;
+  }
+
+  function formatChecklistSummary(completedCount) {
+    return completedCount + " / " + getChecklistTargetCount() + " 완료";
+  }
+
+  function getObstructionChecklistState(enabledConfig) {
+    if (obstructionDetectionEnabled) {
+      return enabledConfig;
+    }
+
+    return {
+      state: "valid",
+      text: "현재 기기에서는 손 가림 확인을 생략하고 얼굴 위치 중심으로 촬영을 준비합니다."
+    };
+  }
+
+  function getAutoCaptureHintMessage() {
+    if (obstructionDetectionEnabled) {
+      return "조건이 모두 맞으면 3초 뒤 자동 촬영됩니다.";
+    }
+
+    return "현재 기기에서는 손 가림 확인 없이 얼굴 위치와 각도를 기준으로 자동 촬영됩니다.";
+  }
+
+  function disableObstructionDetection(error) {
+    obstructionDetectionEnabled = false;
+    handLandmarker = closeTaskRunner(handLandmarker);
+    handLandmarkerDelegate = null;
+    handLandmarkerRunningMode = null;
+    handLandmarkerLoadPromise = null;
+
+    if (error) {
+      console.warn(
+        "Hand obstruction detection is unavailable. Continuing with face-only auto capture.",
+        error
+      );
+    }
+  }
+
+  function closeTaskRunner(taskRunner) {
+    if (!taskRunner) {
+      return null;
+    }
+
+    const closeMethod =
+      typeof taskRunner.close === "function"
+        ? "close"
+        : typeof taskRunner.dispose === "function"
+          ? "dispose"
+          : null;
+
+    if (closeMethod) {
+      try {
+        taskRunner[closeMethod]();
+      } catch (error) {
+        console.warn("Failed to close detector cleanly.", error);
+      }
+    }
+
+    return null;
+  }
+
+  function clampNormalized(value) {
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function loadExternalScript(url) {
+    if (externalScriptPromises.has(url)) {
+      return externalScriptPromises.get(url);
+    }
+
+    const promise = new Promise((resolve, reject) => {
+      const existingScript = document.querySelector('script[src="' + url + '"]');
+      if (existingScript) {
+        if (existingScript.dataset.loaded === "true") {
+          resolve();
+          return;
+        }
+
+        existingScript.addEventListener("load", () => resolve(), { once: true });
+        existingScript.addEventListener(
+          "error",
+          () => reject(new Error("Failed to load script: " + url)),
+          { once: true }
+        );
+        return;
+      }
+
+      const scriptEl = document.createElement("script");
+      scriptEl.src = url;
+      scriptEl.async = true;
+      scriptEl.onload = () => {
+        scriptEl.dataset.loaded = "true";
+        resolve();
+      };
+      scriptEl.onerror = () => reject(new Error("Failed to load script: " + url));
+      document.head.appendChild(scriptEl);
+    }).catch((error) => {
+      externalScriptPromises.delete(url);
+      throw error;
+    });
+
+    externalScriptPromises.set(url, promise);
+    return promise;
+  }
+
+  async function ensureTfjsLibraries() {
+    if (!runtimeProfile.useTfjsFaceLandmarks) {
+      return null;
+    }
+
+    if (tfjsLibrariesPromise) {
+      return tfjsLibrariesPromise;
+    }
+
+    tfjsLibrariesPromise = (async () => {
+      await loadExternalScript(TFJS_SCRIPT_URL);
+      await loadExternalScript(TFJS_WASM_SCRIPT_URL);
+      await loadExternalScript(TFJS_FACE_LANDMARKS_SCRIPT_URL);
+
+      if (!window.tf || !window.tf.wasm || !window.faceLandmarksDetection) {
+        throw new Error("TF.js face landmarks libraries are not available.");
+      }
+
+      window.tf.wasm.setWasmPaths(TFJS_WASM_ROOT_URL);
+
+      if (runtimeProfile.isIOS && typeof window.tf.wasm.setThreadsCount === "function") {
+        window.tf.wasm.setThreadsCount(1);
+      }
+
+      await window.tf.setBackend("wasm");
+      await window.tf.ready();
+
+      return {
+        tf: window.tf,
+        faceLandmarksDetection: window.faceLandmarksDetection
+      };
+    })().catch((error) => {
+      tfjsLibrariesPromise = null;
+      throw error;
+    });
+
+    return tfjsLibrariesPromise;
+  }
+
+  function normalizeTfjsFaceResult(faces, sourceWidth, sourceHeight) {
+    const detectedFaces = Array.isArray(faces) ? faces : [];
+
+    return {
+      faceLandmarks: detectedFaces.map((face) =>
+        (Array.isArray(face.keypoints) ? face.keypoints : []).map((point) => ({
+          x: clampNormalized((point.x || 0) / sourceWidth),
+          y: clampNormalized((point.y || 0) / sourceHeight),
+          z: typeof point.z === "number" ? point.z / sourceWidth : 0
+        }))
+      )
+    };
+  }
+
+  async function ensureTfjsFaceDetector() {
+    if (!runtimeProfile.useTfjsFaceLandmarks) {
+      return null;
+    }
+
+    if (tfjsFaceDetector) {
+      return tfjsFaceDetector;
+    }
+
+    if (tfjsFaceDetectorPromise) {
+      return tfjsFaceDetectorPromise;
+    }
+
+    tfjsFaceDetectorPromise = (async () => {
+      const libs = await ensureTfjsLibraries();
+      const model = libs.faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+
+      tfjsFaceDetector = await libs.faceLandmarksDetection.createDetector(model, {
+        runtime: "tfjs",
+        maxFaces: 1,
+        refineLandmarks: false
+      });
+
+      faceLandmarkerDelegate = "CPU";
+      faceLandmarkerRunningMode = "TFJS";
+      return tfjsFaceDetector;
+    })().catch((error) => {
+      tfjsFaceDetector = closeTaskRunner(tfjsFaceDetector);
+      tfjsFaceDetectorPromise = null;
+      faceLandmarkerDelegate = null;
+      faceLandmarkerRunningMode = null;
+      throw error;
+    });
+
+    return tfjsFaceDetectorPromise;
+  }
+
+  function shouldRetryWithCpuDelegate(error, currentDelegate) {
+    if (currentDelegate === "CPU") {
+      return false;
+    }
+
+    const message = String(
+      (error && (error.message || error.stack || error.name)) || error || ""
+    ).toLowerCase();
+
+    return (
+      runtimeProfile.isSafari ||
+      runtimeProfile.isIOS ||
+      message.includes("activetexture") ||
+      message.includes("gl") ||
+      message.includes("webgl") ||
+      message.includes("prod_token")
+    );
+  }
+
+  function shouldRetryWithImageMode(error, currentRunningMode) {
+    if (currentRunningMode === "IMAGE") {
+      return false;
+    }
+
+    const message = String(
+      (error && (error.message || error.stack || error.name)) || error || ""
+    ).toLowerCase();
+
+    return (
+      runtimeProfile.isSafari ||
+      runtimeProfile.isIOS ||
+      message.includes("activetexture") ||
+      message.includes("detectforvideo") ||
+      message.includes("gl") ||
+      message.includes("webgl")
+    );
+  }
+
+  function getAnalysisFrameSource() {
+    if (!videoEl || videoEl.readyState < 2 || !videoEl.videoWidth || !videoEl.videoHeight) {
+      return null;
+    }
+
+    if (!analysisCanvas) {
+      analysisCanvas = document.createElement("canvas");
+    }
+
+    if (!analysisCanvasContext) {
+      analysisCanvasContext = analysisCanvas.getContext("2d", { alpha: false });
+    }
+
+    if (!analysisCanvasContext) {
+      return null;
+    }
+
+    const sourceWidth = videoEl.videoWidth;
+    const sourceHeight = videoEl.videoHeight;
+    const targetWidth = Math.min(runtimeProfile.analysisWidth, sourceWidth);
+    const targetHeight = Math.max(1, Math.round((sourceHeight / sourceWidth) * targetWidth));
+
+    if (analysisCanvas.width !== targetWidth || analysisCanvas.height !== targetHeight) {
+      analysisCanvas.width = targetWidth;
+      analysisCanvas.height = targetHeight;
+    }
+
+    analysisCanvasContext.drawImage(videoEl, 0, 0, targetWidth, targetHeight);
+    return analysisCanvas;
+  }
+
+  function detectFaceForCurrentFrame(now, frameSource) {
+    if (runtimeProfile.useTfjsFaceLandmarks) {
+      const source = frameSource || getAnalysisFrameSource();
+      if (!source || !tfjsFaceDetector) {
+        return Promise.resolve(null);
+      }
+
+      return tfjsFaceDetector
+        .estimateFaces(source, {
+          flipHorizontal: false,
+          staticImageMode: false
+        })
+        .then((faces) =>
+          normalizeTfjsFaceResult(faces, source.width, source.height)
+        );
+    }
+
+    if (!faceLandmarker) {
+      return Promise.resolve(null);
+    }
+
+    if (faceLandmarkerRunningMode === "IMAGE") {
+      const source = frameSource || getAnalysisFrameSource();
+      return Promise.resolve(source ? faceLandmarker.detect(source) : null);
+    }
+
+    return Promise.resolve(faceLandmarker.detectForVideo(videoEl, now));
+  }
+
+  function detectHandsForCurrentFrame(now, frameSource) {
+    if (!handLandmarker) {
+      return null;
+    }
+
+    if (handLandmarkerRunningMode === "IMAGE") {
+      const source = frameSource || getAnalysisFrameSource();
+      return source ? handLandmarker.detect(source) : null;
+    }
+
+    return handLandmarker.detectForVideo(videoEl, now);
+  }
+
+  function clearAutoCaptureRetry() {
+    if (autoCaptureRetryTimer) {
+      window.clearTimeout(autoCaptureRetryTimer);
+      autoCaptureRetryTimer = null;
+    }
+  }
+
+  function scheduleAutoCaptureRecovery(error, message) {
+    console.warn("Retrying MediaPipe auto capture setup.", error);
+    clearAutoCaptureRetry();
+
+    if (!isCameraOn || capturedBlob || !autoCaptureSupported) {
+      return;
+    }
+
+    if (autoCaptureRecoveryAttempts >= MAX_AUTO_CAPTURE_RECOVERY_ATTEMPTS) {
+      activateManualMode(
+        "자동 촬영 준비를 여러 번 다시 시도했지만 안정적으로 시작하지 못했습니다. 우선 수동 촬영을 사용해 주세요."
+      );
+      return;
+    }
+
+    autoCaptureRecoveryAttempts += 1;
+    stopDetectionLoop({ preserveHint: true });
+    updateStatus(message, "loading");
+    updateAutoHint("자동 촬영 준비를 다시 시도하고 있습니다. 잠시만 기다려 주세요.", "idle");
+
+    autoCaptureRetryTimer = window.setTimeout(() => {
+      autoCaptureRetryTimer = null;
+      if (isCameraOn && !capturedBlob && autoCaptureSupported) {
+        startDetectionLoop();
+      }
+    }, AUTO_CAPTURE_RECOVERY_DELAY_MS);
+  }
 
   function init() {
     if (
@@ -133,14 +544,20 @@
     });
 
     updateChecklist(getLoadingChecklistState());
-    updateStatus("카메라와 MediaPipe 얼굴 분석 모델을 준비하는 중입니다...", "loading");
-    updateAutoHint("MediaPipe 얼굴 분석 모델을 불러오는 중입니다.", "idle");
+    updateStatus("카메라를 켜고 촬영 준비를 하고 있습니다...", "loading");
+    updateAutoHint("자동 촬영을 준비하고 있습니다.", "idle");
 
     startCamera();
     ensureFaceLandmarker().catch((error) => {
       console.error("MediaPipe initialization failed.", error);
+      updateStatus(
+        "촬영 준비에 시간이 걸리고 있습니다. 카메라 연결 후 다시 시도합니다.",
+        "loading"
+      );
+      updateAutoHint("촬영 준비를 이어서 진행하고 있습니다. 잠시만 기다려 주세요.", "idle");
+      return;
       activateManualMode(
-        "MediaPipe 얼굴 분석 모델을 불러오지 못해 수동 촬영으로 전환했습니다."
+        "촬영 준비를 완료하지 못해 수동 촬영으로 전환했습니다."
       );
     });
   }
@@ -248,23 +665,23 @@
     const items = {
       face: {
         state: "pending",
-        text: "얼굴을 찾는 중입니다."
+        text: "얼굴 위치를 확인할 준비를 하고 있습니다."
       },
       obstruction: {
         state: "pending",
-        text: "손이나 가림 요소를 확인하는 중입니다."
+        text: "가림 여부를 확인할 준비를 하고 있습니다."
       },
       center: {
         state: "pending",
-        text: "얼굴이 감지되면 바로 확인합니다."
+        text: "준비가 끝나면 중앙 정렬을 확인합니다."
       },
       distance: {
         state: "pending",
-        text: "거리를 아직 확인하지 못했습니다."
+        text: "준비가 끝나면 거리 조건을 확인합니다."
       },
       angle: {
         state: "pending",
-        text: "정면 각도를 아직 확인하지 못했습니다."
+        text: "준비가 끝나면 정면 각도를 확인합니다."
       }
     };
 
@@ -275,6 +692,10 @@
       };
     });
 
+    if (!obstructionDetectionEnabled) {
+      items.obstruction = getObstructionChecklistState(items.obstruction);
+    }
+
     return {
       summary,
       items
@@ -282,19 +703,19 @@
   }
 
   function getLoadingChecklistState() {
-    return buildChecklistState("모델 준비 중", {
-      face: { text: "MediaPipe 모델을 불러오는 중입니다." },
-      obstruction: { text: "손 가림 감지 모델을 불러오는 중입니다." },
-      center: { text: "모델 로드 후 중앙 정렬을 확인합니다." },
-      distance: { text: "모델 로드 후 거리 조건을 확인합니다." },
-      angle: { text: "모델 로드 후 정면 각도를 확인합니다." }
+    return buildChecklistState("촬영 준비 중", {
+      face: { text: "얼굴 위치를 확인할 준비를 하고 있습니다." },
+      obstruction: { text: "손 가림 여부를 확인할 준비를 하고 있습니다." },
+      center: { text: "준비가 끝나면 중앙 정렬을 확인합니다." },
+      distance: { text: "준비가 끝나면 거리 조건을 확인합니다." },
+      angle: { text: "준비가 끝나면 정면 각도를 확인합니다." }
     });
   }
 
   function getPausedChecklistState() {
-    return buildChecklistState("카메라 대기", {
-      face: { text: "카메라를 켜면 얼굴 감지를 시작합니다." },
-      obstruction: { text: "카메라를 켜면 손 가림 여부를 확인합니다." },
+    return buildChecklistState("카메라 대기 중", {
+      face: { text: "카메라를 켜면 얼굴 위치 확인을 시작합니다." },
+      obstruction: { text: "카메라를 켜면 가림 여부를 확인합니다." },
       center: { text: "카메라가 켜지면 중앙 정렬을 확인합니다." },
       distance: { text: "카메라가 켜지면 거리 조건을 확인합니다." },
       angle: { text: "카메라가 켜지면 정면 각도를 확인합니다." }
@@ -302,12 +723,12 @@
   }
 
   function getManualChecklistState() {
-    return buildChecklistState("수동 모드", {
-      face: { text: "자동 체크를 사용할 수 없어 수동 촬영을 사용합니다." },
-      obstruction: { text: "가림 감지를 사용할 수 없어 자동 촬영을 중지했습니다." },
+    return buildChecklistState("수동 촬영 모드", {
+      face: { text: "자동 확인이 잠시 멈춰 있어 수동 촬영을 사용할 수 있습니다." },
+      obstruction: { text: "가림 여부는 직접 확인한 뒤 촬영해 주세요." },
       center: { text: "즉시 촬영 버튼으로 바로 촬영할 수 있습니다." },
-      distance: { text: "촬영 전에 얼굴 크기만 눈으로 한 번 확인해 주세요." },
-      angle: { text: "정면을 바라보고 촬영하면 분석 품질이 더 좋아집니다." }
+      distance: { text: "촬영 전에 얼굴 크기가 자연스럽게 보이는지만 확인해 주세요." },
+      angle: { text: "정면을 바라보고 촬영하면 결과가 더 안정적입니다." }
     });
   }
 
@@ -410,14 +831,34 @@
     }
   }
 
-  async function ensureFaceLandmarker() {
-    if (faceLandmarker) {
+  async function ensureFaceLandmarker(
+    delegate = runtimeProfile.preferredDelegate,
+    runningMode = runtimeProfile.preferredRunningMode
+  ) {
+    if (runtimeProfile.useTfjsFaceLandmarks) {
+      return ensureTfjsFaceDetector();
+    }
+
+    if (
+      faceLandmarker &&
+      faceLandmarkerDelegate === delegate &&
+      faceLandmarkerRunningMode === runningMode
+    ) {
       return faceLandmarker;
     }
 
-    if (mediaPipeLoadPromise) {
+    if (
+      mediaPipeLoadPromise &&
+      faceLandmarkerDelegate === delegate &&
+      faceLandmarkerRunningMode === runningMode
+    ) {
       return mediaPipeLoadPromise;
     }
+
+    faceLandmarker = closeTaskRunner(faceLandmarker);
+    faceLandmarkerDelegate = delegate;
+    faceLandmarkerRunningMode = runningMode;
+    mediaPipeLoadPromise = null;
 
     mediaPipeLoadPromise = (async () => {
       const visionModule = await import(MEDIAPIPE_MODULE_URL);
@@ -429,9 +870,10 @@
         vision,
         {
           baseOptions: {
-            modelAssetPath: MEDIAPIPE_MODEL_URL
+            modelAssetPath: MEDIAPIPE_MODEL_URL,
+            delegate
           },
-          runningMode: "VIDEO",
+          runningMode,
           numFaces: 1,
           minFaceDetectionConfidence: 0.55,
           minFacePresenceConfidence: 0.55,
@@ -440,41 +882,131 @@
       );
 
       return faceLandmarker;
-    })().catch((error) => {
+    })().catch(async (error) => {
+      if (shouldRetryWithImageMode(error, runningMode)) {
+        console.warn(
+          "FaceLandmarker video mode failed. Retrying with CPU image mode.",
+          error
+        );
+        mediaPipeLoadPromise = null;
+        faceLandmarker = closeTaskRunner(faceLandmarker);
+        faceLandmarkerDelegate = "CPU";
+        faceLandmarkerRunningMode = "IMAGE";
+        return ensureFaceLandmarker("CPU", "IMAGE");
+      }
+
+      if (shouldRetryWithCpuDelegate(error, delegate)) {
+        console.warn(
+          "FaceLandmarker GPU path failed. Retrying with CPU delegate.",
+          error
+        );
+        mediaPipeLoadPromise = null;
+        faceLandmarker = closeTaskRunner(faceLandmarker);
+        faceLandmarkerDelegate = "CPU";
+        faceLandmarkerRunningMode = runningMode;
+        return ensureFaceLandmarker("CPU", runningMode);
+      }
+
       mediaPipeLoadPromise = null;
-      faceLandmarker = null;
+      faceLandmarker = closeTaskRunner(faceLandmarker);
+      faceLandmarkerDelegate = null;
+      faceLandmarkerRunningMode = null;
+      throw error;
+    }).catch((error) => {
+      mediaPipeLoadPromise = null;
+      faceLandmarker = closeTaskRunner(faceLandmarker);
+      faceLandmarkerDelegate = null;
+      faceLandmarkerRunningMode = null;
       throw error;
     });
 
     return mediaPipeLoadPromise;
   }
 
-  async function ensureHandLandmarker() {
-    if (handLandmarker) {
+  async function ensureHandLandmarker(
+    delegate = runtimeProfile.preferredDelegate,
+    runningMode = runtimeProfile.preferredRunningMode
+  ) {
+    if (!obstructionDetectionEnabled) {
+      return null;
+    }
+
+    if (
+      handLandmarker &&
+      handLandmarkerDelegate === delegate &&
+      handLandmarkerRunningMode === runningMode
+    ) {
       return handLandmarker;
     }
 
-    const visionModule = await import(MEDIAPIPE_MODULE_URL);
-    const vision = await visionModule.FilesetResolver.forVisionTasks(
-      MEDIAPIPE_WASM_URL
-    );
+    if (
+      handLandmarkerLoadPromise &&
+      handLandmarkerDelegate === delegate &&
+      handLandmarkerRunningMode === runningMode
+    ) {
+      return handLandmarkerLoadPromise;
+    }
 
-    handLandmarker = await visionModule.HandLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: HAND_MEDIAPIPE_MODEL_URL
-      },
-      runningMode: "VIDEO",
-      numHands: 2,
-      minHandDetectionConfidence: 0.55,
-      minHandPresenceConfidence: 0.55,
-      minTrackingConfidence: 0.55
+    handLandmarker = closeTaskRunner(handLandmarker);
+    handLandmarkerDelegate = delegate;
+    handLandmarkerRunningMode = runningMode;
+    handLandmarkerLoadPromise = null;
+
+    handLandmarkerLoadPromise = (async () => {
+      const visionModule = await import(MEDIAPIPE_MODULE_URL);
+      const vision = await visionModule.FilesetResolver.forVisionTasks(
+        MEDIAPIPE_WASM_URL
+      );
+
+      handLandmarker = await visionModule.HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: HAND_MEDIAPIPE_MODEL_URL,
+          delegate
+        },
+        runningMode,
+        numHands: 2,
+        minHandDetectionConfidence: 0.55,
+        minHandPresenceConfidence: 0.55,
+        minTrackingConfidence: 0.55
+      });
+
+      return handLandmarker;
+    })().catch(async (error) => {
+      if (shouldRetryWithImageMode(error, runningMode)) {
+        console.warn(
+          "HandLandmarker video mode failed. Retrying with CPU image mode.",
+          error
+        );
+        handLandmarkerLoadPromise = null;
+        handLandmarker = closeTaskRunner(handLandmarker);
+        handLandmarkerDelegate = "CPU";
+        handLandmarkerRunningMode = "IMAGE";
+        return ensureHandLandmarker("CPU", "IMAGE");
+      }
+
+      if (shouldRetryWithCpuDelegate(error, delegate)) {
+        console.warn(
+          "HandLandmarker GPU path failed. Retrying with CPU delegate.",
+          error
+        );
+        handLandmarkerLoadPromise = null;
+        handLandmarker = closeTaskRunner(handLandmarker);
+        handLandmarkerDelegate = "CPU";
+        handLandmarkerRunningMode = runningMode;
+        return ensureHandLandmarker("CPU", runningMode);
+      }
+
+      disableObstructionDetection(error);
+      return null;
     });
 
-    return handLandmarker;
+    return handLandmarkerLoadPromise;
   }
 
   function stopStream() {
     stopDetectionLoop();
+    clearAutoCaptureRetry();
+    autoCaptureRecoveryAttempts = 0;
 
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
@@ -507,8 +1039,8 @@
     const constraints = {
       video: {
         facingMode: facingMode,
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: runtimeProfile.cameraWidth },
+        height: { ideal: runtimeProfile.cameraHeight },
         aspectRatio: { ideal: 1.333333 }
       },
       audio: false
@@ -534,7 +1066,7 @@
         captureBtn.classList.remove("is-hidden");
         fallbackEl.classList.add("is-hidden");
 
-        updateStatus("MediaPipe 기준으로 얼굴 조건을 확인하는 중입니다...", "loading");
+        updateStatus("얼굴 위치와 촬영 조건을 확인하는 중입니다...", "loading");
         updateAutoHint(
           "얼굴이 감지되면 오른쪽 체크리스트가 실시간으로 갱신됩니다.",
           "idle"
@@ -601,6 +1133,8 @@
           return;
         }
 
+        clearAutoCaptureRetry();
+        autoCaptureRecoveryAttempts = 0;
         captureBtn.textContent = "즉시 촬영";
         lastVideoTime = -1;
         lastDetectionAt = 0;
@@ -608,12 +1142,18 @@
         misalignmentCount = 0;
         lastGuidanceKey = "";
         updateChecklist(getLoadingChecklistState());
+        updateAutoHint(getAutoCaptureHintMessage(), "idle");
         detectorFrameHandle = window.requestAnimationFrame(runDetectionLoop);
       })
       .catch((error) => {
         console.error("MediaPipe face detection could not start.", error);
+        scheduleAutoCaptureRecovery(
+          error,
+          "촬영 준비를 다시 맞추는 중입니다..."
+        );
+        return;
         activateManualMode(
-          "MediaPipe 얼굴 분석 모델을 불러오지 못해 수동 촬영으로 전환했습니다."
+          "촬영 준비를 완료하지 못해 수동 촬영으로 전환했습니다."
         );
       });
   }
@@ -643,16 +1183,70 @@
     setGuideState("manual");
   }
 
-  function runDetectionLoop(now) {
+  async function recoverFaceLandmarkerAfterGpuFailure(error) {
+    if (runtimeProfile.useTfjsFaceLandmarks) {
+      return false;
+    }
+
+    const nextRunningMode = shouldRetryWithImageMode(error, faceLandmarkerRunningMode)
+      ? "IMAGE"
+      : faceLandmarkerRunningMode || runtimeProfile.preferredRunningMode;
+    const nextDelegate = shouldRetryWithCpuDelegate(error, faceLandmarkerDelegate) ||
+      nextRunningMode === "IMAGE"
+      ? "CPU"
+      : faceLandmarkerDelegate || runtimeProfile.preferredDelegate;
+
+    if (
+      nextDelegate === faceLandmarkerDelegate &&
+      nextRunningMode === faceLandmarkerRunningMode
+    ) {
+      return false;
+    }
+
+    if (faceRecoveryPromise) {
+      return faceRecoveryPromise;
+    }
+
+    stopDetectionLoop({ preserveHint: true });
+    updateStatus(
+      "촬영 준비를 다시 맞추는 중입니다...",
+      "loading"
+    );
+    updateAutoHint("촬영 준비를 다시 확인하고 있습니다. 잠시만 기다려 주세요.", "idle");
+
+    faceLandmarker = closeTaskRunner(faceLandmarker);
+    faceLandmarkerDelegate = null;
+    faceLandmarkerRunningMode = null;
+    mediaPipeLoadPromise = null;
+
+    faceRecoveryPromise = ensureFaceLandmarker(nextDelegate, nextRunningMode)
+      .then(() => ensureHandLandmarker(nextDelegate, nextRunningMode))
+      .then(() => true)
+      .catch((recoveryError) => {
+        console.error("MediaPipe CPU fallback recovery failed.", recoveryError);
+        return false;
+      })
+      .finally(() => {
+        faceRecoveryPromise = null;
+      });
+
+    return faceRecoveryPromise;
+  }
+
+  async function runDetectionLoop(now) {
     detectorFrameHandle = null;
 
-    if (!isDetectionReady() || !faceLandmarker) {
+    if (
+      !isDetectionReady() ||
+      (!runtimeProfile.useTfjsFaceLandmarks && !faceLandmarker) ||
+      (runtimeProfile.useTfjsFaceLandmarks && !tfjsFaceDetector)
+    ) {
       return;
     }
 
     if (
       videoEl.currentTime === lastVideoTime ||
-      now - lastDetectionAt < DETECTION_INTERVAL_MS
+      now - lastDetectionAt < runtimeProfile.detectionIntervalMs
     ) {
       detectorFrameHandle = window.requestAnimationFrame(runDetectionLoop);
       return;
@@ -661,18 +1255,62 @@
     lastVideoTime = videoEl.currentTime;
     lastDetectionAt = now;
 
+    let faceResult = null;
+    let handResult = null;
+    let frameSource = null;
+
+    if (
+      runtimeProfile.useTfjsFaceLandmarks ||
+      faceLandmarkerRunningMode === "IMAGE" ||
+      (handLandmarker && handLandmarkerRunningMode === "IMAGE")
+    ) {
+      frameSource = getAnalysisFrameSource();
+
+      if (!frameSource) {
+        if (isDetectionReady() && autoCaptureSupported) {
+          detectorFrameHandle = window.requestAnimationFrame(runDetectionLoop);
+        }
+        return;
+      }
+    }
+
     try {
-      const faceResult = faceLandmarker.detectForVideo(videoEl, now);
-      const handResult = handLandmarker
-        ? handLandmarker.detectForVideo(videoEl, now)
-        : null;
-      const evaluation = evaluateDetection(faceResult, handResult);
-      applyDetectionResult(evaluation);
+      faceResult = await detectFaceForCurrentFrame(now, frameSource);
     } catch (error) {
-      console.error("MediaPipe detectForVideo failed.", error);
-      activateManualMode("MediaPipe 가림 감지 중 오류가 발생해 수동 촬영으로 전환했습니다.");
+      console.error("Face detection failed.", error);
+      if (runtimeProfile.useTfjsFaceLandmarks) {
+        tfjsFaceDetector = closeTaskRunner(tfjsFaceDetector);
+        tfjsFaceDetectorPromise = null;
+        faceLandmarkerDelegate = null;
+        faceLandmarkerRunningMode = null;
+      }
+      if (await recoverFaceLandmarkerAfterGpuFailure(error)) {
+        if (isDetectionReady() && autoCaptureSupported) {
+          detectorFrameHandle = window.requestAnimationFrame(runDetectionLoop);
+        }
+        return;
+      }
+      scheduleAutoCaptureRecovery(
+        error,
+        "얼굴 위치 확인을 다시 시작하는 중입니다..."
+      );
+      return;
+      activateManualMode("촬영 준비 중 문제가 발생해 수동 촬영으로 전환했습니다.");
       return;
     }
+
+    if (handLandmarker) {
+      try {
+        handResult = detectHandsForCurrentFrame(now, frameSource);
+      } catch (error) {
+        console.error("Hand detection failed.", error);
+        disableObstructionDetection(error);
+      }
+    }
+
+    const evaluation = evaluateDetection(faceResult, handResult);
+    autoCaptureRecoveryAttempts = 0;
+    applyDetectionResult(evaluation);
 
     if (isDetectionReady() && autoCaptureSupported) {
       detectorFrameHandle = window.requestAnimationFrame(runDetectionLoop);
@@ -766,7 +1404,7 @@
         tone: "idle",
         guideState: "idle",
         allValid: false,
-        checklist: buildChecklistState("0 / 5 완료", {
+        checklist: buildChecklistState(formatChecklistSummary(0), {
           face: { state: "invalid", text: "얼굴이 아직 감지되지 않았습니다." },
           obstruction: { text: "얼굴이 감지되면 손 가림 여부를 확인합니다." },
           center: { text: "얼굴이 감지되면 중앙 정렬을 확인합니다." },
@@ -785,7 +1423,7 @@
         tone: "error",
         guideState: "error",
         allValid: false,
-        checklist: buildChecklistState("0 / 5 완료", {
+        checklist: buildChecklistState(formatChecklistSummary(0), {
           face: { state: "invalid", text: "여러 얼굴이 보여 한 사람만 남겨야 합니다." },
           obstruction: { text: "한 사람만 남으면 손 가림 여부를 확인합니다." },
           center: { text: "한 사람만 남으면 중앙 정렬을 확인합니다." },
@@ -831,10 +1469,18 @@
       faceHeightRatio <= 0.72;
 
     const angleOk = eyeSlope <= 0.03 && noseBias <= 0.14;
-    const obstructionFree = !handBlocksFaceGuide(handResult, crop, bounds);
+    const obstructionFree = obstructionDetectionEnabled
+      ? !handBlocksFaceGuide(handResult, crop, bounds)
+      : true;
+    const completedChecks = [
+      faceVisible,
+      centered,
+      distanceOk,
+      angleOk
+    ].filter(Boolean).length + (obstructionDetectionEnabled && obstructionFree ? 1 : 0);
 
     const checklist = buildChecklistState(
-      [faceVisible, obstructionFree, centered, distanceOk, angleOk].filter(Boolean).length + " / 5 완료",
+      formatChecklistSummary(completedChecks),
       {
         face: {
           state: "valid",
@@ -869,7 +1515,11 @@
       }
     );
 
-    if (!obstructionFree) {
+    if (!obstructionDetectionEnabled) {
+      checklist.items.obstruction = getObstructionChecklistState({});
+    }
+
+    if (obstructionDetectionEnabled && !obstructionFree) {
       return {
         messageKey: "obstruction",
         message: "손이나 다른 가림 요소를 얼굴 가이드 밖으로 빼 주세요.",

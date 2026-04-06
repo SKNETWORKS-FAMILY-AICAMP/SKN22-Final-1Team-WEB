@@ -346,7 +346,7 @@
       </div>
 
       <div id="cameraAutoHint" class="camera-auto-hint">
-        얼굴이 가이드에 맞으면 3초 후 자동 촬영됩니다.
+        촬영 조건이 맞으면 자동 촬영이 시작됩니다.
       </div>
 
       <div id="cameraFallback" class="camera-fallback is-hidden" style="position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; text-align: center;">
@@ -355,7 +355,7 @@
     </div>
 
     <div class="camera-footer">
-      <p id="cameraStatus" class="camera-status" style="font-weight: 600; color: var(--text-secondary);">가이드 라인에 얼굴을 맞춰 주세요.</p>
+      <p id="cameraStatus" class="camera-status" style="font-weight: 600; color: var(--text-secondary);">카메라를 켜고 얼굴 위치를 맞춰 주세요.</p>
 
       <div class="button-row" id="cameraControls" style="display: flex; gap: 12px;">
         <button id="cameraToggleBtn" class="btn btn-dark" type="button" style="height: 48px;">카메라 끄기</button>
@@ -377,9 +377,9 @@
       <div class="camera-condition-header">
         <div>
           <h3 class="section-title" style="font-size: 18px; margin-bottom: 6px;">실시간 촬영 체크</h3>
-          <p class="section-copy" style="margin: 0; font-size: 13px; color: #64748b;">체크 5개가 모두 켜지면 3초 뒤 자동 촬영됩니다.</p>
+          <p class="section-copy" style="margin: 0; font-size: 13px; color: #64748b;">촬영 조건이 맞으면 자동 촬영이 시작됩니다.</p>
         </div>
-        <div id="cameraConditionSummary" class="camera-condition-summary">0 / 5 완료</div>
+        <div id="cameraConditionSummary" class="camera-condition-summary">촬영 준비 중</div>
       </div>
 
       <div class="camera-checklist">
@@ -388,7 +388,7 @@
           <div>
             <p class="camera-checklist-title">한 명의 얼굴 감지</p>
             <p class="camera-checklist-copy">카메라 안에 한 사람의 얼굴만 선명하게 보이도록 맞춰 주세요.</p>
-            <p id="conditionFaceStatus" class="camera-condition-status">얼굴을 찾는 중입니다.</p>
+            <p id="conditionFaceStatus" class="camera-condition-status">얼굴 위치를 확인할 준비를 하고 있습니다.</p>
           </div>
         </div>
 
@@ -397,7 +397,7 @@
           <div>
             <p class="camera-checklist-title">손이나 가림 없음</p>
             <p class="camera-checklist-copy">손, 휴대폰, 머리카락 같은 가림 요소가 얼굴 가이드 안쪽으로 들어오지 않게 유지해 주세요.</p>
-            <p id="conditionObstructionStatus" class="camera-condition-status">가림 여부를 확인하는 중입니다.</p>
+            <p id="conditionObstructionStatus" class="camera-condition-status">가림 여부를 확인할 준비를 하고 있습니다.</p>
           </div>
         </div>
 
@@ -406,7 +406,7 @@
           <div>
             <p class="camera-checklist-title">가이드 중앙 정렬</p>
             <p class="camera-checklist-copy">얼굴 중심이 윤곽선 안쪽 중앙에 오도록 천천히 위치를 맞춰 주세요.</p>
-            <p id="conditionCenterStatus" class="camera-condition-status">얼굴이 감지되면 바로 확인합니다.</p>
+            <p id="conditionCenterStatus" class="camera-condition-status">준비가 끝나면 중앙 정렬을 확인합니다.</p>
           </div>
         </div>
 
@@ -415,7 +415,7 @@
           <div>
             <p class="camera-checklist-title">적정 거리 유지</p>
             <p class="camera-checklist-copy">너무 가깝거나 멀지 않게 얼굴 전체가 자연스럽게 들어오면 좋습니다.</p>
-            <p id="conditionDistanceStatus" class="camera-condition-status">거리를 아직 확인하지 못했습니다.</p>
+            <p id="conditionDistanceStatus" class="camera-condition-status">준비가 끝나면 거리 조건을 확인합니다.</p>
           </div>
         </div>
 
@@ -424,7 +424,7 @@
           <div>
             <p class="camera-checklist-title">정면 각도 유지</p>
             <p class="camera-checklist-copy">고개를 과하게 기울이지 말고 정면을 바라보면 자동 촬영이 더 안정적입니다.</p>
-            <p id="conditionAngleStatus" class="camera-condition-status">정면 각도를 아직 확인하지 못했습니다.</p>
+            <p id="conditionAngleStatus" class="camera-condition-status">준비가 끝나면 정면 각도를 확인합니다.</p>
           </div>
         </div>
       </div>
@@ -445,5 +445,5 @@
     csrfToken: "{{ csrf_token }}"
   };
 </script>
-<script src="/static/customer/js/camera.js?v=0401-mediapipe-face"></script>
+<script src="/static/customer/js/camera.js?v=0406-tfjs-wasm-apple"></script>
 {% endblock %}
