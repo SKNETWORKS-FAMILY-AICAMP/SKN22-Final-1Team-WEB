@@ -71,7 +71,7 @@
   .tab-btn.active { color: var(--bg-dark); border-bottom-color: var(--bg-dark); }
 
   .dashboard-panel {
-    max-width: 780px;
+    max-width: 930px;
     margin: 0 auto;
     width: 100%;
   }
@@ -107,7 +107,7 @@
         <div style="display: flex; gap: 12px; align-items: center;">
           {% if not request.session.designer_id %}
             {% if not is_shop_owner %}
-              <button id="enterOwnerDashboardBtn" class="btn btn-dark" style="height: 36px; padding: 0 16px; font-size: 13px; border-radius: 10px;">관리자 전용 대시보드</button>
+              <button id="enterOwnerDashboardBtn" class="btn btn-dark" style="height: 36px; padding: 0 16px; font-size: 13px; border-radius: 10px;">디자이너 관리</button>
             {% else %}
               <a href="{% url 'partner_designer_management' %}" class="btn btn-dark" style="height: 36px; padding: 0 16px; font-size: 13px; border-radius: 10px; display: inline-flex; align-items: center; text-decoration: none;">디자이너 관리</a>
             {% endif %}
@@ -236,7 +236,7 @@
           designers.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.name;
-            opt.textContent = `${d.name} 디자이너`;
+            opt.textContent = d.name;
             designerSelect.appendChild(opt);
           });
         }
@@ -334,24 +334,12 @@
         const sessionBadge = sessionActive
           ? '<span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background: rgba(21, 128, 61, 0.12); color:#166534; font-size:11px; font-weight:700;">세션 진행 중</span>'
           : '<span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background: rgba(71, 85, 105, 0.12); color:#475569; font-size:11px; font-weight:700;">세션 없음</span>';
-        const isAssignmentPending = Boolean(c.is_assignment_pending);
-        const assignmentOptions = dashboardDesigners.map(
-          designer => `<option value="${designer.id}">${designer.name}</option>`
-        ).join('');
-        const actionCell = isShopOwner && isAssignmentPending && assignmentOptions
-          ? `
-              <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap;">
-                <select id="designerSelect-${c.id}" class="form-control" style="width: 132px; height: 34px; font-size: 12px; padding: 0 10px; border-radius: 8px;">
-                  <option value="">배정 선택</option>
-                  ${assignmentOptions}
-                </select>
-                <button onclick="assignCustomer(${c.id})" style="border: none; cursor: pointer; font-size: 12px; padding: 6px 12px; background: var(--accent-neon); border-radius: 20px; color: var(--bg-dark); font-weight: 700;">배정</button>
-                <button onclick="location.href='/partner/customer-detail/${c.id}/'" style="border: none; cursor: pointer; font-size: 12px; padding: 6px 14px; background: var(--bg-dark); border-radius: 20px; color: #fff; font-weight: 600;">상세보기</button>
-              </div>
-            `
-          : `
-              <button onclick="location.href='/partner/customer-detail/${c.id}/'" style="border: none; cursor: pointer; font-size: 12px; padding: 6px 14px; background: var(--bg-dark); border-radius: 20px; color: #fff; font-weight: 600;">상세보기</button>
-            `;
+        
+        // 모든 상태에서 '상세보기' 버튼만 노출하도록 통일
+        const actionCell = `
+          <button onclick="location.href='/partner/customer-detail/${c.id}/'" style="border: none; cursor: pointer; font-size: 12px; padding: 6px 14px; background: var(--bg-dark); border-radius: 20px; color: #fff; font-weight: 600;">상세보기</button>
+        `;
+
         return `
           <tr style="border-bottom: 1px solid var(--line);">
             <td style="padding: 16px 20px;"><span style="font-weight: 700; color: var(--bg-dark);">${c.name}</span></td>
