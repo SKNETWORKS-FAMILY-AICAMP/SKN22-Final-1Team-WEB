@@ -84,6 +84,9 @@ def set_admin_session(*, request: HttpRequest, admin: AdminAccount) -> None:
     request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
     request.session[ADMIN_NAME_SESSION_KEY] = admin.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    
+    # 매장 세션은 24시간 유지
+    request.session.set_expiry(24 * 60 * 60)
     request.session.modified = True
 
 
@@ -127,6 +130,9 @@ def set_designer_session(*, request: HttpRequest, designer: Designer) -> None:
     request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
     request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    
+    # 디자이너 인증 세션은 30분 유지
+    request.session.set_expiry(30 * 60)
     request.session.modified = True
 
 
@@ -174,3 +180,11 @@ def revoke_owner_dashboard(*, request: HttpRequest) -> None:
 
 def can_access_owner_dashboard(*, request: HttpRequest) -> bool:
     return bool(request.session.get(OWNER_DASHBOARD_ALLOWED_SESSION_KEY))
+
+
+def clear_all_sessions(*, request: HttpRequest) -> None:
+    """모든 세션 데이터를 삭제하고 초기화합니다."""
+    clear_customer_session(request=request)
+    clear_admin_session(request=request)
+    clear_designer_session(request=request)
+    request.session.flush()

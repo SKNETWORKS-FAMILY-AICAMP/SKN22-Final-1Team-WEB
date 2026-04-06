@@ -146,6 +146,11 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# Session configuration
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_AGE = 3600  # 1 hour default
+SESSION_SAVE_EVERY_REQUEST = True
+
 # Use a manifest only in production-like environments so local runserver
 # can render templates without collectstatic.
 if DEBUG:

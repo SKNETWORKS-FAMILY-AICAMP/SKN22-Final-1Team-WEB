@@ -601,6 +601,23 @@
       return date.toLocaleDateString();
     }
 
+    function maskPhone(phone) {
+      if (!phone) return '연락처 없음';
+      const str = String(phone);
+      if (str.includes('-')) {
+        const parts = str.split('-');
+        if (parts.length === 3) {
+          return `${parts[0]}-****-${parts[2]}`;
+        }
+      }
+      if (str.length === 11) {
+        return str.replace(/(\d{3})(\d{4})(\d{4})/, '$1-****-$3');
+      } else if (str.length === 10) {
+        return str.replace(/(\d{3})(\d{3})(\d{4})/, '$1-***-$3');
+      }
+      return str;
+    }
+
     function hasSurveyData(customer) {
       return Boolean(customer && customer.survey);
     }
@@ -1203,7 +1220,7 @@
         <div class="info-group">
           <h3 class="section-title" style="font-size: 22px; margin-bottom: 8px;">${escapeHtml(customer.name)} 고객님</h3>
           <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 0;">
-            ${escapeHtml(customer.phone || '연락처 없음')} | 최근 분석일 ${escapeHtml(formatDate(surveyCreatedAt || (firstAnalysis && firstAnalysis.created_at) || (firstCapture && firstCapture.created_at)))}
+            ${escapeHtml(maskPhone(customer.phone))} | 최근 분석일 ${escapeHtml(formatDate(surveyCreatedAt || (firstAnalysis && firstAnalysis.created_at) || (firstCapture && firstCapture.created_at)))}
           </p>
           <div style="margin-top: 12px;">
             <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:${customer.session_status && customer.session_status.is_active ? 'rgba(21, 128, 61, 0.12)' : 'rgba(71, 85, 105, 0.12)'}; color:${customer.session_status && customer.session_status.is_active ? '#166534' : '#475569'}; font-size:12px; font-weight:700;">
