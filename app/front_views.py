@@ -641,7 +641,7 @@ def partner_verify(request):
         return JsonResponse(
             {
                 "status": "success",
-                "redirect": "/",
+                "redirect": "/partner/dashboard/",
                 "session_type": "admin",
                 "next_step": "index",
                 "shop_id": admin.id,
@@ -773,7 +773,7 @@ def enter_partner_dashboard(request):
         return JsonResponse({"status": "error", "message": "비밀번호를 다시 확인해 주세요."}, status=401)
 
     allow_owner_dashboard(request=request)
-    return JsonResponse({"status": "success", "redirect": "/partner/dashboard/"})
+    return JsonResponse({"status": "success", "redirect": "/partner/designers/"})
 
 
 @never_cache

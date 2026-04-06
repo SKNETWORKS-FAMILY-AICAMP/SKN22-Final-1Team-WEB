@@ -79,13 +79,6 @@
     justify-content: center;
   }
 
-  .info-hint {
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-top: 4px;
-    opacity: 0.8;
-  }
-
   .field-error {
     color: var(--status-red);
     font-size: 11px;
@@ -124,14 +117,6 @@
     border-radius: 16px;
     position: relative;
   }
-
-  .error-summary-list {
-    margin: 0;
-    padding-left: 18px;
-    color: var(--status-red);
-    font-size: 12px;
-    line-height: 1.6;
-  }
 </style>
 
 <div class="customer-layout" style="display: block;">
@@ -139,8 +124,7 @@
     <h3 class="section-title compact">파트너 가입 정보</h3>
 
     <div id="errorSummary" class="panel" style="display: none; background: rgba(252, 129, 129, 0.1); border: 1px solid var(--status-red); padding: 12px 16px; margin-bottom: 20px; border-radius: 12px;">
-      <p style="color: var(--status-red); font-size: 13px; font-weight: 700; margin: 0 0 8px 0;"></p>
-      <ul class="error-summary-list"></ul>
+      <p style="color: var(--status-red); font-size: 13px; font-weight: 700; margin: 0;"></p>
     </div>
 
     {% if form_error %}
@@ -154,8 +138,21 @@
 
       <div class="input-grid">
         <div class="form-field">
+          <label class="form-label">매장명 (사업자명)</label>
+          <input type="text" name="store_name" id="id_store_name" class="form-input" placeholder="사업자명 입력" required>
+          <p class="field-error" id="error_store_name"></p>
+        </div>
+        <div class="form-field">
+          <label class="form-label">사업자 등록번호</label>
+          <input type="text" name="business_number" id="id_business_number" class="form-input" placeholder="10자리 숫자" required>
+          <p class="field-error" id="error_business_number"></p>
+        </div>
+      </div>
+
+      <div class="input-grid">
+        <div class="form-field">
           <label class="form-label">대표자 성함</label>
-          <input type="text" name="name" class="form-input" placeholder="성함 입력" required>
+          <input type="text" name="name" id="id_name" class="form-input" placeholder="성함 입력" required>
           <p class="field-error" id="error_name"></p>
         </div>
         <div class="form-field">
@@ -163,56 +160,39 @@
             <span>관리자 연락처</span>
             <span style="font-size: 11px; color: var(--status-teal); font-weight: 600;">아이디로 사용됩니다.</span>
           </label>
-          <input type="tel" name="phone" class="form-input" placeholder="010-0000-0000" required>
+          <input type="tel" name="phone" id="id_phone" class="form-input" placeholder="010-1234-5678" required>
           <p class="field-error" id="error_phone"></p>
         </div>
       </div>
 
       <div class="input-grid">
         <div class="form-field">
-          <label class="form-label">매장명</label>
-          <input type="text" name="store_name" class="form-input" placeholder="매장 이름 입력" required>
-          <p class="field-error" id="error_store_name"></p>
-        </div>
-        <div class="form-field">
-          <label class="form-label">사업자 등록번호</label>
-          <input type="text" name="business_number" class="form-input" placeholder="10자리 숫자" required>
-          <p class="field-error" id="error_business_number"></p>
-        </div>
-      </div>
-
-      <div class="input-grid">
-        <div class="form-field">
           <label class="form-label">비밀번호</label>
-          <input type="password" name="password" class="form-input" placeholder="8자 이상" required>
+          <input type="password" name="password" id="id_password" class="form-input" placeholder="8자 이상" required>
           <p class="field-error" id="error_password"></p>
         </div>
         <div class="form-field">
           <label class="form-label">비밀번호 확인</label>
-          <input type="password" name="password_confirm" class="form-input" placeholder="다시 입력" required>
+          <input type="password" name="password_confirm" id="id_password_confirm" class="form-input" placeholder="다시 입력" required>
           <p class="field-error" id="error_password_confirm"></p>
         </div>
       </div>
 
-      <!-- 약관 동의 (한 줄로 정리 + 팝업 연결) -->
       <div class="agree-container" style="flex-direction: row; justify-content: flex-start; gap: 24px; padding: 12px 16px;">
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;" id="termsLabel">
           <input type="checkbox" name="agree_terms" id="agree_terms" required style="width: 16px; height: 16px;">
-          <span style="font-size: 13px; text-decoration: underline;">[필수] 이용약관 및 서비스 이용 동의</span>
+          <span style="font-size: 13px; text-decoration: underline;">[필수] 이용약관 동의</span>
         </label>
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;" id="privacyLabel">
           <input type="checkbox" name="agree_privacy" id="agree_privacy" required style="width: 16px; height: 16px;">
-          <span style="font-size: 13px; text-decoration: underline;">[필수] 개인정보 수집 및 이용 동의</span>
+          <span style="font-size: 13px; text-decoration: underline;">[필수] 개인정보 동의</span>
         </label>
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;" id="thirdPartyLabel">
           <input type="checkbox" name="agree_third_party_sharing" id="agree_third_party_sharing" required style="width: 16px; height: 16px;">
           <span style="font-size: 13px; text-decoration: underline;">[필수] 제3자 제공 동의</span>
         </label>
       </div>
-      <p class="field-error" id="error_agree_terms"></p>
-      <p class="field-error" id="error_agree_privacy"></p>
-      <p class="field-error" id="error_agree_third_party_sharing"></p>
-      <p class="field-error" id="error_non_field_errors"></p>
+      <p class="field-error" id="error_agreements" style="margin-left: 16px; margin-top: 0; margin-bottom: 12px;"></p>
 
       <div class="action-row">
         <button type="submit" id="submitBtn" class="btn btn-primary">가입 완료</button>
@@ -256,83 +236,19 @@
       <button class="btn btn-primary" onclick="closeModal('thirdPartyModal', 'agree_third_party_sharing')" style="width: 100%; margin-top: 24px;">확인했습니다</button>
     </div>
   </div>
-
-  <div style="max-width: 760px; margin: 24px auto 0; padding: 0 16px;">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-      <div class="panel" style="padding: 20px; border-radius: 16px; border: none; background: white;">
-        <h4 style="font-size: 14px; margin-bottom: 8px;">왜 가입해야 하나요?</h4>
-        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
-          ID 없이 전화번호와 비밀번호만으로 간편하게 로그인할 수 있습니다.
-        </p>
-      </div>
-      <div class="panel" style="padding: 20px; border-radius: 16px; border: none; background: white;">
-        <h4 style="font-size: 14px; margin-bottom: 8px;">보안 안내</h4>
-        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
-          비밀번호는 영문, 숫자, 특수문자를 조합해 안전하게 설정해주세요.
-        </p>
-      </div>
-    </div>
-  </div>
 </div>
 {% endblock %}
 
 {% block page_scripts %}
+<script src="{% static 'shared/js/validator.js' %}"></script>
 <script>
   (() => {
     const form = document.getElementById('signupForm');
     const submitBtn = document.getElementById('submitBtn');
     const errorSummary = document.getElementById('errorSummary');
     const errorSummaryTitle = errorSummary.querySelector('p');
-    const errorSummaryList = errorSummary.querySelector('.error-summary-list');
 
-    const termsLabel = document.getElementById('termsLabel');
-    const privacyLabel = document.getElementById('privacyLabel');
-    const thirdPartyLabel = document.getElementById('thirdPartyLabel');
-    const agreeTerms = document.getElementById('agree_terms');
-    const agreePrivacy = document.getElementById('agree_privacy');
-    const agreeThirdParty = document.getElementById('agree_third_party_sharing');
-    const fieldLabels = {
-      name: '대표자 성함',
-      phone: '관리자 연락처',
-      store_name: '매장명',
-      business_number: '사업자등록번호',
-      password: '비밀번호',
-      password_confirm: '비밀번호 확인',
-      agree_terms: '이용약관 동의',
-      agree_privacy: '개인정보 수집 및 이용 동의',
-      agree_third_party_sharing: '제3자 제공 동의',
-    };
-
-    function requiredFieldMessage(label) {
-      if (!label) {
-        return '필수 정보입니다.';
-      }
-      const lastChar = label[label.length - 1];
-      const code = lastChar.charCodeAt(0);
-      if (code >= 0xac00 && code <= 0xd7a3) {
-        const hasBatchim = ((code - 0xac00) % 28) !== 0;
-        return `${label}${hasBatchim ? '은' : '는'} 필수 정보입니다.`;
-      }
-      return `${label}는 필수 정보입니다.`;
-    }
-
-    function normalizeMessages(value, field = '') {
-      const rawMessages = Array.isArray(value) ? value.filter(Boolean) : (value ? [String(value)] : []);
-      return rawMessages.map((message) => {
-        const normalized = String(message || '').trim();
-        if (!normalized) {
-          return normalized;
-        }
-        if (normalized === 'This field is required.' || normalized === '필수 정보입니다.') {
-          return requiredFieldMessage(fieldLabels[field] || field || '입력 항목');
-        }
-        return normalized;
-      });
-    }
-
-    function flattenErrorMessages(errors) {
-      return Object.entries(errors || {}).flatMap(([field, value]) => normalizeMessages(value, field));
-    }
+    const validator = window.MirrAIValidator;
 
     function openModal(id) {
       const modal = document.getElementById(id);
@@ -345,93 +261,116 @@
       if (checkboxId) {
         const checkbox = document.getElementById(checkboxId);
         if (checkbox) checkbox.checked = true;
+        clearErrors();
       }
     }
 
     function clearErrors() {
       document.querySelectorAll('.field-error').forEach((el) => {
         el.textContent = '';
+        el.style.display = 'none';
       });
-      errorSummaryTitle.textContent = '';
-      errorSummaryList.innerHTML = '';
-      errorSummary.style.display = 'none';
+      document.querySelectorAll('.form-input').forEach((el) => {
+        el.classList.remove('is-invalid');
+      });
+      if (errorSummary) errorSummary.style.display = 'none';
     }
 
-    function showFieldError(field, messages) {
+    function showFieldError(field, message) {
       const target = document.getElementById(`error_${field}`);
-      if (!target) return;
-      const normalized = normalizeMessages(messages, field);
-      target.textContent = normalized.join(' ');
-    }
-
-    function showSummary(title, messages) {
-      errorSummaryTitle.textContent = title;
-      errorSummaryList.innerHTML = '';
-      messages.forEach((message) => {
-        const li = document.createElement('li');
-        li.textContent = message;
-        errorSummaryList.appendChild(li);
-      });
-      errorSummary.style.display = 'block';
-    }
-
-    function handleAgreementToggle(event, modalId, checkboxId) {
-      event.preventDefault();
-      event.stopPropagation();
-      const checkbox = checkboxId ? document.getElementById(checkboxId) : null;
-      if (checkbox && checkbox.checked) {
-        checkbox.checked = false;
-        return;
+      const input = document.getElementById(`id_${field}`);
+      if (target) {
+        target.textContent = message;
+        target.style.display = 'block';
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-      openModal(modalId);
+      if (input) {
+        input.classList.add('is-invalid');
+        input.focus();
+      }
     }
 
-    function bindAgreementTrigger(trigger, modalId, checkboxId) {
-      if (!trigger) return;
-      const eventName = trigger.tagName === 'INPUT' ? 'pointerdown' : 'click';
-      trigger.addEventListener(eventName, (event) => {
-        if (trigger.tagName === 'LABEL' && event.target && event.target.id === checkboxId) {
-          return;
+    function validateForm() {
+      clearErrors();
+
+      const storeName = form.querySelector('input[name="store_name"]').value.trim();
+      const businessNumber = form.querySelector('input[name="business_number"]').value.replace(/[^0-9]/g, '');
+      const name = form.querySelector('input[name="name"]').value.trim();
+      const phone = form.querySelector('input[name="phone"]').value.trim();
+      const password = form.querySelector('input[name="password"]').value;
+      const confirm = form.querySelector('input[name="password_confirm"]').value;
+
+      // 1. 매장명 (사업자명)
+      if (!storeName) {
+        showFieldError('store_name', '매장명(사업자명)을 입력해 주세요.');
+        return false;
+      }
+
+      // 2. 사업자 등록번호
+      if (businessNumber.length !== 10) {
+        showFieldError('business_number', '사업자 등록번호 10자리를 정확히 입력해 주세요.');
+        return false;
+      }
+
+      // 3. 대표자 성함
+      if (!validator || !validator.isValidName(name)) {
+        showFieldError('name', '대표자 성함을 2~10자 이내로 입력해 주세요.');
+        return false;
+      }
+
+      // 4. 관리자 연락처
+      if (!validator || !validator.isValidPhone(phone)) {
+        showFieldError('phone', '연락처 형식이 올바르지 않습니다. (예: 010-1234-5678)');
+        return false;
+      }
+
+      // 5. 비밀번호
+      if (!password || password.length < 8) {
+        showFieldError('password', '비밀번호를 8자 이상 입력해 주세요.');
+        return false;
+      }
+
+      // 6. 비밀번호 확인
+      if (password !== confirm) {
+        showFieldError('password_confirm', '비밀번호가 일치하지 않습니다.');
+        return false;
+      }
+
+      // 7. 약관 동의
+      if (!document.getElementById('agree_terms').checked || 
+          !document.getElementById('agree_privacy').checked || 
+          !document.getElementById('agree_third_party_sharing').checked) {
+        showFieldError('agreements', '모든 필수 약관에 동의해 주세요.');
+        return false;
+      }
+
+      return true;
+    }
+
+    // 약관 이벤트 바인딩
+    ['terms', 'privacy', 'thirdParty'].forEach(key => {
+      const label = document.getElementById(`${key}Label`);
+      const checkbox = document.getElementById(`agree_${key === 'thirdParty' ? 'third_party_sharing' : key}`);
+      
+      label.addEventListener('click', (e) => {
+        if (e.target !== checkbox) {
+          e.preventDefault();
+          openModal(`${key}Modal`);
         }
-        handleAgreementToggle(event, modalId, checkboxId);
       });
-    }
+    });
 
-    window.openModal = openModal;
     window.closeModal = closeModal;
 
-    bindAgreementTrigger(termsLabel, 'termsModal', 'agree_terms');
-    bindAgreementTrigger(privacyLabel, 'privacyModal', 'agree_privacy');
-    bindAgreementTrigger(thirdPartyLabel, 'thirdPartyModal', 'agree_third_party_sharing');
-    bindAgreementTrigger(agreeTerms, 'termsModal', 'agree_terms');
-    bindAgreementTrigger(agreePrivacy, 'privacyModal', 'agree_privacy');
-    bindAgreementTrigger(agreeThirdParty, 'thirdPartyModal', 'agree_third_party_sharing');
-
-    window.addEventListener('click', (event) => {
-      if (event.target.classList.contains('modal')) {
-        event.target.classList.remove('show');
-      }
+    // 실시간 포맷팅
+    form.querySelector('input[name="phone"]').addEventListener('input', (e) => {
+      if (validator) e.target.value = validator.formatPhone(e.target.value);
     });
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      clearErrors();
-
-      const businessNumber = form.querySelector('input[name="business_number"]').value.replace(/[^0-9]/g, '');
-      const password = form.querySelector('input[name="password"]').value;
-      const confirm = form.querySelector('input[name="password_confirm"]').value;
-
-      if (businessNumber.length !== 10) {
-        showFieldError('business_number', '사업자 등록번호 10자리를 정확히 입력해 주세요.');
-        showSummary('입력한 정보를 다시 확인해 주세요.', ['사업자 등록번호 10자리를 정확히 입력해 주세요.']);
-        return;
-      }
-
-      if (password !== confirm) {
-        showFieldError('password_confirm', '비밀번호가 일치하지 않습니다.');
-        showSummary('입력한 정보를 다시 확인해 주세요.', ['비밀번호가 일치하지 않습니다.']);
-        return;
-      }
+      
+      if (!validateForm()) return;
 
       submitBtn.disabled = true;
       submitBtn.textContent = '처리 중...';
@@ -439,20 +378,14 @@
       try {
         const formData = new FormData(form);
         const payload = {};
-
         formData.forEach((value, key) => {
           if (key === 'business_number') {
-            payload[key] = businessNumber;
-            return;
-          }
-          if (key === 'password_confirm') {
-            return;
-          }
-          if (key.startsWith('agree_')) {
+            payload[key] = value.replace(/[^0-9]/g, '');
+          } else if (key.startsWith('agree_')) {
             payload[key] = true;
-            return;
+          } else if (key !== 'password_confirm') {
+            payload[key] = value;
           }
-          payload[key] = value;
         });
 
         const response = await fetch(form.dataset.apiAction, {
@@ -471,20 +404,18 @@
           return;
         }
 
-        const errorMessages = flattenErrorMessages(data.errors || {});
-        if (data.errors && typeof data.errors === 'object') {
-          Object.entries(data.errors).forEach(([field, messages]) => {
-            showFieldError(field, messages);
-          });
+        // 서버 에러 처리 (API에서 온 에러)
+        if (data.errors) {
+          const firstField = Object.keys(data.errors)[0];
+          showFieldError(firstField, Array.isArray(data.errors[firstField]) ? data.errors[firstField][0] : data.errors[firstField]);
+        } else {
+          errorSummaryTitle.textContent = data.message || '회원가입에 실패했습니다.';
+          errorSummary.style.display = 'block';
         }
-
-        showSummary(
-          data.message || '입력한 정보를 다시 확인해 주세요.',
-          errorMessages.length ? errorMessages : [data.message || '회원가입에 실패했습니다.']
-        );
       } catch (error) {
         console.error('Signup Error:', error);
-        showSummary('회원가입 요청 처리 중 오류가 발생했습니다.', ['잠시 후 다시 시도해 주세요.']);
+        errorSummaryTitle.textContent = '통신 중 오류가 발생했습니다.';
+        errorSummary.style.display = 'block';
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = '가입 완료';
