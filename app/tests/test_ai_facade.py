@@ -1,6 +1,7 @@
 import io
 import json
 import os
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -85,40 +86,11 @@ class AiFacadeContractTests(SimpleTestCase):
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer secret-token")
         self.assertEqual(kwargs["headers"]["X-MirrAI-API-Version"], "2026-04-06")
 
-    @patch.dict(
-        os.environ,
-        {
-            "MIRRAI_AI_PROVIDER": "service",
-            "MIRRAI_AI_SERVICE_URL": "https://mirrai.shop",
-            "MIRRAI_INTERNAL_API_TOKEN": "secret-token",
-        },
-        clear=False,
-    )
-    @patch("app.services.ai_facade.requests.request")
-    def test_simulate_face_analysis_unwraps_service_data(self, mock_request):
-        mock_request.return_value = _MockResponse(
-            payload={
-                "status": "success",
-                "schema_version": "2026-04-06",
-                "response_version": "1.2.0",
-                "request_id": "req-face",
-                "processing_time_ms": 28,
-                "data": {
-                    "face_shape": "Round",
-                    "golden_ratio_score": 0.88,
-                    "face_bbox": {"x": 1, "y": 2, "width": 3, "height": 4},
-                    "visualization": {"image_url": "https://cdn.example.com/face.png"},
-                },
-            }
-        )
+    def test_simulate_face_analysis_raises_when_fallback_is_disabled(self):
+        with self.assertRaises(RuntimeError) as exc_info:
+            simulate_face_analysis(image_url="https://cdn.example.com/original.png")
 
-        payload = simulate_face_analysis(image_url="https://cdn.example.com/original.png")
-
-        self.assertEqual(payload["face_shape"], "Round")
-        self.assertEqual(payload["golden_ratio_score"], 0.88)
-        self.assertEqual(payload["face_bbox"]["width"], 3)
-        self.assertEqual(payload["image_url"], "https://cdn.example.com/face.png")
-        self.assertEqual(payload["response_meta"]["request_id"], "req-face")
+        self.assertIn("fallback is disabled", str(exc_info.exception))
 
     @patch.dict(
         os.environ,
@@ -318,7 +290,501 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
         self.assertEqual(snapshot["face_shape_detected"], "oval")
         self.assertEqual(snapshot["golden_ratio_score"], 0.649)
         self.assertEqual(snapshot["runtime"]["endpoint_id"], "stable-endpoint")
+        self.assertEqual(snapshot["image_transport"], "base64_data_url")
         self.assertIn("shaggy midi", snapshot["rag_context_excerpt"].lower())
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_is_primary_when_remote_styles_can_be_mapped(self, mock_score_recommendations, mock_post):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "clip_score": 0.41,
+                            "simulation_image_url": "https://cdn.example.com/sim.png?expires=1775200000&token=abc",
+                            "simulation_image_url_expires_at": "2026-04-03T15:20:00Z",
+                            "recommended_style": {
+                                "style_id": "prada-bob-1",
+                                "style_name": "Side-Parted Lob",
+                                "recommendation_score": 0.9132,
+                            },
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 0,
+                            "style_id": "prada-bob-1",
+                            "style_name": "Side-Parted Lob",
+                            "score": 0.9132,
+                            "description": "Direct recommendation summary.",
+                            "face_shape_detected": "oval",
+                            "golden_ratio_score": 0.7425,
+                            "face_shapes": ["oval", "heart", "oblong"],
+                        }
+                    ],
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "https://cdn.example.com/original.png",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+            styles_by_id={
+                201: SimpleNamespace(
+                    name="Side-Parted Lob",
+                    style_name="Side-Parted Lob",
+                    description="Rounded cheeks are balanced with a longer side silhouette.",
+                    image_url="/media/styles/201.jpg",
+                    vibe="Chic",
+                )
+            },
+        )
+
+        mock_score_recommendations.assert_not_called()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["style_id"], 201)
+        self.assertEqual(items[0]["style_name"], "Side-Parted Lob")
+        self.assertEqual(items[0]["sample_image_url"], "/media/styles/201.jpg")
+        self.assertEqual(items[0]["simulation_image_url"], "https://cdn.example.com/sim.png?expires=1775200000&token=abc")
+        self.assertEqual(items[0]["match_score"], 0.9132)
+        self.assertEqual(items[0]["llm_explanation"], "Direct recommendation summary.")
+        snapshot = items[0]["reasoning_snapshot"]["runpod"]
+        self.assertEqual(snapshot["image_transport"], "signed_url")
+        self.assertEqual(snapshot["simulation_image_url_expires_at"], "2026-04-03T15:20:00Z")
+        self.assertEqual(snapshot["face_shape_detected"], "oval")
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_accepts_image_base64_when_image_url_is_absent(self, mock_score_recommendations, mock_post):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "clip_score": 0.41,
+                            "simulation_image_url": "https://cdn.example.com/sim-base64.png?expires=1775200000&token=abc",
+                            "recommended_style": {
+                                "style_id": "prada-bob-1",
+                                "style_name": "Side-Parted Lob",
+                                "recommendation_score": 0.9132,
+                            },
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 0,
+                            "style_id": "prada-bob-1",
+                            "style_name": "Side-Parted Lob",
+                            "score": 0.9132,
+                            "description": "Base64 direct recommendation summary.",
+                            "face_shape_detected": "oval",
+                            "golden_ratio_score": 0.7425,
+                            "face_shapes": ["oval", "heart", "oblong"],
+                        }
+                    ],
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_base64": "ZmFrZS1pbWFnZQ==",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+            styles_by_id={
+                201: SimpleNamespace(
+                    name="Side-Parted Lob",
+                    style_name="Side-Parted Lob",
+                    description="Rounded cheeks are balanced with a longer side silhouette.",
+                    image_url="/media/styles/201.jpg",
+                    vibe="Chic",
+                )
+            },
+        )
+
+        mock_score_recommendations.assert_not_called()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["style_id"], 201)
+        self.assertEqual(items[0]["simulation_image_url"], "https://cdn.example.com/sim-base64.png?expires=1775200000&token=abc")
+        _, kwargs = mock_post.call_args
+        request_payload = kwargs["json"]["input"]
+        self.assertNotIn("image", request_payload)
+        self.assertEqual(request_payload["image_base64"], "ZmFrZS1pbWFnZQ==")
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+            "MIRRAI_RUNPOD_SYNC_TIMEOUT": "30",
+            "MIRRAI_RUNPOD_POLL_INTERVAL": "0.1",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.time.sleep")
+    @patch("app.services.ai_facade.requests.get")
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_sync_queue_is_polled_until_completed(self, mock_score_recommendations, mock_post, mock_get, mock_sleep):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "id": "job-123",
+                "status": "IN_QUEUE",
+            }
+        )
+        mock_get.return_value = _MockResponse(
+            payload={
+                "status": "COMPLETED",
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "clip_score": 0.41,
+                            "simulation_image_url": "https://cdn.example.com/sim-polled.png?expires=1775200000&token=abc",
+                            "recommended_style": {
+                                "style_id": "prada-bob-1",
+                                "style_name": "Side-Parted Lob",
+                                "recommendation_score": 0.9132,
+                            },
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 0,
+                            "style_id": "prada-bob-1",
+                            "style_name": "Side-Parted Lob",
+                            "score": 0.9132,
+                            "description": "Polled direct recommendation summary.",
+                            "face_shape_detected": "oval",
+                            "golden_ratio_score": 0.7425,
+                            "face_shapes": ["oval", "heart", "oblong"],
+                        }
+                    ],
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                },
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "https://cdn.example.com/original.png",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+            styles_by_id={
+                201: SimpleNamespace(
+                    name="Side-Parted Lob",
+                    style_name="Side-Parted Lob",
+                    description="Rounded cheeks are balanced with a longer side silhouette.",
+                    image_url="/media/styles/201.jpg",
+                    vibe="Chic",
+                )
+            },
+        )
+
+        mock_score_recommendations.assert_not_called()
+        mock_sleep.assert_not_called()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["style_id"], 201)
+        self.assertEqual(items[0]["simulation_image_url"], "https://cdn.example.com/sim-polled.png?expires=1775200000&token=abc")
+        self.assertEqual(items[0]["llm_explanation"], "Polled direct recommendation summary.")
+        self.assertEqual(mock_get.call_count, 1)
+        self.assertIn('/status/job-123', mock_get.call_args.args[0])
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_signed_url_is_preferred_over_base64_when_available(self, mock_score_recommendations, mock_post):
+        mock_score_recommendations.return_value = [
+            {
+                "style_id": 301,
+                "style_name": "Prada Bob",
+                "style_description": "",
+                "keywords": ["bob"],
+                "match_score": 0.88,
+                "rank": 0,
+                "reasoning_snapshot": {"summary": "local summary"},
+            }
+        ]
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "clip_score": 0.41,
+                            "simulation_image_url": "https://cdn.example.com/sim.png?expires=1775200000&token=abc",
+                            "simulation_image_url_expires_at": "2026-04-03T15:20:00Z",
+                            "image_base64": "ZmFrZS1pbWFnZQ==",
+                            "recommended_style": {
+                                "style_id": "prada-bob-1",
+                                "style_name": "Prada Bob",
+                                "recommendation_score": 0.9132,
+                            },
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 0,
+                            "style_id": "prada-bob-1",
+                            "style_name": "Prada Bob",
+                            "score": 0.9132,
+                            "description": "Jaw-length clean bob with compact silhouette.",
+                            "face_shape_detected": "oval",
+                            "golden_ratio_score": 0.7425,
+                            "face_shapes": ["oval", "heart", "oblong"],
+                        }
+                    ],
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "short", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "https://cdn.example.com/original.png",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["simulation_image_url"], "https://cdn.example.com/sim.png?expires=1775200000&token=abc")
+        self.assertEqual(items[0]["synthetic_image_url"], "https://cdn.example.com/sim.png?expires=1775200000&token=abc")
+        snapshot = items[0]["reasoning_snapshot"]["runpod"]
+        self.assertEqual(snapshot["image_transport"], "signed_url")
+        self.assertEqual(snapshot["simulation_image_url_expires_at"], "2026-04-03T15:20:00Z")
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_maps_style_from_alternative_name_fields(self, mock_score_recommendations, mock_post):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "clip_score": 0.44,
+                            "output": {
+                                "generated_image_url": "https://cdn.example.com/sim-alt-name.png?expires=1775200000&token=abc",
+                            },
+                            "recommended_style": {
+                                "name": "Sleek Mini Bob",
+                                "recommendation_score": 0.904,
+                            },
+                            "face_shape": "oval",
+                            "golden_ratio": 0.7425,
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 0,
+                            "name": "Sleek Mini Bob",
+                            "recommendation_score": 0.904,
+                            "reason": "Alternative naming contract summary.",
+                        }
+                    ],
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "short", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "https://cdn.example.com/original.png",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+            styles_by_id={
+                204: SimpleNamespace(
+                    name="Sleek Mini Bob",
+                    style_name="Sleek Mini Bob",
+                    description="Compact silhouette for strong balance.",
+                    image_url="/media/styles/204.jpg",
+                    vibe="Chic",
+                )
+            },
+        )
+
+        mock_score_recommendations.assert_not_called()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["style_id"], 204)
+        self.assertEqual(items[0]["simulation_image_url"], "https://cdn.example.com/sim-alt-name.png?expires=1775200000&token=abc")
+        self.assertEqual(items[0]["llm_explanation"], "Alternative naming contract summary.")
+        snapshot = items[0]["reasoning_snapshot"]["runpod"]
+        self.assertEqual(snapshot["face_shape_detected"], "oval")
+        self.assertEqual(snapshot["golden_ratio_score"], 0.7425)
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_accepts_results_only_payload(self, mock_score_recommendations, mock_post):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "simulation": {
+                                "image_base64": "ZmFrZS1zaW0=",
+                            },
+                            "hairstyle": {
+                                "hairstyle_name": "Airy Short Bob",
+                            },
+                            "description": "Results-only response summary.",
+                            "face_shape_detected": "round",
+                            "golden_ratio_score": 0.688,
+                            "recommendation_score": 0.877,
+                        }
+                    ],
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "short", "target_vibe": "natural"},
+            analysis_data={
+                "face_shape": "Round",
+                "golden_ratio_score": 0.82,
+                "image_base64": "ZmFrZS1pbWFnZQ==",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+            styles_by_id={
+                207: SimpleNamespace(
+                    name="Airy Short Bob",
+                    style_name="Airy Short Bob",
+                    description="Airy volume around the crown.",
+                    image_url="/media/styles/207.jpg",
+                    vibe="Natural",
+                )
+            },
+        )
+
+        mock_score_recommendations.assert_not_called()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["style_id"], 207)
+        self.assertTrue(items[0]["simulation_image_url"].startswith("data:image/png;base64,"))
+        snapshot = items[0]["reasoning_snapshot"]["runpod"]
+        self.assertEqual(snapshot["face_shape_detected"], "round")
+        self.assertEqual(snapshot["golden_ratio_score"], 0.688)
 
 
 class InternalAiServiceContractTests(SimpleTestCase):
@@ -520,9 +986,8 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
         payload = build_model_connection_validation_snapshot(attempts=3, use_cache=False)
 
         self.assertEqual(payload["summary"]["overall_state"], "unstable")
-        self.assertEqual(payload["summary"]["face_analysis_mode"], "local_mock_fallback")
-        self.assertEqual(payload["summary"]["recommendation_mode"], "local_scoring_with_runpod_augmentation")
-        self.assertIn("face_analysis_uses_local_mock_fallback", payload["warnings"])
+        self.assertEqual(payload["summary"]["face_analysis_mode"], "runpod_inference_metadata")
+        self.assertEqual(payload["summary"]["recommendation_mode"], "runpod_direct_primary_with_sync_polling")
         self.assertIn("runpod_health_flaky", payload["warnings"])
 
     @patch("app.management.commands.diagnose_ai_runtime.build_model_connection_validation_snapshot")
@@ -540,8 +1005,15 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
                 "overall_state": "unstable",
                 "online_count": 2,
                 "offline_count": 1,
-                "face_analysis_mode": "local_mock_fallback",
-                "recommendation_mode": "local_scoring_with_runpod_augmentation",
+                "face_analysis_mode": "runpod_inference_metadata",
+                "recommendation_mode": "runpod_direct_primary_with_sync_polling",
+                "connectivity_state": "online",
+                "inference_status": "unknown",
+                "sync_contract_state": "unknown",
+                "metadata_state": "unknown",
+                "queue_state": "unknown",
+                "last_error_code": None,
+                "last_error_message": None,
             },
             "probes": [
                 {"attempt": 1, "mode": "runpod", "status": "offline", "elapsed_ms": 5012, "message": "timeout"},
@@ -571,8 +1043,15 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
                 "overall_state": "unstable",
                 "online_count": 2,
                 "offline_count": 1,
-                "face_analysis_mode": "local_mock_fallback",
-                "recommendation_mode": "local_scoring_with_runpod_augmentation",
+                "face_analysis_mode": "runpod_inference_metadata",
+                "recommendation_mode": "runpod_direct_primary_with_sync_polling",
+                "connectivity_state": "online",
+                "inference_status": "unknown",
+                "sync_contract_state": "unknown",
+                "metadata_state": "unknown",
+                "queue_state": "unknown",
+                "last_error_code": None,
+                "last_error_message": None,
             },
             "probes": [
                 {"attempt": 1, "mode": "runpod", "status": "offline", "elapsed_ms": 5012, "message": "timeout"},
@@ -586,5 +1065,5 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
         output = stdout.getvalue()
         self.assertIn("AI model connectivity probe", output)
         self.assertIn("overall_state: unstable", output)
-        self.assertIn("face_analysis_mode: local_mock_fallback", output)
+        self.assertIn("face_analysis_mode: runpod_inference_metadata", output)
         self.assertIn("runpod_health_flaky", output)
