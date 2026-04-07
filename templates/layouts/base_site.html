@@ -21,6 +21,7 @@
           </a>
 
           <nav class="nav-links">
+            <a href="{% url 'index' %}" class="nav-link">메인</a>
             {% if not request.session.admin_id %}
               <a href="{% url 'partner_index' %}?next=/partner/designer-select/?next=/customer/" class="nav-link">분석 시작하기</a>
             {% elif not request.session.designer_id %}
