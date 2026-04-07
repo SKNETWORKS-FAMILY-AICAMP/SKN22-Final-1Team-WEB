@@ -30,7 +30,6 @@ from app.session_state import (
     allow_owner_dashboard,
     can_access_owner_dashboard,
     clear_admin_session,
-    clear_all_sessions,
     clear_customer_session,
     clear_designer_session,
     get_session_admin,
@@ -164,7 +163,6 @@ def health_check(request):
 
 
 def home_page(request):
-    clear_all_sessions(request=request)
     return render(request, "index.html", {"start_url": "/customer/", "partner_url": "/partner/login/"})
 
 
