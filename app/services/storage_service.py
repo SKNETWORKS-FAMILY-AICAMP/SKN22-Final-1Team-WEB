@@ -1,5 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import base64
 import logging
 import mimetypes
 import uuid
@@ -18,6 +19,148 @@ logger = logging.getLogger(__name__)
 def _guess_mime(filename: str, default: str) -> str:
     guessed, _ = mimetypes.guess_type(filename)
     return guessed or default
+
+
+def _decode_data_image_reference(reference: str) -> tuple[bytes, str, str] | None:
+    if not reference.startswith("data:image/") or "," not in reference:
+        return None
+
+    header, encoded = reference.split(",", 1)
+    if ";base64" not in header:
+        return None
+
+    mime_type = header[5:].split(";", 1)[0].strip() or "application/octet-stream"
+    extension = mimetypes.guess_extension(mime_type) or ".bin"
+    if extension == ".jpe":
+        extension = ".jpg"
+
+    return base64.b64decode(encoded), mime_type, extension
+
+
+def _resolve_local_asset_path(reference: str) -> Path | None:
+    text = str(reference or "").strip()
+    if not text:
+        return None
+
+    media_prefix = str(settings.MEDIA_URL or "/media/")
+    if media_prefix and text.startswith(media_prefix):
+        relative = text[len(media_prefix):].lstrip("/\\")
+        candidate = Path(settings.MEDIA_ROOT) / relative
+        if candidate.exists():
+            return candidate
+
+    candidate = Path(text)
+    if candidate.exists():
+        return candidate
+
+    return None
+
+
+def _store_generated_asset_locally(*, asset_bytes: bytes, extension: str, subdir: str) -> str:
+    filename = f"{uuid.uuid4()}{extension}"
+    asset_dir = Path(settings.MEDIA_ROOT) / subdir
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = asset_dir / filename
+    stored_path.write_bytes(asset_bytes)
+    return f"{settings.MEDIA_URL.rstrip('/')}/{subdir}/{filename}"
+
+
+def _store_generated_asset_in_supabase(*, asset_bytes: bytes, extension: str, subdir: str, mime_type: str) -> str | None:
+    if not settings.SUPABASE_USE_REMOTE_STORAGE:
+        return None
+
+    client = get_supabase_client()
+    if client is None:
+        return None
+
+    ensure_supabase_bucket()
+    key = f"{subdir}/{uuid.uuid4()}{extension}"
+    bucket = client.storage.from_(settings.SUPABASE_BUCKET)
+    bucket.upload(
+        key,
+        asset_bytes,
+        file_options={"content-type": mime_type},
+    )
+    return key
+
+
+def persist_simulation_image_reference(reference: str | None, *, subdir: str = "simulations") -> str | None:
+    if not reference:
+        return reference
+
+    normalized_reference = str(reference).strip()
+    decoded = _decode_data_image_reference(normalized_reference)
+    if decoded is None:
+        local_asset_path = _resolve_local_asset_path(normalized_reference)
+        if local_asset_path is None:
+            return normalized_reference
+
+        try:
+            asset_bytes = local_asset_path.read_bytes()
+        except OSError:
+            return normalized_reference
+
+        mime_type = _guess_mime(local_asset_path.name, "application/octet-stream")
+        extension = local_asset_path.suffix or mimetypes.guess_extension(mime_type) or ".bin"
+        if extension == ".jpe":
+            extension = ".jpg"
+
+        remote_reference = _store_generated_asset_in_supabase(
+            asset_bytes=asset_bytes,
+            extension=extension,
+            subdir=subdir,
+            mime_type=mime_type,
+        )
+        if remote_reference:
+            return remote_reference
+
+        return _store_generated_asset_locally(
+            asset_bytes=asset_bytes,
+            extension=extension,
+            subdir=subdir,
+        )
+
+    asset_bytes, mime_type, extension = decoded
+    remote_reference = _store_generated_asset_in_supabase(
+        asset_bytes=asset_bytes,
+        extension=extension,
+        subdir=subdir,
+        mime_type=mime_type,
+    )
+    if remote_reference:
+        return remote_reference
+
+    return _store_generated_asset_locally(
+        asset_bytes=asset_bytes,
+        extension=extension,
+        subdir=subdir,
+    )
+
+
+def persist_analysis_input_image_reference(
+    asset_bytes: bytes | None,
+    *,
+    extension: str = ".jpg",
+    mime_type: str = "image/jpeg",
+    subdir: str = "analysis-inputs",
+) -> str | None:
+    if not asset_bytes:
+        return None
+
+    remote_reference = _store_generated_asset_in_supabase(
+        asset_bytes=asset_bytes,
+        extension=extension,
+        subdir=subdir,
+        mime_type=mime_type,
+    )
+    if remote_reference:
+        return remote_reference
+
+    return _store_generated_asset_locally(
+        asset_bytes=asset_bytes,
+        extension=extension,
+        subdir=subdir,
+    )
 
 
 def _extract_signed_url(signed) -> str | None:

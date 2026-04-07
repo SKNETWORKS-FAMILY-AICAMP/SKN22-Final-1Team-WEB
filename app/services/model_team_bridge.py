@@ -21,6 +21,7 @@ from app.models_model_team import (
     LegacyShop,
 )
 from app.services.age_profile import build_age_profile
+from app.services.storage_service import resolve_storage_reference
 from app.services.legacy_model_sync import (
     _existing_legacy_tables,
     _legacy_gender,
@@ -503,6 +504,59 @@ def get_legacy_client_id(*, client: Client | None) -> str | None:
     return str(_legacy_uuid("client", client.id))
 
 
+def _ensure_capture_fallback_designer(*, client: Client):
+    if not _has_columns("designer", LEGACY_DESIGNER_MODEL_COLUMNS):
+        return None
+
+    admin = getattr(client, "shop", None)
+    backend_shop_ref_id = getattr(client, "shop_id", None) or getattr(admin, "id", None)
+    legacy_shop_id = getattr(admin, "legacy_admin_id", None)
+    if admin is None and backend_shop_ref_id:
+        admin = get_admin_by_identifier(identifier=backend_shop_ref_id)
+        legacy_shop_id = getattr(admin, "legacy_admin_id", None)
+    if not backend_shop_ref_id or not legacy_shop_id:
+        return None
+
+    legacy_designer_id = str(_legacy_uuid("capture_unassigned_designer", int(backend_shop_ref_id)))
+    row = LegacyDesigner.objects.filter(designer_id=legacy_designer_id).first()
+    if row is None:
+        created_at = timezone.now().isoformat()
+        row = LegacyDesigner.objects.create(
+            designer_id=legacy_designer_id,
+            shop_id=legacy_shop_id,
+            designer_name="Unassigned Capture",
+            login_id=f"capture-unassigned-{backend_shop_ref_id}",
+            password="",
+            is_active=False,
+            created_at=created_at,
+            updated_at=created_at,
+            backend_designer_id=None,
+            backend_shop_ref_id=backend_shop_ref_id,
+            name="Unassigned Capture",
+            phone="",
+            pin_hash="",
+        )
+
+    return SimpleNamespace(
+        id=None,
+        legacy_designer_id=row.designer_id,
+        shop=admin,
+        shop_id=backend_shop_ref_id,
+        name=row.name or row.designer_name,
+        phone=row.phone or "",
+        pin_hash=row.pin_hash or row.password or "",
+        is_active=False,
+        backend_designer_id=None,
+    )
+
+
+def _resolve_capture_designer(*, client: Client):
+    designer = getattr(client, "designer", None)
+    if designer is not None:
+        return designer
+    return _ensure_capture_fallback_designer(client=client)
+
+
 def get_scoped_client_ids(
     *,
     admin: AdminAccount | None = None,
@@ -746,6 +800,7 @@ def get_latest_legacy_analysis(*, client: Client):
         face_shape=row.face_type,
         golden_ratio_score=row.golden_ratio_score,
         image_url=row.analysis_image_url or row.processed_path or row.original_image_url,
+        status=row.status or "DONE",
         landmark_snapshot=_parse_jsonish(row.analysis_landmark_snapshot if row.analysis_landmark_snapshot is not None else row.landmark_data, fallback={}),
         created_at=_coerce_datetime(row.created_at) or row.updated_at_ts,
     )
@@ -883,10 +938,21 @@ def create_legacy_capture_upload_record(
 
     now = timezone.now()
     analysis_id = _next_backend_ref_id(LegacyClientAnalysis, "analysis_id")
+    legacy_client_id = get_legacy_client_id(client=client)
+    if not legacy_client_id:
+        raise RuntimeError(f"Legacy client id is required for capture upload: client={getattr(client, 'id', None)}")
+
+    capture_designer = _resolve_capture_designer(client=client)
+    legacy_designer_id = get_legacy_designer_id(designer=capture_designer)
+    if not legacy_designer_id:
+        raise RuntimeError(
+            f"Legacy designer id is required for capture upload: client={getattr(client, 'id', None)} shop={getattr(client, 'shop_id', None)}"
+        )
+
     row = LegacyClientAnalysis.objects.create(
         analysis_id=analysis_id,
-        client_id=get_legacy_client_id(client=client) or "",
-        designer_id=(get_legacy_designer_id(designer=client.designer) or ""),
+        client_id=legacy_client_id,
+        designer_id=legacy_designer_id,
         original_image_url=original_path,
         face_type=None,
         face_ratio_vector=_legacy_preference_vector_storage([]),
@@ -895,7 +961,7 @@ def create_legacy_capture_upload_record(
         created_at=now.isoformat(),
         backend_analysis_id=None,
         backend_client_ref_id=client.id,
-        backend_designer_ref_id=client.designer_id,
+        backend_designer_ref_id=getattr(capture_designer, "id", None) or getattr(client, "designer_id", None),
         backend_capture_record_id=analysis_id,
         processed_path=processed_path,
         filename=filename,
@@ -940,6 +1006,7 @@ def complete_legacy_capture_analysis(
     face_shape: str | None,
     golden_ratio_score: float | None,
     landmark_snapshot: dict | None,
+    analysis_image_url: str | None = None,
 ):
     if not _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
         return None, None
@@ -955,7 +1022,7 @@ def complete_legacy_capture_analysis(
     row.status = "DONE"
     row.face_type = face_shape
     row.golden_ratio_score = golden_ratio_score
-    row.analysis_image_url = row.processed_path or row.original_image_url
+    row.analysis_image_url = analysis_image_url or row.processed_path or row.original_image_url
     row.analysis_landmark_snapshot = landmark_snapshot or {}
     row.landmark_data = json.dumps(landmark_snapshot or {}, ensure_ascii=False)
     face_ratio_vector = []
@@ -1042,6 +1109,7 @@ def get_legacy_former_recommendation_items(*, client: Client) -> list[dict]:
                 "client_id": result_row.backend_client_ref_id,
                 "legacy_client_id": result_row.client_id,
                 "designer_id": result_row.backend_designer_ref_id,
+                "analysis_id": result_row.analysis_id,
                 "style_id": style_id,
                 "style_name": detail.style_name_snapshot or style_name or f"Style {style_id}",
                 "style_description": detail.style_description_snapshot or style_desc,
@@ -1051,8 +1119,8 @@ def get_legacy_former_recommendation_items(*, client: Client) -> list[dict]:
                     [{"image_url": style_image_url, "description": style_desc}]
                     if style_image_url else []
                 ),
-                "simulation_image_url": detail.simulated_image_url,
-                "synthetic_image_url": detail.simulated_image_url,
+                "simulation_image_url": resolve_storage_reference(detail.simulated_image_url),
+                "synthetic_image_url": resolve_storage_reference(detail.simulated_image_url),
                 "llm_explanation": detail.recommendation_reason or "",
                 "reasoning": detail.recommendation_reason or "",
                 "reasoning_snapshot": _parse_jsonish(detail.reasoning_snapshot, fallback={"summary": detail.recommendation_reason or ""}),
