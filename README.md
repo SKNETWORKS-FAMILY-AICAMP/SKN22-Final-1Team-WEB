@@ -135,7 +135,8 @@ python manage.py runserver
 
 ### 4) 최신 트렌드 데이터 갱신
 
-루트 `manage.py` 기준으로 트렌드 크롤링/정제/LLM 정제/벡터화 파이프라인을 수동 실행할 수 있습니다.
+아래 명령은 **저장된 최신 5개만 조회하는 코드가 아니라**,
+트렌드 원본을 다시 수집한 뒤 정제까지 수행하는 **전체 갱신 파이프라인**입니다.
 
 ```bash
 python manage.py refresh_trends --mode runpod-pipeline
@@ -159,6 +160,28 @@ python manage.py run_trend_scheduler
 - 실제 주기 실행을 하려면 `python manage.py run_trend_scheduler` 프로세스가 별도로 떠 있어야 합니다.
 - `run_server.bat`를 사용하는 로컬 환경에서는 위 값이 `true`일 때 스케줄러가 같이 실행되어, 설정된 요일/시간에 최신 데이터 갱신을 시도합니다.
 - 운영 환경에 앱 인스턴스가 여러 대면 스케줄러는 한 인스턴스에만 켜야 중복 실행되지 않습니다.
+
+### 5) 저장된 최신 5개만 조회하기
+
+트렌드 페이지(`/customer/trend/`)는 크롤링을 다시 돌리지 않고,
+이미 저장된 파일에서 **최신 5개만 골라서** 보여줍니다.
+
+- 조회 엔드포인트: `/api/v1/analysis/trend/latest/?limit=5`
+- API 구현: `app/api/v1/latest_trends.py`
+- 최신 5개 선별 로직: `app/trend_pipeline/latest_feed.py`
+- 우선 조회 파일: `data/rag/processed/trends/refined_trends.json`
+- fallback 조회 경로: `data/rag/raw/trends/*.json`
+
+즉 아래는 **전체 갱신 없음 / 읽기 전용 조회**입니다.
+
+```bash
+curl "http://localhost:8000/api/v1/analysis/trend/latest/?limit=5"
+```
+
+정리:
+
+- `refresh_trends` / `run_trend_scheduler` = 전체 크롤링 + 정제 + 후처리
+- `/api/v1/analysis/trend/latest/` = 저장된 데이터에서 최신 5개만 조회
 
 ---
 
