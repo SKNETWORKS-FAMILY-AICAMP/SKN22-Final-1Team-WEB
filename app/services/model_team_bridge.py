@@ -421,10 +421,15 @@ def _client_from_legacy_row(row: LegacyClient | None):
 
 def get_designers_for_admin(*, admin: AdminAccount) -> list[Designer]:
     if _has_columns("designer", LEGACY_DESIGNER_MODEL_COLUMNS):
-        rows = list(
-            LegacyDesigner.objects.filter(backend_shop_ref_id=admin.id, is_active=True)
-            .order_by("backend_designer_id", "designer_id")
-        )
+        legacy_id = get_legacy_admin_id(admin=admin)
+        # UUID(shop_id) 또는 정수형(backend_shop_ref_id) 중 하나라도 일치하는 활성 디자이너 조회
+        queryset = LegacyDesigner.objects.filter(is_active=True)
+        if legacy_id:
+            queryset = queryset.filter(Q(shop_id=legacy_id) | Q(backend_shop_ref_id=admin.id))
+        else:
+            queryset = queryset.filter(backend_shop_ref_id=admin.id)
+            
+        rows = list(queryset.order_by("backend_designer_id", "designer_id"))
         return [designer for designer in (_designer_from_legacy_row(row) for row in rows) if designer is not None]
     return []
 
