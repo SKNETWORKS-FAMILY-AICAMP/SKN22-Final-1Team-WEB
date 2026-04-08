@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import uuid
 from collections import Counter
 from types import SimpleNamespace
@@ -21,7 +21,12 @@ from app.models_model_team import (
     LegacyClientSurvey,
 )
 from app.services.age_profile import build_client_age_profile, client_matches_age_profile
-from app.services.ai_facade import generate_recommendation_batch, simulate_face_analysis
+from app.services.capture_validation import infer_capture_reason_code
+from app.services.ai_facade import (
+    generate_recommendation_batch,
+    get_ai_runtime_config_snapshot,
+    simulate_face_analysis,
+)
 from app.services.model_team_bridge import (
     LEGACY_ANALYSIS_MODEL_COLUMNS,
     LEGACY_HAIRSTYLE_MODEL_COLUMNS,
@@ -879,6 +884,127 @@ def _build_empty_response(*, source: str, message: str, next_action: str | None 
     return payload
 
 
+def _normalize_recommendation_item_contract(item: dict) -> dict:
+    normalized = dict(item)
+    sample_image_url = resolve_storage_reference(normalized.get("sample_image_url"))
+    simulation_image_url = resolve_storage_reference(
+        normalized.get("simulation_image_url") or normalized.get("synthetic_image_url")
+    )
+    display_image_url = simulation_image_url or sample_image_url
+    has_displayable_simulation = bool(simulation_image_url)
+
+    simulation_source = str(normalized.get("simulation_source") or "").strip()
+    if not simulation_source:
+        source = str(normalized.get("source") or "").strip()
+        if has_displayable_simulation:
+            simulation_source = "local_mock" if source == "local_mock" else "simulation"
+        elif sample_image_url:
+            simulation_source = "sample"
+        else:
+            simulation_source = "none"
+
+    simulation_status = str(normalized.get("simulation_status") or "").strip()
+    simulation_status_reason = str(normalized.get("simulation_status_reason") or "").strip()
+    if not simulation_status:
+        if has_displayable_simulation:
+            simulation_status = "ready"
+        elif sample_image_url:
+            simulation_status = "pending"
+        else:
+            simulation_status = "missing"
+    if not simulation_status_reason:
+        if has_displayable_simulation:
+            simulation_status_reason = (
+                "local_mock_reference"
+                if simulation_source == "local_mock"
+                else "primary_simulation_ready"
+            )
+        elif sample_image_url:
+            simulation_status_reason = "sample_reference_only"
+        else:
+            simulation_status_reason = "simulation_asset_missing"
+
+    normalized["sample_image_url"] = sample_image_url
+    normalized["simulation_image_url"] = simulation_image_url
+    normalized["synthetic_image_url"] = simulation_image_url
+    normalized["display_image_url"] = display_image_url
+    normalized["has_displayable_simulation"] = has_displayable_simulation
+    normalized["simulation_source"] = simulation_source
+    normalized["simulation_status"] = simulation_status
+    normalized["simulation_status_reason"] = simulation_status_reason
+    return normalized
+
+
+def _build_simulation_contract_meta(
+    *,
+    items: list[dict],
+    client: "Client | None" = None,
+    latest_capture=None,
+    latest_analysis=None,
+    default_reason: str | None = None,
+) -> dict:
+    item_count = len(items)
+    displayable_simulation_count = sum(1 for item in items if item.get("has_displayable_simulation"))
+    primary_simulation_count = sum(1 for item in items if item.get("simulation_source") == "simulation")
+    local_mock_count = sum(1 for item in items if item.get("simulation_source") == "local_mock")
+    sample_reference_count = sum(1 for item in items if item.get("simulation_source") == "sample")
+    has_displayable_simulation = displayable_simulation_count > 0
+    simulation_ready = item_count > 0 and displayable_simulation_count == item_count
+
+    if default_reason:
+        simulation_status_reason = default_reason
+    elif local_mock_count == item_count and item_count > 0:
+        simulation_status_reason = "local_mock_recommendations_ready"
+    elif simulation_ready:
+        simulation_status_reason = "all_simulations_ready"
+    elif has_displayable_simulation:
+        simulation_status_reason = "partial_simulations_ready"
+    elif sample_reference_count == item_count and item_count > 0:
+        simulation_status_reason = "sample_references_only"
+    else:
+        simulation_status_reason = "simulation_assets_missing"
+
+    if local_mock_count == item_count and item_count > 0:
+        display_gate_status = "mock_ready"
+    elif simulation_ready:
+        display_gate_status = "ready"
+    elif has_displayable_simulation:
+        display_gate_status = "partial_ready"
+    elif sample_reference_count == item_count and item_count > 0:
+        display_gate_status = "sample_only"
+    elif simulation_status_reason in {"capture_retry_required", "capture_data_not_ready", "analysis_input_incomplete"}:
+        display_gate_status = "awaiting_capture"
+    elif simulation_status_reason == "survey_or_capture_required":
+        display_gate_status = "awaiting_input"
+    else:
+        display_gate_status = "blocked"
+
+    return {
+        "response_kind": "recommendation_list",
+        "response_contract_version": 3,
+        "canonical_display_image_field": "display_image_url",
+        "primary_simulation_image_field": "simulation_image_url",
+        "legacy_simulation_image_field": "synthetic_image_url",
+        "display_gate_target_field": "simulation_image_url",
+        "display_gate_status": display_gate_status,
+        "display_gate_reason": simulation_status_reason,
+        "display_gate_ready_count": displayable_simulation_count,
+        "display_gate_target_count": item_count,
+        "recommendation_item_count": item_count,
+        "has_displayable_simulation": has_displayable_simulation,
+        "simulation_ready": simulation_ready,
+        "displayable_simulation_count": displayable_simulation_count,
+        "primary_simulation_count": primary_simulation_count,
+        "sample_reference_count": sample_reference_count,
+        "local_mock_count": local_mock_count,
+        "simulation_status_reason": simulation_status_reason,
+        "current_capture_id": getattr(latest_capture, "id", None) or getattr(latest_capture, "analysis_id", None),
+        "current_analysis_id": getattr(latest_analysis, "id", None) or getattr(latest_analysis, "analysis_id", None),
+        "client_id": (client.id if client is not None else None),
+        "legacy_client_id": (get_legacy_client_id(client=client) if client is not None else None),
+    }
+
+
 def serialize_capture_status(record: "CaptureRecord") -> dict:
     privacy_snapshot = record.privacy_snapshot or {}
     payload = {
@@ -1113,7 +1239,7 @@ def get_former_recommendations(client: "Client") -> dict:
     if not legacy_items:
         return _build_empty_response(
             source="former_recommendations",
-            message="No previous recommendation history is available yet.",
+            message="아직 과거의 추천 내역이 없습니다.",
             next_actions=["trend", "capture"],
         )
     return {
@@ -1252,6 +1378,157 @@ def _find_legacy_recommendation_item(
     return next((item for item in items if item.get("is_chosen")), items[0])
 
 
+def _find_current_recommendation_item_for_consultation(*, client: "Client") -> dict | None:
+    payload = get_current_recommendations(client)
+    items = list(payload.get("items") or [])
+    if not items:
+        return None
+    return next((item for item in items if item.get("is_chosen")), items[0])
+
+
+def _materialize_direct_consultation_current_recommendation(
+    *,
+    client: "Client",
+    legacy_client_id,
+    source: str,
+    survey_snapshot: dict | None,
+    analysis_snapshot: dict | None,
+    admin: "AdminAccount | None",
+    designer,
+    now,
+) -> tuple[LegacyClientResult | None, LegacyClientResultDetail | None, int | None, str | None]:
+    legacy_item = _find_legacy_recommendation_item(client=client)
+    item_origin = "legacy_former_recommendations"
+    if not legacy_item:
+        legacy_item = _find_current_recommendation_item_for_consultation(client=client)
+        item_origin = "current_recommendations_payload"
+    if not legacy_item:
+        logger.warning(
+            "[legacy_direct_consultation_materialization_failed] client_id=%s legacy_client_id=%s source=%s reason=no_current_recommendation_item item_origin=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            item_origin,
+        )
+        return None, None, None, None
+
+    recommendation_id = legacy_item.get("recommendation_id")
+    style_id = int(legacy_item.get("style_id") or 0) or None
+    selected_result = None
+    selected_detail = None
+    selected_style_name = legacy_item.get("style_name")
+
+    if recommendation_id is not None:
+        try:
+            selected_result, selected_detail = _legacy_result_and_detail_for_recommendation(
+                client=client,
+                recommendation_id=int(recommendation_id),
+            )
+        except (TypeError, ValueError):
+            selected_result, selected_detail = None, None
+
+    if selected_result is not None and selected_detail is not None:
+        logger.info(
+            "[legacy_direct_consultation_materialized] client_id=%s legacy_client_id=%s source=%s mode=linked_existing item_origin=%s recommendation_id=%s style_id=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            item_origin,
+            recommendation_id,
+            style_id,
+        )
+        return selected_result, selected_detail, style_id, "linked_direct_consultation_recommendation"
+
+    if style_id is None:
+        logger.warning(
+            "[legacy_direct_consultation_materialization_failed] client_id=%s legacy_client_id=%s source=%s reason=missing_style_id item_origin=%s recommendation_id=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            item_origin,
+            recommendation_id,
+        )
+        return None, None, None, None
+
+    result_id = _next_legacy_pk(LegacyClientResult, "result_id")
+    detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
+    style_name, style_description = _legacy_style_label(style_id)
+    selected_style_name = selected_style_name or style_name
+    selected_result = LegacyClientResult.objects.create(
+        result_id=result_id,
+        analysis_id=(getattr(get_latest_analysis(client), "id", None) or getattr(get_latest_analysis(client), "analysis_id", None) or 0),
+        client_id=legacy_client_id,
+        selected_hairstyle_id=None,
+        selected_image_url=None,
+        is_confirmed=False,
+        created_at=now.isoformat(),
+        updated_at=now.isoformat(),
+        backend_selection_id=None,
+        backend_consultation_id=None,
+        backend_client_ref_id=client.id,
+        backend_admin_ref_id=(admin.id if admin else client.shop_id),
+        backend_designer_ref_id=(designer.id if designer else client.designer_id),
+        source=source,
+        survey_snapshot=survey_snapshot,
+        analysis_data_snapshot=analysis_snapshot,
+        status="PENDING",
+        is_active=True,
+        is_read=False,
+        closed_at=None,
+        selected_recommendation_id=None,
+    )
+    selected_detail = LegacyClientResultDetail.objects.create(
+        detail_id=detail_id,
+        result_id=result_id,
+        hairstyle_id=style_id,
+        rank=int(legacy_item.get("rank") or 1),
+        similarity_score=float(legacy_item.get("match_score") or 0.0),
+        final_score=float(legacy_item.get("match_score") or 0.0),
+        simulated_image_url=legacy_item.get("simulation_image_url"),
+        recommendation_reason=(
+            legacy_item.get("reasoning")
+            or legacy_item.get("llm_explanation")
+            or "current recommendation direct consultation materialized for handoff"
+        ),
+        backend_recommendation_id=recommendation_id,
+        backend_client_ref_id=client.id,
+        backend_capture_record_id=None,
+        batch_id=_coerce_batch_uuid(legacy_item.get("batch_id")),
+        source=source,
+        style_name_snapshot=selected_style_name,
+        style_description_snapshot=legacy_item.get("style_description") or style_description,
+        keywords_json=list(legacy_item.get("keywords") or []),
+        sample_image_url=legacy_item.get("sample_image_url"),
+        regeneration_snapshot=legacy_item.get("regeneration_snapshot"),
+        reasoning_snapshot={
+            **dict(legacy_item.get("reasoning_snapshot") or {}),
+            "summary": (
+                (legacy_item.get("reasoning_snapshot") or {}).get("summary")
+                or legacy_item.get("reasoning")
+                or legacy_item.get("llm_explanation")
+                or "current recommendation direct consultation materialized for handoff"
+            ),
+            "source": source,
+            "materialized_for_direct_consultation": True,
+        },
+        is_chosen=False,
+        chosen_at=None,
+        is_sent_to_admin=True,
+        sent_at=now,
+        created_at_ts=now,
+    )
+    logger.info(
+        "[legacy_direct_consultation_materialized] client_id=%s legacy_client_id=%s source=%s mode=created_new item_origin=%s recommendation_id=%s style_id=%s",
+        client.id,
+        legacy_client_id,
+        source,
+        item_origin,
+        recommendation_id,
+        style_id,
+    )
+    return selected_result, selected_detail, style_id, "materialized_direct_consultation"
+
+
 def _bridge_recommendation_from_legacy_item(
     *,
     client: "Client",
@@ -1376,65 +1653,325 @@ def _build_legacy_current_recommendations_payload(
     }
 
 
+def _build_recommendation_diagnostic_snapshot(
+    *,
+    client: "Client",
+    latest_capture_attempt,
+    latest_survey,
+    latest_capture,
+    latest_analysis,
+    legacy_items: list[dict],
+) -> dict:
+    capture_attempt_reason_code = None
+    capture_attempt_snapshot = getattr(latest_capture_attempt, "privacy_snapshot", None)
+    if latest_capture_attempt is not None:
+        capture_attempt_reason_code = infer_capture_reason_code(
+            error_note=getattr(latest_capture_attempt, "error_note", None),
+            privacy_snapshot=(capture_attempt_snapshot if isinstance(capture_attempt_snapshot, dict) else None),
+        )
+
+    active_consultation = _has_active_consultation_state(client=client)
+    local_mock_enabled = bool(settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS)
+    blockers: list[str] = []
+
+    if latest_capture is None and latest_capture_attempt is not None and latest_capture_attempt.status in {"NEEDS_RETAKE", "FAILED"}:
+        blockers.append("capture_failed")
+        predicted_response = {
+            "status": "needs_capture",
+            "source": "current_recommendations",
+            "decision": "capture_failed_retake",
+            "message": (
+                latest_capture_attempt.error_note
+                or "Face detection did not succeed. Please retake a front-facing photo."
+            ),
+            "next_action": "capture",
+            "next_actions": ["capture"],
+            "blockers": blockers,
+        }
+    elif not latest_capture and not latest_survey:
+        blockers.extend(["missing_survey", "missing_capture"])
+        predicted_response = {
+            "status": "needs_input",
+            "source": "current_recommendations",
+            "decision": "missing_survey_and_capture",
+            "message": "No survey or capture data is available yet. Start with the survey or upload a capture.",
+            "next_actions": ["survey", "capture"],
+            "blockers": blockers,
+        }
+    elif not latest_capture or not latest_analysis:
+        if not latest_capture:
+            blockers.append("missing_capture")
+        if not latest_analysis:
+            blockers.append("missing_analysis")
+        if legacy_items:
+            predicted_response = {
+                "status": "ready",
+                "source": "current_recommendations",
+                "decision": "reuse_legacy_recommendations",
+                "message": "Legacy model-team recommendation data is available for reuse.",
+                "next_actions": ["retry_recommendations", "consultation"] if active_consultation else ["consultation"],
+                "blockers": blockers,
+            }
+        elif local_mock_enabled and latest_capture:
+            predicted_response = {
+                "status": "ready",
+                "source": "local_mock",
+                "decision": "local_mock_fallback",
+                "message": "Local mock recommendations can be shown because capture data exists but canonical analysis is missing.",
+                "next_actions": ["consultation"],
+                "blockers": blockers,
+            }
+        else:
+            predicted_response = {
+                "status": "needs_capture",
+                "source": "current_recommendations",
+                "decision": "missing_canonical_capture_or_analysis",
+                "message": "A valid front-facing capture is required before we can generate the current Top-5 recommendations.",
+                "next_action": "capture",
+                "next_actions": ["capture"],
+                "blockers": blockers,
+            }
+    elif legacy_items:
+        predicted_response = {
+            "status": "ready",
+            "source": "current_recommendations",
+            "decision": "reuse_legacy_recommendations",
+            "message": "Existing model-team recommendation data is being reused.",
+            "next_actions": ["retry_recommendations", "consultation"] if active_consultation else ["consultation"],
+            "blockers": blockers,
+        }
+    else:
+        predicted_response = {
+            "status": "would_generate",
+            "source": "current_recommendations",
+            "decision": "generate_new_batch",
+            "message": "Capture and analysis are ready. Requesting current recommendations would generate a new batch.",
+            "next_actions": ["retry_recommendations", "consultation"],
+            "blockers": blockers,
+            "would_persist_batch": True,
+        }
+
+    return {
+        "client": {
+            "client_id": client.id,
+            "legacy_client_id": get_legacy_client_id(client=client),
+            "name": getattr(client, "name", None),
+            "phone": getattr(client, "phone", None),
+        },
+        "ai_runtime": get_ai_runtime_config_snapshot(),
+        "survey": {
+            "present": bool(latest_survey),
+            "created_at": (getattr(latest_survey, "created_at", None).isoformat() if getattr(latest_survey, "created_at", None) else None),
+            "target_length": getattr(latest_survey, "target_length", None),
+            "target_vibe": getattr(latest_survey, "target_vibe", None),
+            "scalp_type": getattr(latest_survey, "scalp_type", None),
+            "hair_colour": getattr(latest_survey, "hair_colour", None),
+            "budget_range": getattr(latest_survey, "budget_range", None),
+        },
+        "capture_attempt": {
+            "present": bool(latest_capture_attempt),
+            "record_id": getattr(latest_capture_attempt, "id", None) or getattr(latest_capture_attempt, "analysis_id", None),
+            "status": getattr(latest_capture_attempt, "status", None),
+            "face_count": getattr(latest_capture_attempt, "face_count", None),
+            "reason_code": capture_attempt_reason_code,
+            "error_note": getattr(latest_capture_attempt, "error_note", None),
+            "created_at": (getattr(latest_capture_attempt, "created_at", None).isoformat() if getattr(latest_capture_attempt, "created_at", None) else None),
+            "updated_at": (getattr(latest_capture_attempt, "updated_at", None).isoformat() if getattr(latest_capture_attempt, "updated_at", None) else None),
+        },
+        "capture": {
+            "present": bool(latest_capture),
+            "record_id": getattr(latest_capture, "id", None) or getattr(latest_capture, "analysis_id", None),
+            "status": getattr(latest_capture, "status", None),
+            "face_count": getattr(latest_capture, "face_count", None),
+            "created_at": (getattr(latest_capture, "created_at", None).isoformat() if getattr(latest_capture, "created_at", None) else None),
+        },
+        "analysis": {
+            "present": bool(latest_analysis),
+            "analysis_id": getattr(latest_analysis, "id", None) or getattr(latest_analysis, "analysis_id", None),
+            "face_shape": getattr(latest_analysis, "face_shape", None),
+            "golden_ratio_score": getattr(latest_analysis, "golden_ratio_score", None),
+            "created_at": (getattr(latest_analysis, "created_at", None).isoformat() if getattr(latest_analysis, "created_at", None) else None),
+        },
+        "legacy_recommendations": {
+            "count": len(legacy_items),
+            "latest_batch_id": (legacy_items[0].get("batch_id") if legacy_items else None),
+            "sources": sorted({str(item.get("source") or "") for item in legacy_items if str(item.get("source") or "").strip()}),
+            "chosen_count": sum(1 for item in legacy_items if item.get("is_chosen")),
+        },
+        "active_consultation": active_consultation,
+        "local_mock_enabled": local_mock_enabled,
+        "predicted_response": predicted_response,
+    }
+
+
+def build_recommendation_diagnostic_snapshot(client: "Client") -> dict:
+    latest_capture_attempt = get_latest_capture_attempt(client)
+    latest_survey = get_latest_survey(client)
+    latest_capture = get_latest_capture(client)
+    latest_analysis = get_latest_analysis(client)
+    legacy_items = get_legacy_former_recommendation_items(client=client) or []
+    return _build_recommendation_diagnostic_snapshot(
+        client=client,
+        latest_capture_attempt=latest_capture_attempt,
+        latest_survey=latest_survey,
+        latest_capture=latest_capture,
+        latest_analysis=latest_analysis,
+        legacy_items=legacy_items,
+    )
+
+
+def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapshot: dict) -> dict:
+    items = payload.get("items") or []
+    normalized_items = [
+        _normalize_recommendation_item_contract(item)
+        for item in items
+        if isinstance(item, dict)
+    ]
+    if normalized_items or isinstance(items, list):
+        payload["items"] = normalized_items
+
+    capture_snapshot = snapshot.get("capture") or {}
+    analysis_snapshot = snapshot.get("analysis") or {}
+    default_reason = None
+    if payload.get("status") == "needs_input":
+        default_reason = "survey_or_capture_required"
+    elif payload.get("status") == "needs_capture":
+        default_reason = (
+            "capture_retry_required"
+            if "retake" in str(payload.get("message") or "").lower()
+            else "capture_data_not_ready"
+        )
+    elif payload.get("status") == "empty":
+        default_reason = "recommendations_not_ready"
+
+    payload.update(
+        _build_simulation_contract_meta(
+            items=normalized_items,
+            client=client,
+            latest_capture=SimpleNamespace(
+                id=capture_snapshot.get("record_id"),
+                analysis_id=capture_snapshot.get("record_id"),
+            ) if capture_snapshot.get("record_id") else None,
+            latest_analysis=SimpleNamespace(
+                id=analysis_snapshot.get("analysis_id"),
+                analysis_id=analysis_snapshot.get("analysis_id"),
+            ) if analysis_snapshot.get("analysis_id") else None,
+            default_reason=default_reason,
+        )
+    )
+    predicted = snapshot.get("predicted_response") or {}
+    next_actions = payload.get("next_actions")
+    if not next_actions and payload.get("next_action"):
+        next_actions = [payload.get("next_action")]
+    logger.info(
+        "[recommendation_state] client_id=%s status=%s source=%s decision=%s items=%s capture_attempt=%s capture_ready=%s analysis_ready=%s legacy_items=%s active_consultation=%s local_mock=%s next_actions=%s",
+        client.id,
+        payload.get("status"),
+        payload.get("source"),
+        predicted.get("decision"),
+        len(payload.get("items") or []),
+        (snapshot.get("capture_attempt") or {}).get("status"),
+        (snapshot.get("capture") or {}).get("present"),
+        (snapshot.get("analysis") or {}).get("present"),
+        (snapshot.get("legacy_recommendations") or {}).get("count"),
+        snapshot.get("active_consultation"),
+        snapshot.get("local_mock_enabled"),
+        next_actions or [],
+    )
+    return payload
+
+
 def get_current_recommendations(client: "Client") -> dict:
     latest_capture_attempt = get_latest_capture_attempt(client)
     latest_survey = get_latest_survey(client)
     latest_capture = get_latest_capture(client)
     latest_analysis = get_latest_analysis(client)
     legacy_items = get_legacy_former_recommendation_items(client=client) or []
+    snapshot = _build_recommendation_diagnostic_snapshot(
+        client=client,
+        latest_capture_attempt=latest_capture_attempt,
+        latest_survey=latest_survey,
+        latest_capture=latest_capture,
+        latest_analysis=latest_analysis,
+        legacy_items=legacy_items,
+    )
 
     if (
         latest_capture is None
         and latest_capture_attempt is not None
         and latest_capture_attempt.status in {"NEEDS_RETAKE", "FAILED"}
     ):
-        return {
-            "status": "needs_capture",
-            "source": "current_recommendations",
-            "message": latest_capture_attempt.error_note or "Face detection did not succeed. Please retake a front-facing photo.",
-            "next_action": "capture",
-            "items": [],
-        }
+        return _finalize_recommendation_payload(
+            client=client,
+            payload={
+                "status": "needs_capture",
+                "source": "current_recommendations",
+                "message": latest_capture_attempt.error_note or "Face detection did not succeed. Please retake a front-facing photo.",
+                "next_action": "capture",
+                "items": [],
+            },
+            snapshot=snapshot,
+        )
 
     if not latest_capture and not latest_survey:
-        return {
-            "status": "needs_input",
-            "source": "current_recommendations",
-            "message": "No survey or capture data is available yet. Start with the survey or upload a capture.",
-            "next_actions": ["survey", "capture"],
-            "items": [],
-        }
+        return _finalize_recommendation_payload(
+            client=client,
+            payload={
+                "status": "needs_input",
+                "source": "current_recommendations",
+                "message": "No survey or capture data is available yet. Start with the survey or upload a capture.",
+                "next_actions": ["survey", "capture"],
+                "items": [],
+            },
+            snapshot=snapshot,
+        )
 
     if not latest_capture or not latest_analysis:
         if legacy_items:
-            has_active_consultation = _has_active_consultation_state(client=client)
-            return _build_legacy_current_recommendations_payload(
+            has_active_consultation = snapshot["active_consultation"]
+            return _finalize_recommendation_payload(
+                client=client,
+                payload=_build_legacy_current_recommendations_payload(
+                    client=client,
+                    legacy_items=legacy_items,
+                    has_active_consultation=has_active_consultation,
+                    message="Legacy model-team recommendation data is being shown while canonical recommendation records are not available.",
+                ),
+                snapshot=snapshot,
+            )
+        if settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS and latest_capture:
+            return _finalize_recommendation_payload(
+                client=client,
+                payload=_build_local_mock_recommendations(
+                    client=client,
+                    latest_survey=latest_survey,
+                    latest_analysis=latest_analysis,
+                ),
+                snapshot=snapshot,
+            )
+        return _finalize_recommendation_payload(
+            client=client,
+            payload={
+                "status": "needs_capture",
+                "source": "current_recommendations",
+                "message": "A valid front-facing capture is required before we can generate the current Top-5 recommendations.",
+                "next_action": "capture",
+                "items": [],
+            },
+            snapshot=snapshot,
+        )
+
+    if legacy_items:
+        has_active_consultation = snapshot["active_consultation"]
+        return _finalize_recommendation_payload(
+            client=client,
+            payload=_build_legacy_current_recommendations_payload(
                 client=client,
                 legacy_items=legacy_items,
                 has_active_consultation=has_active_consultation,
-                message="Legacy model-team recommendation data is being shown while canonical recommendation records are not available.",
-            )
-        if settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS and latest_capture:
-            return _build_local_mock_recommendations(
-                client=client,
-                latest_survey=latest_survey,
-                latest_analysis=latest_analysis,
-            )
-        return {
-            "status": "needs_capture",
-            "source": "current_recommendations",
-            "message": "A valid front-facing capture is required before we can generate the current Top-5 recommendations.",
-            "next_action": "capture",
-            "items": [],
-        }
-
-    if legacy_items:
-        has_active_consultation = _has_active_consultation_state(client=client)
-        return _build_legacy_current_recommendations_payload(
-            client=client,
-            legacy_items=legacy_items,
-            has_active_consultation=has_active_consultation,
-            message="Existing model-team recommendation data is being reused.",
+                message="Existing model-team recommendation data is being reused.",
+            ),
+            snapshot=snapshot,
         )
 
     batch_id, rows, status_code = _ensure_current_batch(
@@ -1445,28 +1982,43 @@ def get_current_recommendations(client: "Client") -> dict:
         legacy_items=legacy_items,
     )
     if status_code == "needs_capture":
-        return {
-            "status": "needs_capture",
-            "source": "current_recommendations",
-            "message": "Capture data is not ready yet. Please complete capture before requesting current recommendations.",
-            "next_action": "capture",
-            "items": [],
-        }
+        return _finalize_recommendation_payload(
+            client=client,
+            payload={
+                "status": "needs_capture",
+                "source": "current_recommendations",
+                "message": "Capture data is not ready yet. Please complete capture before requesting current recommendations.",
+                "next_action": "capture",
+                "items": [],
+            },
+            snapshot=snapshot,
+        )
 
     if not rows:
         if settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS:
-            return _build_local_mock_recommendations(
+            return _finalize_recommendation_payload(
                 client=client,
-                latest_survey=latest_survey,
-                latest_analysis=latest_analysis,
+                payload=_build_local_mock_recommendations(
+                    client=client,
+                    latest_survey=latest_survey,
+                    latest_analysis=latest_analysis,
+                ),
+                snapshot=snapshot,
             )
-        return _build_empty_response(
-            source="current_recommendations",
-            message="No recommendation batch is available yet. Please retake the capture and try again.",
-            next_action="capture",
+        return _finalize_recommendation_payload(
+            client=client,
+            payload=_build_empty_response(
+                source="current_recommendations",
+                message="No recommendation batch is available yet. Please retake the capture and try again.",
+                next_action="capture",
+            ),
+            snapshot=snapshot,
         )
 
-    has_active_consultation = _has_active_consultation_state(client=client)
+    snapshot["legacy_recommendations"]["count"] = len(rows)
+    snapshot["legacy_recommendations"]["latest_batch_id"] = batch_id
+    snapshot["predicted_response"]["decision"] = "generated_current_batch"
+    has_active_consultation = snapshot["active_consultation"]
     retry_meta = _build_legacy_retry_recommendation_meta(
         items=rows,
         has_active_consultation=has_active_consultation,
@@ -1492,7 +2044,7 @@ def get_current_recommendations(client: "Client") -> dict:
         if retry_meta["can_retry_recommendations"]
         else ["consultation"]
     )
-    return payload
+    return _finalize_recommendation_payload(client=client, payload=payload, snapshot=snapshot)
 
 
 def retry_current_recommendations(client: "Client") -> dict:
@@ -1741,15 +2293,36 @@ def _legacy_result_direct_write(
     direct_consultation: bool,
 ) -> dict | None:
     if not _legacy_result_writable():
+        logger.warning(
+            "[legacy_selection_materialization_failed] client_id=%s source=%s direct_consultation=%s reason=legacy_tables_not_writable selected_style_id=%s recommendation_id=%s",
+            client.id,
+            source,
+            direct_consultation,
+            selected_style_id,
+            recommendation_id,
+        )
         return None
 
     legacy_client_id = get_legacy_client_id(client=client)
     if not legacy_client_id:
+        logger.warning(
+            "[legacy_selection_materialization_failed] client_id=%s source=%s direct_consultation=%s reason=missing_legacy_client_id selected_style_id=%s recommendation_id=%s",
+            client.id,
+            source,
+            direct_consultation,
+            selected_style_id,
+            recommendation_id,
+        )
         return None
 
     now = timezone.now()
     selected_result = None
     selected_detail = None
+    selection_record_status = (
+        "direct_consultation_without_selection"
+        if direct_consultation
+        else "style_only_selection"
+    )
 
     if recommendation_id is not None:
         selected_result, selected_detail = _legacy_result_and_detail_for_recommendation(
@@ -1758,11 +2331,92 @@ def _legacy_result_direct_write(
         )
         if selected_detail is not None:
             selected_style_id = int(selected_detail.hairstyle_id)
+            selection_record_status = "linked_existing_recommendation"
     elif source == "current_recommendations" and selected_style_id is not None:
         selected_result, selected_detail = _legacy_result_and_detail_for_style(
             client=client,
             style_id=int(selected_style_id),
         )
+        if selected_detail is not None:
+            selection_record_status = "linked_generated_style_row"
+
+    if selected_result is None and source == "current_recommendations" and direct_consultation and selected_style_id is None:
+        (
+            selected_result,
+            selected_detail,
+            selected_style_id,
+            direct_consultation_status,
+        ) = _materialize_direct_consultation_current_recommendation(
+            client=client,
+            legacy_client_id=legacy_client_id,
+            source=source,
+            survey_snapshot=survey_snapshot,
+            analysis_snapshot=analysis_snapshot,
+            admin=admin,
+            designer=designer,
+            now=now,
+        )
+        if direct_consultation_status:
+            selection_record_status = direct_consultation_status
+
+    if selected_result is None and source == "current_recommendations" and selected_style_id is not None:
+        result_id = _next_legacy_pk(LegacyClientResult, "result_id")
+        detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
+        style_name, style_description = _legacy_style_label(int(selected_style_id or 0))
+        selected_result = LegacyClientResult.objects.create(
+            result_id=result_id,
+            analysis_id=(getattr(get_latest_analysis(client), "id", None) or getattr(get_latest_analysis(client), "analysis_id", None) or 0),
+            client_id=legacy_client_id,
+            selected_hairstyle_id=(None if direct_consultation else selected_style_id),
+            selected_image_url=None,
+            is_confirmed=not direct_consultation,
+            created_at=now.isoformat(),
+            updated_at=now.isoformat(),
+            backend_selection_id=None,
+            backend_consultation_id=None,
+            backend_client_ref_id=client.id,
+            backend_admin_ref_id=(admin.id if admin else client.shop_id),
+            backend_designer_ref_id=(designer.id if designer else client.designer_id),
+            source=source,
+            survey_snapshot=survey_snapshot,
+            analysis_data_snapshot=analysis_snapshot,
+            status="PENDING",
+            is_active=True,
+            is_read=False,
+            closed_at=None,
+            selected_recommendation_id=(None if direct_consultation else detail_id),
+        )
+        selected_detail = LegacyClientResultDetail.objects.create(
+            detail_id=detail_id,
+            result_id=result_id,
+            hairstyle_id=int(selected_style_id or 0),
+            rank=1,
+            similarity_score=0.0,
+            final_score=0.0,
+            simulated_image_url=None,
+            recommendation_reason="current recommendation selection materialized for consultation handoff",
+            backend_recommendation_id=None,
+            backend_client_ref_id=client.id,
+            backend_capture_record_id=None,
+            batch_id=uuid.uuid4(),
+            source=source,
+            style_name_snapshot=style_name,
+            style_description_snapshot=style_description,
+            keywords_json=[],
+            sample_image_url=None,
+            regeneration_snapshot=None,
+            reasoning_snapshot={
+                "summary": "current recommendation selection materialized for consultation handoff",
+                "source": "current_recommendations",
+                "materialized_for_selection": True,
+            },
+            is_chosen=not direct_consultation,
+            chosen_at=(now if not direct_consultation else None),
+            is_sent_to_admin=True,
+            sent_at=now,
+            created_at_ts=now,
+        )
+        selection_record_status = "materialized_current_recommendation"
 
     if selected_result is None and source == "trend":
         result_id = _next_legacy_pk(LegacyClientResult, "result_id")
@@ -1819,9 +2473,18 @@ def _legacy_result_direct_write(
         )
 
     if selected_result is None:
+        logger.warning(
+            "[legacy_selection_materialization_failed] client_id=%s legacy_client_id=%s source=%s direct_consultation=%s reason=no_result_row selected_style_id=%s recommendation_id=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            direct_consultation,
+            selected_style_id,
+            recommendation_id,
+        )
         return None
 
-    LegacyClientResult.objects.filter(client_id=legacy_client_id, is_active=True).exclude(
+    closed_consultation_count = LegacyClientResult.objects.filter(client_id=legacy_client_id, is_active=True).exclude(
         result_id=selected_result.result_id
     ).update(
         is_active=False,
@@ -1862,6 +2525,18 @@ def _legacy_result_direct_write(
         selected_detail.sent_at = now
         selected_detail.save()
 
+    logger.info(
+        "[legacy_selection_materialized] client_id=%s legacy_client_id=%s source=%s direct_consultation=%s selection_record_status=%s recommendation_id=%s selected_style_id=%s consultation_replaced_previous=%s",
+        client.id,
+        legacy_client_id,
+        source,
+        direct_consultation,
+        selection_record_status,
+        recommendation_id,
+        selected_style_id,
+        bool(closed_consultation_count),
+    )
+
     return {
         "consultation_id": selected_result.backend_consultation_id or selected_result.result_id,
         "recommendation_id": (
@@ -1875,6 +2550,10 @@ def _legacy_result_direct_write(
             if selected_detail is not None
             else None
         ),
+        "selection_record_status": selection_record_status,
+        "consultation_record_status": "created",
+        "consultation_replaced_previous": bool(closed_consultation_count),
+        "closed_consultation_count": int(closed_consultation_count),
     }
 
 
@@ -1979,6 +2658,10 @@ def confirm_style_selection(
         "source": source,
         "direct_consultation": direct_consultation,
         "recommendation_id": legacy_direct_result["recommendation_id"],
+        "selection_record_status": legacy_direct_result.get("selection_record_status"),
+        "consultation_record_status": legacy_direct_result.get("consultation_record_status"),
+        "consultation_replaced_previous": bool(legacy_direct_result.get("consultation_replaced_previous")),
+        "closed_consultation_count": int(legacy_direct_result.get("closed_consultation_count") or 0),
         "message": (
             "추천 선택 없이 바로 상담 요청이 접수되었습니다."
             if direct_consultation

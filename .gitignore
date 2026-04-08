@@ -119,6 +119,14 @@ app/tests/
 app/tests/*
 !app/tests/test_seed_test_accounts.py
 !app/tests/test_ai_facade.py
+<<<<<<< HEAD
+=======
+!app/tests/test_session_login_regressions.py
+!app/tests/test_recommendation_diagnostics.py
+
+# Local troubleshooting samples
+tmp_capture_samples/
+>>>>>>> 5d2d460 (test: 추천 진단 명령과 AI 런타임 로그 테스트를 추가)
 
 # Front Feedback
 !front_feedback/

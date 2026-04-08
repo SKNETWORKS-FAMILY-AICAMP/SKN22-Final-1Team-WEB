@@ -31,6 +31,7 @@ DESIGNER_ID_SESSION_KEY = "designer_id"
 DESIGNER_LEGACY_ID_SESSION_KEY = "designer_legacy_id"
 DESIGNER_NAME_SESSION_KEY = "designer_name"
 OWNER_DASHBOARD_ALLOWED_SESSION_KEY = "owner_dashboard_allowed"
+DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY = "designer_dashboard_allowed"
 
 
 def _update_session_if_changed(request: HttpRequest, updates: dict) -> None:
@@ -51,6 +52,8 @@ def clear_customer_session(*, request: HttpRequest) -> None:
     request.session.pop(CUSTOMER_ID_SESSION_KEY, None)
     request.session.pop(CUSTOMER_LEGACY_ID_SESSION_KEY, None)
     request.session.pop(CUSTOMER_NAME_SESSION_KEY, None)
+    request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
 
 
@@ -130,6 +133,7 @@ def set_designer_session(*, request: HttpRequest, designer: Designer) -> None:
     request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
     request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = True
     
     # 디자이너 인증 세션은 30분 유지
     request.session.set_expiry(30 * 60)
@@ -141,6 +145,7 @@ def clear_designer_session(*, request: HttpRequest) -> None:
     request.session.pop(DESIGNER_LEGACY_ID_SESSION_KEY, None)
     request.session.pop(DESIGNER_NAME_SESSION_KEY, None)
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
 
 
@@ -180,6 +185,20 @@ def revoke_owner_dashboard(*, request: HttpRequest) -> None:
 
 def can_access_owner_dashboard(*, request: HttpRequest) -> bool:
     return bool(request.session.get(OWNER_DASHBOARD_ALLOWED_SESSION_KEY))
+
+
+def allow_designer_dashboard(*, request: HttpRequest) -> None:
+    request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = True
+    request.session.modified = True
+
+
+def revoke_designer_dashboard(*, request: HttpRequest) -> None:
+    request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session.modified = True
+
+
+def can_access_designer_dashboard(*, request: HttpRequest) -> bool:
+    return bool(request.session.get(DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY))
 
 
 def clear_all_sessions(*, request: HttpRequest) -> None:

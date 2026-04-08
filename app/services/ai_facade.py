@@ -104,6 +104,23 @@ def _ai_provider() -> str:
     return "local"
 
 
+def get_ai_runtime_config_snapshot() -> dict:
+    configured_provider = os.environ.get("MIRRAI_AI_PROVIDER", "").strip().lower() or "auto"
+    endpoint_id = _runpod_endpoint_id()
+    service_url = _service_base_url()
+    return {
+        "configured_provider": configured_provider,
+        "resolved_provider": _ai_provider(),
+        "service_enabled": _service_enabled(),
+        "service_url_configured": bool(service_url),
+        "service_api_version": (_service_api_version() or None),
+        "service_token_configured": bool(_internal_api_token() or _legacy_internal_api_key()),
+        "runpod_enabled": _runpod_enabled(),
+        "runpod_api_key_configured": bool(_runpod_api_key()),
+        "runpod_endpoint_id_configured": bool(endpoint_id),
+    }
+
+
 def _extract_runpod_output(payload: dict) -> dict | None:
     if not isinstance(payload, dict):
         return None
@@ -353,7 +370,7 @@ def _compute_ai_health() -> dict:
                 status = "reachable"
             else:
                 status = raw_status
-            return {
+            result = {
                 "status": status,
                 "mode": "runpod",
                 "message": (
@@ -363,27 +380,154 @@ def _compute_ai_health() -> dict:
                     or "runpod"
                 ),
             }
-        return {
+            logger.info("[ai_health] provider=runpod status=%s message=%s", result["status"], result["message"])
+            return result
+        result = {
             "status": "offline",
             "mode": "runpod",
             "message": "RunPod health check failed.",
         }
+        logger.info("[ai_health] provider=runpod status=%s message=%s", result["status"], result["message"])
+        return result
 
     if provider == "service":
         remote = _request_service("GET", "/internal/health")
         normalized = _normalize_health_payload(remote)
         if normalized:
+            logger.info("[ai_health] provider=service status=%s message=%s", normalized.get("status"), normalized.get("message"))
             return normalized
-        return {
+        result = {
             "status": "offline",
             "mode": "service",
             "message": "Configured AI service is unavailable.",
         }
+        logger.info("[ai_health] provider=service status=%s message=%s", result["status"], result["message"])
+        return result
 
-    return {
+    result = {
         "status": "fallback",
         "mode": "local",
         "message": "Local AI fallback is active.",
+    }
+    logger.info("[ai_health] provider=local status=%s message=%s", result["status"], result["message"])
+    return result
+
+
+def build_ai_runtime_diagnostic_snapshot(*, use_cache: bool = True) -> dict:
+    config = get_ai_runtime_config_snapshot()
+    health = get_ai_health(use_cache=use_cache)
+    warnings: list[str] = []
+
+    configured_provider = config.get("configured_provider")
+    resolved_provider = config.get("resolved_provider")
+    health_mode = health.get("mode")
+
+    if configured_provider == "service" and not config.get("service_url_configured"):
+        warnings.append("configured_service_but_url_missing")
+    if configured_provider == "service" and not config.get("service_token_configured"):
+        warnings.append("configured_service_but_token_missing")
+    if configured_provider == "runpod" and not config.get("runpod_api_key_configured"):
+        warnings.append("configured_runpod_but_api_key_missing")
+    if configured_provider == "runpod" and not config.get("runpod_endpoint_id_configured"):
+        warnings.append("configured_runpod_but_endpoint_missing")
+    if resolved_provider == "service" and health_mode == "local":
+        warnings.append("service_resolved_but_local_fallback_active")
+    if resolved_provider == "runpod" and health_mode == "local":
+        warnings.append("runpod_resolved_but_local_fallback_active")
+    if health_mode == "service" and health.get("status") == "offline":
+        warnings.append("service_health_offline")
+    if health_mode == "runpod" and health.get("status") == "offline":
+        warnings.append("runpod_health_offline")
+
+    return {
+        "config": config,
+        "health": health,
+        "warnings": warnings,
+    }
+
+
+def _face_analysis_runtime_mode(config: dict) -> str:
+    if config.get("service_enabled"):
+        return "service_remote"
+    return "local_mock_fallback"
+
+
+def _recommendation_runtime_mode(config: dict) -> str:
+    resolved_provider = config.get("resolved_provider")
+    if resolved_provider == "service":
+        return "service_remote"
+    if resolved_provider == "runpod":
+        return "local_scoring_with_runpod_augmentation"
+    return "local_scoring_fallback"
+
+
+def build_model_connection_validation_snapshot(*, attempts: int = 3, use_cache: bool = False) -> dict:
+    config = get_ai_runtime_config_snapshot()
+    attempts = max(1, int(attempts or 1))
+
+    probes: list[dict] = []
+    status_counts: dict[str, int] = {}
+    mode_counts: dict[str, int] = {}
+    online_count = 0
+    offline_count = 0
+
+    for index in range(attempts):
+        started_at = time.monotonic()
+        health = get_ai_health(use_cache=(use_cache and index == 0))
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+
+        status = str(health.get("status") or "unknown")
+        mode = str(health.get("mode") or "unknown")
+        if status == "online":
+            online_count += 1
+        if status == "offline":
+            offline_count += 1
+
+        status_counts[status] = status_counts.get(status, 0) + 1
+        mode_counts[mode] = mode_counts.get(mode, 0) + 1
+        probes.append(
+            {
+                "attempt": index + 1,
+                "mode": mode,
+                "status": status,
+                "message": health.get("message"),
+                "cached": bool(health.get("cached")),
+                "elapsed_ms": elapsed_ms,
+            }
+        )
+
+    overall_state = "healthy"
+    if online_count == 0 and offline_count == attempts:
+        overall_state = "offline"
+    elif online_count == 0:
+        overall_state = "fallback_only"
+    elif offline_count > 0:
+        overall_state = "unstable"
+
+    warnings: list[str] = []
+    if config.get("resolved_provider") == "runpod" and not config.get("service_enabled"):
+        warnings.append("face_analysis_uses_local_mock_fallback")
+    if config.get("resolved_provider") == "runpod" and online_count and offline_count:
+        warnings.append("runpod_health_flaky")
+    if config.get("resolved_provider") == "runpod" and online_count == 0:
+        warnings.append("runpod_health_unavailable")
+    if config.get("resolved_provider") == "local":
+        warnings.append("remote_model_not_active")
+
+    return {
+        "config": config,
+        "summary": {
+            "attempts": attempts,
+            "overall_state": overall_state,
+            "online_count": online_count,
+            "offline_count": offline_count,
+            "status_counts": status_counts,
+            "mode_counts": mode_counts,
+            "face_analysis_mode": _face_analysis_runtime_mode(config),
+            "recommendation_mode": _recommendation_runtime_mode(config),
+        },
+        "probes": probes,
+        "warnings": warnings,
     }
 
 
@@ -627,7 +771,16 @@ def simulate_face_analysis(*, image_url: str | None = None, image_bytes: bytes |
     remote = _request_service("POST", "/internal/analyze-face", payload)
     normalized = _normalize_analysis_payload(remote, fallback_image_url=image_url)
     if normalized:
+        logger.info(
+            "[ai_face_analysis] provider=service remote_success=True request_id=%s face_shape=%s",
+            (normalized.get("response_meta") or {}).get("request_id"),
+            normalized.get("face_shape"),
+        )
         return normalized
+    logger.info(
+        "[ai_face_analysis] provider=%s remote_success=False fallback=local_mock",
+        _ai_provider(),
+    )
     return {
         "face_shape": "Oval",
         "golden_ratio_score": 0.92,
@@ -644,7 +797,8 @@ def generate_recommendation_batch(
     scoring_weights: ScoringWeights | None = None,
 ) -> list[dict]:
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
-    if _ai_provider() == "service":
+    provider = _ai_provider()
+    if provider == "service":
         remote = _request_service(
             "POST",
             "/internal/generate-simulations",
@@ -657,7 +811,17 @@ def generate_recommendation_batch(
         )
         normalized_items = _normalize_simulation_items(remote)
         if normalized_items is not None:
+            logger.info(
+                "[ai_recommendations] provider=service remote_success=True client_id=%s item_count=%s request_id=%s",
+                client_id,
+                len(normalized_items),
+                ((normalized_items[0].get("response_meta") or {}) if normalized_items else {}).get("request_id"),
+            )
             return normalized_items
+        logger.info(
+            "[ai_recommendations] provider=service remote_success=False fallback=local_scoring client_id=%s",
+            client_id,
+        )
 
     survey = SimpleNamespace(client_id=client_id, **(survey_data or {}))
     analysis = SimpleNamespace(**analysis_data)
@@ -667,7 +831,24 @@ def generate_recommendation_batch(
         styles_by_id=styles_by_id,
         scoring_weights=scoring_weights,
     )
-    return _augment_items_with_runpod(items=items, survey_data=survey_data, analysis_data=analysis_data)
+    items = _augment_items_with_runpod(items=items, survey_data=survey_data, analysis_data=analysis_data)
+    if provider == "runpod":
+        augmented_count = sum(
+            1 for item in items if isinstance((item.get("reasoning_snapshot") or {}).get("runpod"), dict)
+        )
+        logger.info(
+            "[ai_recommendations] provider=runpod client_id=%s item_count=%s augmented_items=%s",
+            client_id,
+            len(items),
+            augmented_count,
+        )
+    else:
+        logger.info(
+            "[ai_recommendations] provider=local client_id=%s item_count=%s",
+            client_id,
+            len(items),
+        )
+    return items
 
 
 def explain_style(*, card: dict) -> dict:

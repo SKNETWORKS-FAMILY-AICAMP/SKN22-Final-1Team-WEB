@@ -42,6 +42,7 @@ from app.services.model_team_bridge import (
     get_legacy_capture_history,
     get_legacy_capture_count,
     get_legacy_client_id,
+    get_legacy_client_visit_summary_map,
     get_legacy_confirmed_selection_items,
     get_legacy_designer_id,
     get_legacy_former_recommendation_items,
@@ -417,6 +418,20 @@ def _build_session_status_payload(*, is_active: bool, diagnosis_storage_ready: b
         "can_write_designer_diagnosis": bool(is_active and diagnosis_storage_ready),
         "customer_note_scope": "client",
     }
+
+
+def _reanalysis_block_message(reason: str | None) -> str | None:
+    if not reason:
+        return None
+    messages = {
+        "reusable_preference_missing": "재분석에 필요한 정보가 아직 준비되지 않았습니다.",
+        "consultation_started": "상담이 시작된 고객은 다시 분석할 수 없습니다.",
+        "recommendation_already_selected": "이미 추천이 선택된 고객입니다. 먼저 선택 상태를 정리해 주세요.",
+        "retry_already_used": "재분석 재시도는 이미 사용되었습니다.",
+        "initial_recommendations_missing": "초기 추천이 아직 준비되지 않았습니다.",
+        "legacy_result_only": "이 고객은 이전 결과만 있어 재분석할 수 없습니다.",
+    }
+    return messages.get(reason) or "현재 상태에서는 재분석할 수 없습니다."
 
 
 def get_client_designer_diagnosis(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
@@ -1239,6 +1254,7 @@ def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, des
     clients = _scoped_client_records(admin=admin, designer=designer, query=query)
     legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer) or []
     legacy_active_by_client = _build_active_consultation_client_map(legacy_active_items)
+    legacy_visit_summary_by_client = get_legacy_client_visit_summary_map(admin=admin, designer=designer)
 
     items = []
     for client in clients[:100]:
@@ -1247,6 +1263,10 @@ def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, des
         legacy_active = (
             legacy_active_by_client.get(backend_client_id)
             or legacy_active_by_client.get(legacy_client_id)
+        )
+        legacy_visit_summary = (
+            legacy_visit_summary_by_client.get(backend_client_id)
+            or legacy_visit_summary_by_client.get(legacy_client_id)
         )
         items.append(
             {
@@ -1268,6 +1288,8 @@ def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, des
                 "is_assignment_pending": client.designer_id is None and bool(client.shop_id),
                 **_client_age_fields(client),
                 "created_at": client.created_at,
+                "last_visit_date": (legacy_visit_summary.get("last_visit_date") if legacy_visit_summary else None),
+                "visit_count": int(legacy_visit_summary.get("visit_count") or 0) if legacy_visit_summary else 0,
                 "last_consulted_at": (legacy_active.get("last_activity_at") if legacy_active else None),
                 "has_active_consultation": bool(legacy_active and legacy_active.get("is_active")),
                 "session_active": bool(legacy_active and legacy_active.get("is_active")),
@@ -1425,6 +1447,16 @@ def get_client_detail(
         "chosen_recommendation_history": history_payload["chosen_recommendation_history"],
         "reanalysis": {
             "state": reanalysis_state,
+            "reason_code": (
+                keep_preference_block_reason
+                or choose_again_block_reason
+                or retry_meta.get("retry_block_reason")
+            ),
+            "user_message": _reanalysis_block_message(
+                keep_preference_block_reason
+                or choose_again_block_reason
+                or retry_meta.get("retry_block_reason")
+            ),
             "start_url": f"/partner/customer-detail/{client.id}/reanalysis/",
             "has_reusable_preference": has_reusable_preference,
             "can_keep_preference": can_keep_preference,
@@ -1434,6 +1466,14 @@ def get_client_detail(
             "retry_state": retry_meta.get("retry_state"),
             "retry_block_reason": retry_meta.get("retry_block_reason"),
             "consultation_locked": has_active_consultation,
+            "debug": {
+                "legacy_reason_fields": {
+                    "keep_preference_block_reason": keep_preference_block_reason,
+                    "choose_again_block_reason": choose_again_block_reason,
+                    "retry_block_reason": retry_meta.get("retry_block_reason"),
+                    "consultation_locked": has_active_consultation,
+                }
+            },
         },
         "designer_diagnosis": _serialize_designer_diagnosis_card(
             designer_diagnosis_card,

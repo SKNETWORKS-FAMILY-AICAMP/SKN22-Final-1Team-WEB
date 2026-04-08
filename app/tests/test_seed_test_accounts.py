@@ -2,6 +2,15 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from io import StringIO
 
+from app.services.model_team_bridge import get_admin_by_phone, get_legacy_admin_id
+from app.session_state import (
+    ADMIN_ID_SESSION_KEY,
+    ADMIN_LEGACY_ID_SESSION_KEY,
+    ADMIN_NAME_SESSION_KEY,
+    ADMIN_STORE_NAME_SESSION_KEY,
+    OWNER_DASHBOARD_ALLOWED_SESSION_KEY,
+)
+
 from app.models_django import (
     ConsultationRequest,
 )
@@ -14,11 +23,19 @@ from app.models_model_team import (
     LegacyDesigner,
     LegacyShop,
 )
-from app.services.model_team_bridge import get_admin_by_phone
 
 
 @override_settings(SUPABASE_USE_REMOTE_STORAGE=False)
 class SeedTestAccountsCommandTests(TestCase):
+    def _login_shop_session(self, shop):
+        session = self.client.session
+        session[ADMIN_ID_SESSION_KEY] = shop.id
+        session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=shop)
+        session[ADMIN_STORE_NAME_SESSION_KEY] = shop.store_name
+        session[ADMIN_NAME_SESSION_KEY] = shop.name
+        session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = True
+        session.save()
+
     def test_seed_command_populates_partner_and_downstream_records(self):
         call_command("seed_test_accounts")
 
@@ -95,6 +112,67 @@ class SeedTestAccountsCommandTests(TestCase):
             LegacyClientAnalysis.objects.filter(backend_client_ref_id=pending_client.backend_client_id).exists()
         )
         self.assertIsNone(pending_client.backend_designer_ref_id)
+
+    def test_legacy_customer_list_exposes_visit_summary_fields(self):
+        call_command("seed_test_accounts")
+        shop = get_admin_by_phone(phone="01080001000")
+        self._login_shop_session(shop)
+
+        response = self.client.get("/api/v1/customers/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        by_phone = {item["phone"]: item for item in payload}
+
+        full_flow_client = LegacyClient.objects.get(phone="01090001001")
+        current_flow_client = LegacyClient.objects.get(phone="01090001003")
+        pending_client = LegacyClient.objects.get(phone="01090001004")
+
+        full_flow_item = by_phone[full_flow_client.phone]
+        current_flow_item = by_phone[current_flow_client.phone]
+        pending_item = by_phone[pending_client.phone]
+
+        self.assertIn("last_visit_date", full_flow_item)
+        self.assertIn("visit_count", full_flow_item)
+        self.assertEqual(
+            full_flow_item["visit_count"],
+            LegacyClientResult.objects.filter(backend_client_ref_id=full_flow_client.backend_client_id).count(),
+        )
+        self.assertEqual(
+            current_flow_item["visit_count"],
+            LegacyClientResult.objects.filter(backend_client_ref_id=current_flow_client.backend_client_id).count(),
+        )
+        self.assertEqual(pending_item["visit_count"], 0)
+        self.assertIsNotNone(full_flow_item["last_visit_date"])
+        self.assertIsNotNone(current_flow_item["last_visit_date"])
+        self.assertIsNone(pending_item["last_visit_date"])
+
+    def test_legacy_customer_detail_exposes_reanalysis_messages(self):
+        call_command("seed_test_accounts")
+        shop = get_admin_by_phone(phone="01080001000")
+        self._login_shop_session(shop)
+        client_record = LegacyClient.objects.get(phone="01090001001")
+
+        response = self.client.get(f"/api/v1/customers/{client_record.backend_client_id}/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        reanalysis = payload["reanalysis"]
+
+        self.assertEqual(reanalysis["state"], "consultation_locked")
+        self.assertEqual(reanalysis["reason_code"], "consultation_started")
+        self.assertTrue(reanalysis["user_message"])
+        self.assertEqual(reanalysis["keep_preference_block_reason"], "consultation_started")
+        self.assertEqual(reanalysis["choose_again_block_reason"], "consultation_started")
+        self.assertEqual(reanalysis["retry_block_reason"], "consultation_started")
+        self.assertEqual(reanalysis["debug"]["legacy_reason_fields"]["keep_preference_block_reason"], "consultation_started")
+        self.assertEqual(reanalysis["debug"]["legacy_reason_fields"]["choose_again_block_reason"], "consultation_started")
+        self.assertEqual(reanalysis["debug"]["legacy_reason_fields"]["retry_block_reason"], "consultation_started")
+        self.assertEqual(reanalysis["debug"]["legacy_reason_fields"]["consultation_locked"], True)
+        self.assertNotIn("message", reanalysis)
+        self.assertNotIn("keep_preference_block_message", reanalysis)
+        self.assertNotIn("choose_again_block_message", reanalysis)
+        self.assertNotIn("retry_block_message", reanalysis)
 
     def test_verify_seed_integrity_passes_after_seed(self):
         call_command("seed_test_accounts")
