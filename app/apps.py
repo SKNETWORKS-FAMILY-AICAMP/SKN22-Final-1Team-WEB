@@ -19,3 +19,9 @@ class AppConfig(DjangoAppConfig):
         import sys
         if "migrate" in sys.argv or "makemigrations" in sys.argv or "test" in sys.argv:
             return
+        try:
+            from app.services.trend_scheduler import start_scheduler_background_if_configured
+
+            start_scheduler_background_if_configured()
+        except Exception:
+            return

@@ -1,4 +1,4 @@
-# Virtual Environment
+# Virtual environments
 /Include/
 /Lib/
 /Scripts/
@@ -10,15 +10,20 @@ ENV/
 env.bak/
 venv.bak/
 
-# Python
+# Python caches and build outputs
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 build/
-develop-eggs/
 dist/
+develop-eggs/
 downloads/
 eggs/
 .eggs/
@@ -34,9 +39,29 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Environment variables
+# Local environment files
 .env
 local_settings.py
+
+# Local runtime data
+*.sqlite3
+*.db
+mirrai.db
+storage/
+media/
+staticfiles/
+server_log.txt
+.tmp_pdf/
+PDF/
+backend/
+
+# Generated local RAG assets
+data/rag/
+
+# Security and keys
+*.pem
+*.key
+keys/
 
 # Terraform
 .terraform/
@@ -44,93 +69,62 @@ terraform.tfstate*
 *.tfstate*
 .terraform.lock.hcl
 
-# Executables
-*.exe
-*.dll
-*.so
-*.dylib
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Database & Storage
-*.sqlite3
-*.db
-mirrai.db
-storage/
-data/rag/
-server_log.txt
-.tmp_pdf/
-PDF/
-media/
-staticfiles/
-
-# Security & Keys
-*.pem
-*.key
-keys/
-
-# Local Scripts & Resources
-seed_test_data.py
-choi_sample/
-tasks/
-.agents/
-pm/
-review/
-detect_encoding.py
-
-# IDE
+# IDE and OS
 .vscode/
 .idea/
 *.swp
 *.swo
+.DS_Store
+Thumbs.db
 
-# Node / Frontend
+# Node / frontend
 **/node_modules/
 **/.vite/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+/package-lock.json
 
 # Logs
 *.log
 frontend/*.log
 frontend/**/*.log
 
-# Root accidental lockfile
-/package-lock.json
-
-# EB deployment artifact
+# Local helper artifacts
 deploy.zip
+seed_test_data.py
+tasks/
+.agents/
+pm/
+review/
+detect_encoding.py
+choi_sample/
+architecture.txt
 
-# Front Feedback
-front_feedback/
-
-# Django Specific / App Tests
-docs/
-!docs/
-docs/*
-!docs/runpod_direct_b_refactor_report_0406_ver1.md
-tests/
-app/tests/
-!app/tests/
-app/tests/*
-!app/tests/test_seed_test_accounts.py
-!app/tests/test_ai_facade.py
-<<<<<<< HEAD
-=======
-!app/tests/test_session_login_regressions.py
-!app/tests/test_recommendation_diagnostics.py
-
-# Local troubleshooting samples
-tmp_capture_samples/
->>>>>>> 5d2d460 (test: 추천 진단 명령과 AI 런타임 로그 테스트를 추가)
-
-# Front Feedback
-!front_feedback/
-!front_feedback/**
+# Front feedback working folders
 front_feedback/**/past/
 front_feedback/from_front/
 front_feedback/to_backend/
+
+# Local troubleshooting samples
+tmp_capture_samples/
+
+# Local verification-only tests
+app/tests/test_chatbot_local_engine.py
+app/tests/test_chatbot_prompt_builder.py
+app/tests/test_chatbot_service.py
+app/tests/test_latest_feed.py
+app/tests/test_rag_safety.py
+app/tests/test_vectorize_chromadb.py
+
+# Keep selected tracked test/docs files visible
+!docs/
+!docs/runpod_direct_b_refactor_report_0406_ver1.md
+!app/tests/
+!app/tests/test_seed_test_accounts.py
+!app/tests/test_ai_facade.py
+!app/tests/test_session_login_regressions.py
+!app/tests/test_recommendation_diagnostics.py
+!front_feedback/
+!front_feedback/**

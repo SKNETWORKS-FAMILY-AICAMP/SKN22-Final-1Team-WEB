@@ -6,20 +6,21 @@ from django.core.management.base import BaseCommand, CommandError
 
 from app.services.trend_refresh import (
     TrendRefreshError,
+    trigger_local_trend_refresh,
     trigger_runpod_trend_refresh,
     trigger_runpod_trend_refresh_with_archive,
 )
 
 
 class Command(BaseCommand):
-    help = "Refresh trend data through RunPod pipeline mode or ChromaDB archive upload mode."
+    help = "Refresh trend data locally or through optional RunPod helper modes."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--mode",
-            choices=("runpod-pipeline", "runpod-archive"),
-            default="runpod-pipeline",
-            help="runpod-pipeline sends refresh steps to RunPod. runpod-archive uploads a local ChromaDB archive.",
+            choices=("local", "runpod-pipeline", "runpod-archive"),
+            default="local",
+            help="local runs the backend trend pipeline. RunPod modes are optional compatibility helpers.",
         )
         parser.add_argument(
             "--steps",
@@ -56,7 +57,12 @@ class Command(BaseCommand):
             sync = not options["use_async"]
             wait = sync or not options["no_wait"]
 
-            if options["mode"] == "runpod-archive":
+            if options["mode"] == "local":
+                payload = trigger_local_trend_refresh(
+                    steps=options["steps"] or None,
+                    dry_run=options["dry_run"],
+                )
+            elif options["mode"] == "runpod-archive":
                 payload = trigger_runpod_trend_refresh_with_archive(
                     endpoint_id=options["endpoint_id"] or None,
                     api_key=options["api_key"] or None,

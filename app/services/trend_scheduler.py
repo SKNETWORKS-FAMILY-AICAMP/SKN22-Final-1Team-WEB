@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import sys
+import threading
 import time
 import zlib
 from contextlib import contextmanager
@@ -11,9 +14,10 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import connection
 
-from app.services.trend_refresh import parse_refresh_steps, trigger_runpod_trend_refresh_with_archive
+from app.services.trend_refresh import parse_refresh_steps, trigger_local_trend_refresh
 from app.trend_pipeline.paths import RAG_DIR
 
 
@@ -28,9 +32,11 @@ WEEKDAY_TO_INT = {
     "sat": 5,
     "sun": 6,
 }
-DEFAULT_STEPS = ["crawl", "refine", "llm_refine", "vectorize", "rebuild_styles"]
+DEFAULT_STEPS = ["crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs", "rebuild_styles"]
 DEFAULT_LOG_PATH = RAG_DIR / "logs" / "trend_scheduler_runs.jsonl"
 SCHEDULER_LOCK_NAMESPACE = 143
+_SCHEDULER_THREAD: threading.Thread | None = None
+_SCHEDULER_THREAD_LOCK = threading.Lock()
 
 
 @dataclass(slots=True)
@@ -50,6 +56,83 @@ class TrendSchedulerConfig:
 
     def normalized_steps(self) -> list[str]:
         return parse_refresh_steps(self.steps) or list(DEFAULT_STEPS)
+
+
+def build_scheduler_config_from_settings() -> TrendSchedulerConfig:
+    try:
+        test_run_at = build_test_datetime(
+            getattr(settings, "TREND_SCHEDULER_TEST_AT", ""),
+            getattr(settings, "TREND_SCHEDULER_TIMEZONE", "Asia/Seoul"),
+        )
+    except ValueError:
+        test_run_at = None
+
+    return TrendSchedulerConfig(
+        timezone_name=getattr(settings, "TREND_SCHEDULER_TIMEZONE", "Asia/Seoul"),
+        weekly_day=str(getattr(settings, "TREND_SCHEDULER_WEEKLY_DAY", "fri")).strip().lower(),
+        weekly_hour=int(getattr(settings, "TREND_SCHEDULER_WEEKLY_HOUR", 8)),
+        weekly_minute=int(getattr(settings, "TREND_SCHEDULER_WEEKLY_MINUTE", 0)),
+        steps=[
+            item.strip()
+            for item in str(getattr(settings, "TREND_SCHEDULER_STEPS", ",".join(DEFAULT_STEPS))).split(",")
+            if item.strip()
+        ],
+        include_ncs=bool(getattr(settings, "TREND_SCHEDULER_INCLUDE_NCS", False)),
+        include_styles=bool(getattr(settings, "TREND_SCHEDULER_INCLUDE_STYLES", False)),
+        runpod_timeout=int(getattr(settings, "TREND_SCHEDULER_TIMEOUT", 1800)),
+        runpod_poll_interval=float(getattr(settings, "TREND_SCHEDULER_POLL_INTERVAL", 5.0)),
+        sleep_interval_seconds=float(getattr(settings, "TREND_SCHEDULER_SLEEP_INTERVAL", 15.0)),
+        test_run_at=test_run_at,
+    )
+
+
+def should_autostart_scheduler() -> bool:
+    if not bool(getattr(settings, "TREND_SCHEDULER_ENABLED", False)):
+        return False
+
+    argv = [str(arg).lower() for arg in sys.argv]
+    if "runserver" not in argv:
+        return False
+
+    if "--noreload" in argv:
+        return True
+
+    return os.environ.get("RUN_MAIN") == "true"
+
+
+def start_scheduler_background_if_configured() -> bool:
+    global _SCHEDULER_THREAD
+
+    if not should_autostart_scheduler():
+        return False
+
+    with _SCHEDULER_THREAD_LOCK:
+        if _SCHEDULER_THREAD is not None and _SCHEDULER_THREAD.is_alive():
+            return False
+
+        config = build_scheduler_config_from_settings()
+        thread = threading.Thread(
+            target=run_scheduler_loop,
+            kwargs={"config": config},
+            name="trend-scheduler",
+            daemon=True,
+        )
+        thread.start()
+        _SCHEDULER_THREAD = thread
+
+    logger.info(
+        "[trend_scheduler] background thread started timezone=%s weekly=%s %02d:%02d",
+        config.timezone_name,
+        config.weekly_day,
+        config.weekly_hour,
+        config.weekly_minute,
+    )
+    print(
+        f"[trend_scheduler] auto-started in background "
+        f"weekly={config.weekly_day} {config.weekly_hour:02d}:{config.weekly_minute:02d} "
+        f"timezone={config.timezone_name}"
+    )
+    return True
 
 
 def build_test_datetime(value: str | None, timezone_name: str) -> datetime | None:
@@ -170,15 +253,8 @@ def execute_scheduled_refresh(config: TrendSchedulerConfig, *, run_type: str, sc
         )
 
         try:
-            result = trigger_runpod_trend_refresh_with_archive(
-                build_locally=True,
+            result = trigger_local_trend_refresh(
                 steps=config.normalized_steps(),
-                include_ncs=config.include_ncs,
-                include_styles=config.include_styles,
-                sync=True,
-                wait=True,
-                timeout=config.runpod_timeout,
-                poll_interval=config.runpod_poll_interval,
             )
             ended_at = datetime.now(ZoneInfo(config.timezone_name))
             record = {

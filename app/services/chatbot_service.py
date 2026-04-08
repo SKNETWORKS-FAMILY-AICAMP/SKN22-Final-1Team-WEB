@@ -8,6 +8,15 @@ from typing import Any
 import requests
 from django.utils import timezone
 
+from app.services.chatbot_local_engine import (
+    build_local_chatbot_reply,
+    get_local_chatbot_status,
+)
+from app.services.chatbot_prompt_builder import (
+    build_designer_instructor_system_prompt,
+    get_designer_instructor_persona_status,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +32,33 @@ def _model_chatbot_url() -> str:
 def _model_chatbot_timeout() -> tuple[int, int]:
     read_timeout = int(os.environ.get("MIRRAI_MODEL_CHATBOT_TIMEOUT", "8"))
     return (3, max(5, read_timeout))
+
+
+def _include_system_prompt_in_remote_payload() -> bool:
+    return os.environ.get("MIRRAI_MODEL_CHATBOT_INCLUDE_SYSTEM_PROMPT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _chatbot_provider() -> str:
+    configured = os.environ.get("MIRRAI_MODEL_CHATBOT_PROVIDER", "auto").strip().lower()
+    if configured == "remote":
+        return "remote"
+    if configured == "local":
+        return "local"
+    return "local" if not _model_chatbot_url() else "auto"
+
+
+def _provider_order() -> list[str]:
+    provider = _chatbot_provider()
+    if provider == "remote":
+        return ["remote", "local", "dummy"]
+    if provider == "local":
+        return ["local", "remote", "dummy"]
+    return ["local", "remote", "dummy"]
 
 
 def _extract_remote_reply(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -54,14 +90,21 @@ def _ask_model_team_chatbot(*, message: str, admin_name: str | None = None, stor
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    request_payload: dict[str, Any] = {
+        "message": message,
+        "admin_name": admin_name,
+        "store_name": store_name,
+    }
+    if _include_system_prompt_in_remote_payload():
+        request_payload["system_prompt"] = build_designer_instructor_system_prompt(
+            admin_name=admin_name,
+            store_name=store_name,
+        )
+
     try:
         response = requests.post(
             url,
-            json={
-                "message": message,
-                "admin_name": admin_name,
-                "store_name": store_name,
-            },
+            json=request_payload,
             headers=headers,
             timeout=_model_chatbot_timeout(),
         )
@@ -95,15 +138,20 @@ def _build_dummy_reply(*, message: str) -> dict[str, Any]:
 def get_chatbot_backend_status() -> dict[str, Any]:
     url = _model_chatbot_url()
     timeout = _model_chatbot_timeout()
+    provider_order = _provider_order()
     return {
-        "provider_priority": "model_team_first",
+        "provider_priority": provider_order[0],
+        "provider_order": provider_order,
         "remote_configured": bool(url),
         "remote_url": url or None,
         "timeout": {
             "connect_seconds": timeout[0],
             "read_seconds": timeout[1],
         },
-        "fallback_provider": "local_dummy",
+        "fallback_provider": provider_order[1] if len(provider_order) > 1 else "dummy",
+        "local_backend": get_local_chatbot_status(),
+        "include_system_prompt": _include_system_prompt_in_remote_payload(),
+        "persona_template": get_designer_instructor_persona_status(),
     }
 
 
@@ -112,15 +160,31 @@ def build_admin_chatbot_reply(*, message: str, admin_name: str | None = None, st
     if not question:
         raise ValueError("message is required.")
 
-    remote_reply = _ask_model_team_chatbot(
-        message=question,
-        admin_name=admin_name,
-        store_name=store_name,
-    )
-    if remote_reply is not None:
-        remote_reply["admin_name"] = admin_name
-        remote_reply["store_name"] = store_name
-        return remote_reply
+    for provider in _provider_order():
+        if provider == "local":
+            try:
+                payload = build_local_chatbot_reply(
+                    message=question,
+                    admin_name=admin_name,
+                    store_name=store_name,
+                )
+                payload["admin_name"] = admin_name
+                payload["store_name"] = store_name
+                return payload
+            except Exception as exc:
+                logger.warning("[local_chatbot_unavailable] reason=%s", exc)
+                continue
+
+        if provider == "remote":
+            remote_reply = _ask_model_team_chatbot(
+                message=question,
+                admin_name=admin_name,
+                store_name=store_name,
+            )
+            if remote_reply is not None:
+                remote_reply["admin_name"] = admin_name
+                remote_reply["store_name"] = store_name
+                return remote_reply
 
     payload = _build_dummy_reply(message=question)
     payload["admin_name"] = admin_name

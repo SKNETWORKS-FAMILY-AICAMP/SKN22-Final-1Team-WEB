@@ -9,6 +9,7 @@ from google import genai
 from pydantic import BaseModel, Field
 
 from .paths import TREND_PROCESSED_DIR, ensure_directories
+from .rag_safety import sanitize_rag_items
 
 try:
     from django.conf import settings as django_settings
@@ -148,14 +149,21 @@ class LLMRefiner:
             seen.add(uniq_key)
             deduplicated.append(item)
 
+        sanitized_items, safety_report = sanitize_rag_items(deduplicated)
         with self.output_file.open("w", encoding="utf-8") as file:
-            json.dump(deduplicated, file, ensure_ascii=False, indent=2)
+            json.dump(sanitized_items, file, ensure_ascii=False, indent=2)
 
         print(
-            f"\n====== 최종 정제 완료! 원본 {len(data)}건 -> 1차 정제 {len(valid_items)}건 -> 중복제거 최종 {len(deduplicated)}건 ======"
+            f"\n====== 최종 정제 완료! 원본 {len(data)}건 -> 1차 정제 {len(valid_items)}건 -> 중복제거 {len(deduplicated)}건 -> 안전필터 {len(sanitized_items)}건 ======"
         )
+        if safety_report.get("retitled_count") or safety_report.get("dropped_count"):
+            print(
+                "[rag_safety]"
+                f" retitled={safety_report.get('retitled_count', 0)}"
+                f" dropped={safety_report.get('dropped_count', 0)}"
+            )
         print(f"결과물 저장 경로: {self.output_file}")
-        return deduplicated
+        return sanitized_items
 
 
 if __name__ == "__main__":

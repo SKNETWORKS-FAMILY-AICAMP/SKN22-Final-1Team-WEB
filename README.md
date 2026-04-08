@@ -1,339 +1,399 @@
 # 🪞 MirrAI (SKN22-Final-1Team-WEB)
 
-AI 기반 퍼스널 헤어 스타일 분석 및 추천 솔루션, **MirrAI** 프로젝트 저장소입니다.
-고객의 페이스 라인 분석과 개인별 스타일 취향을 결합하여 최적의 헤어스타일을 제안하며, 디자이너와의 스마트한 상담 환경을 제공합니다.
+AI 기반 퍼스널 헤어 스타일 분석 및 추천 솔루션, **MirrAI** 프로젝트 저장소입니다.  
+고객의 페이스 라인 분석과 개인별 스타일 취향을 결합하여 최적의 헤어스타일을 제안하고, 디자이너와의 스마트한 상담 환경을 제공합니다.
 
-현재 구조는 **Django (MVT)** 아키텍처로 완전 통합되어 있으며, **AWS Elastic Beanstalk**을 통해 무중단 배포됩니다.
-
----
-
-## 🌟 서비스 개요
-
-- **고객(Customer) 여정**: 서비스 시작 ➡️ 개인정보 동의 ➡️ 취향 설문 ➡️ 페이스 스캔 ➡️ AI 분석 리포트 및 상담 예약
-- **파트너(Partner) 관리**: 실시간 고객 검색, 상세 분석 이력 관리, 매장 트렌드 시각화 리포트 제공
-- **시스템 관리(Admin)**: 데이터베이스 및 서비스 핵심 설정 제어 (Django Custom UI)
-- **디자인 컨셉**: 소프트 미니멀리즘 + 에디토리얼 레이아웃 기반의 **반응형 웹(PC/Tablet/Mobile/Kiosk)** 최적화
+현재 구조는 **Django (MVT)** 아키텍처를 중심으로 동작하며, 로컬 개발 환경에서는 **ChromaDB 기반 RAG**, **자동 트렌드 스케줄러**, **디자이너 챗봇**까지 함께 검증할 수 있습니다.
 
 ---
 
-## 🏗️ 비즈니스 계층 및 세션 구조
+## 💡 서비스 개요
 
-MirrAI는 매장 중심의 B2B2C 서비스 구조를 채택하여 체계적인 고객 관리를 지원합니다.
-
-### **1. 계층 구조 (Hierarchy)**
-
-- **파트너 (Partner / Store Owner)**: 매장 전체의 운영을 총괄하는 최상위 관리 계정입니다.
-- **디자이너 (Designer / Staff)**: 매장에 소속되어 실제 고객 상담과 시술을 담당하는 전문가입니다.
-- **고객 (Customer)**: 서비스를 이용하는 최종 사용자입니다.
-
-### **2. 페이지별 독립 구동 모델 (Independent Page Operation)**
-
-MirrAI의 파트너 센터는 사용자의 인증 상태에 따라 서로 다른 독립된 대시보드를 제공합니다.
-
-- **[통합 대시보드] `/partner/dashboard/`**:
-  - **대상**: 매장 관리자 (사업자 로그인 필수)
-  - **주요 기능**: 전 소속 디자이너 관리, 매장 전체 고객 목록 통합 조회, 디자이너별 고객 필터링, 매장 전체 트렌드 분석 리포트.
-- **[디자이너 대시보드] `/partner/staff/`**:
-  - **대상**: 현장 디자이너 (디자이너 PIN 인증 필수)
-  - **주요 기능**: 담당 고객 관리 전용 화면, 방문 기간별(30일/3개월 등) 타겟 고객 필터링, 개별 고객 상담 메모 관리.
-
-### **3. 인증 및 세션 흐름 (Auth Flow)**
-
-1. **파트너 인증**: `관리자 연락처`와 `비밀번호`로 매장 세션을 활성화합니다. (URL `next` 파라미터를 통한 유연한 리다이렉션 지원)
-2. **디자이너 인증**: 활성화된 매장 내 디자이너 목록 중 본인을 선택하고 `4자리 PIN`으로 2차 인증을 완료합니다.
-3. **분석 진입 최적화**: 로그아웃 상태에서 '분석 시작하기' 클릭 시, `매장 로그인 ➡️ 디자이너 인증 ➡️ 고객 분석` 단계가 연쇄적으로 진행됩니다.
-4. **세션 보안**:
-   - 브라우저 종료 시 모든 세션이 자동 만료되도록 설정 가능합니다.
-   - 로그아웃 시 `session.flush()`를 호출하여 서버와 클라이언트의 모든 세션 데이터를 완전 파기합니다.
-5. **메인/트렌드 전환 UX**:
-   - 로고 및 `메인` 이동은 세션을 유지한 채 현재 사용자 흐름에 맞는 메인 화면으로 복귀합니다.
-   - 고객 세션이 함께 존재할 경우 메인 화면에서는 고객 흐름이 우선 노출됩니다.
-   - 헤더에는 `현재 고객` 표시와 `고객 종료` 액션이 제공되어, 매장/디자이너 세션을 유지한 채 고객 세션만 종료할 수 있습니다.
+- **고객(Customer) 여정**: 서비스 시작 → 개인정보 동의 → 취향 설문 → 페이스 스캔 → AI 분석 리포트 및 추천 확인
+- **파트너(Partner) 관리**: 실시간 고객 검색, 상세 분석 이력 관리, 매장 고객/상담 흐름 확인
+- **디자이너(Designer) 업무 지원**: 디자이너 대시보드, 고객 상세 페이지, 상담 완료 페이지에서 챗봇 기반 상담 보조
+- **트렌드/RAG 파이프라인**: 최신 헤어 트렌드 수집, 정제, 벡터화, ChromaDB 저장 및 최신 카드 피드 제공
+- **디자인 컨셉**: 소프트 미니멀리즘 + 에디토리얼 레이아웃 기반의 반응형 웹(PC/Tablet/Mobile/Kiosk) 최적화
 
 ---
 
-## ✨ 핵심 기능
+## 🧭 비즈니스 계층 및 세션 구조
 
-- **정교한 스타일 설문**: 5가지 카테고리(길이, 분위기, 모발 상태, 컬러, 예산) 기반 취향 수집 및 벡터화 (가독성 높은 컴팩트 UI 적용)
+MirrAI는 매장 중심의 B2B2C 서비스 구조를 채택합니다.
+
+### 1. 계층 구조
+
+- **파트너 (Partner / Store Owner)**: 매장 전체 운영을 총괄하는 관리자 계정
+- **디자이너 (Designer / Staff)**: 실제 고객 상담과 시술을 담당하는 전문가 계정
+- **고객 (Customer)**: 분석 및 추천 서비스를 이용하는 최종 사용자
+
+### 2. 페이지별 독립 구동 모델
+
+- **통합 대시보드**: `/partner/dashboard/`
+  - 대상: 매장 관리자
+  - 주요 기능: 디자이너 관리, 고객 목록 조회, 매장 단위 운영 화면
+- **디자이너 대시보드**: `/partner/staff/`
+  - 대상: 디자이너 PIN 인증 사용자
+  - 주요 기능: 담당 고객 확인, 상담 보조 챗봇, 디자이너 전용 업무 화면
+
+### 3. 인증 및 세션 흐름
+
+1. **파트너 인증**: 관리자 연락처와 비밀번호로 매장 세션 활성화
+2. **디자이너 인증**: 활성화된 매장 안에서 디자이너를 선택하고 4자리 PIN으로 2차 인증
+3. **세션 분리**:
+   - `/partner/dashboard/` 는 관리자 화면
+   - `/partner/staff/` 는 디자이너 화면
+4. **보안 흐름**:
+   - 고객 세션과 파트너 세션은 분리
+   - 디자이너 세션에서는 관리자 전용 화면 접근이 제한됨
+
+---
+
+## 🚀 핵심 기능
+
+- **정교한 스타일 설문**: 길이, 분위기, 모발 상태, 컬러, 예산 기반 취향 수집
 - **AI 페이스 분석**:
-  - **프론트엔드**: MediaPipe Face Landmarker를 활용한 실시간 얼굴 분석 및 **실시간 품질 체크리스트**, **3초 스마트 자동 촬영(Auto-capture)** 기능 제공
-  - **백엔드**: OpenCV 기반 이미지 전처리 및 AI 엔진 연동을 통한 정밀 얼굴형 매칭 시스템 (사용성 개선을 위한 서버 측 검증 임계치 최적화 완료)
-- **고도화된 파트너 대시보드**:
-  - **데이터 관리**: 고객명, 담당 디자이너, 최근 방문 일수, 총 방문 횟수를 한눈에 파악.
-  - **실시간 필터링**: 풀다운 메뉴를 통한 디자이너별 고객 쏘팅 및 방문 기간별(30일/3개월/6개월 등) 구간 필터링 제공.
-- **데이터 보안 및 정책**:
-  - 개인정보 보호를 위한 **휴대폰 번호 마스킹(`010-****-1234`)** 처리 적용.
-  - 개인정보 수집 및 이용 동의 프로세스 강화 (#111).
-- **데이터 시각화**: Chart.js를 활용한 매장 내 인기 스타일 및 방문자 통계 분석 (#81).
+  - 프론트엔드: MediaPipe 기반 실시간 얼굴 분석과 촬영 품질 체크
+  - 백엔드: OpenCV 기반 이미지 전처리 및 얼굴형 분석
 - **최신 헤어 트렌드 피드**:
-  - 최신 크롤링 결과 기반으로 **헤어스타일/헤어컬러 기사 5건**만 선별하여 카드형 UI로 제공
-  - 원문 이미지와 기사 링크를 직접 사용하며, `/api/v1/analysis/trend/latest/` API로 조회
-  - 고객/매장 관리자/디자이너 세션 모두 접근 가능하며, 태블릿/키오스크 환경에서 가로 스와이프 탐색 지원
+  - 최신 크롤링 결과 기반 헤어스타일/헤어컬러 기사 5건 선별
+  - `/api/v1/analysis/trend/latest/` API 제공
+  - 고객/매장 관리자/디자이너 모두 접근 가능
+- **로컬 ChromaDB 기반 RAG**:
+  - 트렌드 카드: `chromadb_trends`
+  - 챗봇: `chromadb_chatbot`
+- **디자이너 챗봇**:
+  - 로컬 ChromaDB + 디자이너 지원 데이터셋 기반 응답
+  - 디자이너 대시보드, 고객 상세, 상담 완료 페이지에서 사용 가능
 
 ---
 
-## 🏗️ 프로젝트 구조
+## 🗂 프로젝트 구조
 
 ```text
 .
-├── app/                    # 비즈니스 로직, API(v1), 뷰 및 데이터 모델
-├── mirrai_project/         # Django 프로젝트 설정 (WhiteNoise, 배포 설정)
-├── static/                 # 정적 자산 (shared/, customer/, admin/ - Responsive CSS/JS)
-├── templates/              # HTML 템플릿 (MVT 통합 레이아웃)
-├── seed_100_data.py        # 대량 테스트 데이터 생성 스크립트 (100명 고객 생성)
+├── app/                    # 비즈니스 로직, API(v1), 서비스, 테스트
+├── mirrai_project/         # Django 프로젝트 설정
+├── static/                 # 정적 자산
+├── templates/              # HTML 템플릿
+├── data/                   # 로컬 데이터셋 및 트렌드/Chroma 저장소
+├── docs/                   # 문서
+├── terraform/              # 인프라 코드
 ├── manage.py               # Django 관리 스크립트
-├── requirements.txt        # 최적화된 파이썬 패키지 (WhiteNoise, Boto3 등)
-├── docs/                   # DevOps 가이드 및 기술 문서
-├── terraform/              # AWS 인프라 자동화 코드 (IaC)
-├── .github/workflows/      # CI/CD 자동화 파이프라인 (GitHub Actions)
-└── Dockerrun.aws.json      # Elastic Beanstalk Docker 배포 정의
+├── requirements.txt        # 기본 파이썬 의존성
+├── requirements-trends.txt # 트렌드/RAG 확장 의존성
+└── run_server.bat          # Windows 로컬 실행 보조 스크립트
 ```
 
 ---
 
-## 🚀 로컬 실행 및 초기 설정
+## 🛠 로컬 실행 및 초기 설정
 
 ### 1) 패키지 설치 및 DB 초기화
 
 ```bash
 pip install -r requirements.txt
-python manage.py migrate
-```
-
-트렌드 크롤링/정제/LLM 정제/ChromaDB 생성까지 로컬에서 같이 돌릴 경우:
-
-```bash
 pip install -r requirements-trends.txt
+python manage.py migrate
 playwright install chromium
 ```
 
-### 2) 테스트 데이터 생성 (선택 사항)
+### 2) 환경 변수 설정
 
-로컬 테스트 및 대시보드 필터링 확인을 위한 데이터를 자동으로 생성합니다.
+Windows CMD:
 
 ```bash
-# 기본 시드 데이터
-python manage.py seed_test_accounts
+copy .env.example .env
+```
 
-# 대량 테스트 데이터 (고객 100명, 디자이너 10명 및 방문 기록 생성)
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+로컬 권장 설정:
+
+- `ENABLE_TREND_SCHEDULER=true`
+- `TREND_LATEST_REMOTE_ENABLED=false`
+- `MIRRAI_MODEL_CHATBOT_PROVIDER=local`
+
+### 3) 테스트 데이터 생성
+
+```bash
+python manage.py seed_test_accounts
+```
+
+추가 대량 테스트 데이터가 필요하면:
+
+```bash
 python seed_100_data.py
 ```
 
-- **테스트 계정**: `01080001000` (비밀번호: 1234)
-- **디자이너 PIN**: 남성 `0001` / 여성 `0002`
-
-### 3) 서버 실행
+### 4) 서버 실행
 
 ```bash
 python manage.py runserver
-# Windows 사용자의 경우 루트의 run_server.bat으로 자동 실행 가능
 ```
 
-- `run_server.bat`는 `requirements` 확인, DB 마이그레이션, FastAPI(8001), Django(8000)를 순서대로 실행합니다.
-- `.env`의 `ENABLE_TREND_SCHEDULER=true` 인 경우 `run_server.bat` 실행 시 `python manage.py run_trend_scheduler`도 함께 시작됩니다.
-- 반대로 `python manage.py runserver`만 직접 실행하면 트렌드 스케줄러는 자동으로 시작되지 않습니다.
-
-### 4) 최신 트렌드 데이터 갱신
-
-아래 명령은 **저장된 최신 5개만 조회하는 코드가 아니라**,
-트렌드 원본을 다시 수집한 뒤 정제까지 수행하는 **전체 갱신 파이프라인**입니다.
+Windows에서는 아래 배치 파일로도 실행할 수 있습니다.
 
 ```bash
-python manage.py refresh_trends --mode runpod-pipeline
-python manage.py refresh_trends --mode runpod-archive --build-local
-python manage.py refresh_trends --mode runpod-archive --build-local --dry-run
+run_server.bat
 ```
 
-`runpod-archive --build-local`은 로컬에서
-`crawl -> refine -> llm_refine -> vectorize -> rebuild_styles`
-를 먼저 수행한 뒤 ChromaDB 디렉터리를 tar.gz로 묶어 RunPod에 전달합니다.
+### 5) 자동 스케줄러
 
-프로젝트 내부 스케줄러를 별도 프로세스로 띄우려면:
+현재는 `.env` 의 `ENABLE_TREND_SCHEDULER=true` 인 상태에서 Django 서버가 시작되면 트렌드 스케줄러도 함께 자동 시작됩니다.
+
+- 시간대는 `.env` 의 `TREND_SCHEDULER_TIMEZONE` 을 사용
+- 기본적으로 `TIME_ZONE` 과 같은 값으로 맞춰서 사용 가능
+- `run_server.bat` 뿐 아니라 `python manage.py runserver` 실행 시에도 자동 시작
+
+별도 프로세스로만 스케줄러를 보고 싶다면:
 
 ```bash
 python manage.py run_trend_scheduler
 ```
 
-주의:
+---
 
-- `.env`의 `ENABLE_TREND_SCHEDULER=true`는 **스케줄러 설정 활성화**만 의미합니다.
-- 실제 주기 실행을 하려면 `python manage.py run_trend_scheduler` 프로세스가 별도로 떠 있어야 합니다.
-- `run_server.bat`를 사용하는 로컬 환경에서는 위 값이 `true`일 때 스케줄러가 같이 실행되어, 설정된 요일/시간에 최신 데이터 갱신을 시도합니다.
-- 운영 환경에 앱 인스턴스가 여러 대면 스케줄러는 한 인스턴스에만 켜야 중복 실행되지 않습니다.
+## 🧪 바로 테스트하기
 
-### 5) 저장된 최신 5개만 조회하기
+### 1. 관리자 로그인
 
-트렌드 페이지(`/customer/trend/`)는 크롤링을 다시 돌리지 않고,
-이미 저장된 파일에서 **최신 5개만 골라서** 보여줍니다.
+`python manage.py seed_test_accounts` 실행 후 아래 계정으로 로그인할 수 있습니다.
 
-- 조회 엔드포인트: `/api/v1/analysis/trend/latest/?limit=5`
-- API 구현: `app/api/v1/latest_trends.py`
-- 최신 5개 선별 로직: `app/trend_pipeline/latest_feed.py`
-- 우선 조회 파일: `data/rag/processed/trends/refined_trends.json`
-- fallback 조회 경로: `data/rag/raw/trends/*.json`
+- 로그인 페이지: `http://localhost:8000/partner/login/`
+- 관리자 전화번호: `01080001000`
+- 관리자 비밀번호: `1234`
 
-즉 아래는 **전체 갱신 없음 / 읽기 전용 조회**입니다.
+### 2. 디자이너 세션 진입
+
+디자이너 챗봇을 가장 빠르게 확인하는 방법입니다.
+
+1. 관리자 계정으로 로그인
+2. `http://localhost:8000/partner/designer-select/` 이동
+3. 디자이너 선택
+4. 아래 PIN 중 하나 입력
+   - `2468`
+   - `1357`
+5. `http://localhost:8000/partner/staff/` 로 이동되면 챗봇 확인 가능
+
+### 3. 챗봇이 보이는 페이지
+
+- 디자이너 대시보드: `http://localhost:8000/partner/staff/`
+- 파트너 고객 상세: `http://localhost:8000/partner/customer-detail/<client_id>/`
+- 고객 상담 완료 페이지: `http://localhost:8000/customer/consultation/complete/`
+
+예시 질문:
+
+- `볼륨매직 후 관리 방법 알려줘`
+- `허쉬컷 상담 문구 알려줘`
+
+현재 챗봇 라우팅 순서:
+
+- `local_chromadb`
+- 원격 챗봇이 설정되어 있으면 remote fallback
+- 둘 다 실패하면 dummy 응답
+
+---
+
+## 🔄 최신 트렌드 / RAG 동작
+
+### 1. 최신 트렌드 카드
+
+최신 트렌드 카드는 현재 로컬 우선 설정입니다.
+
+- `TREND_LATEST_REMOTE_ENABLED=false`
+- 조회 순서: `chromadb_trends -> refined_trends.json -> raw trend JSON`
+
+페이지:
+
+- `http://localhost:8000/customer/trend/`
+
+API:
+
+- `GET /api/v1/analysis/trend/latest/?limit=5`
+
+### 2. 트렌드 전체 갱신
 
 ```bash
-curl "http://localhost:8000/api/v1/analysis/trend/latest/?limit=5"
+python manage.py refresh_trends
+python manage.py refresh_trends --mode local --steps vectorize
+python manage.py refresh_trends --mode runpod-pipeline
+python manage.py refresh_trends --mode runpod-archive --build-local
 ```
 
-정리:
+기본 로컬 파이프라인 순서:
 
-- `refresh_trends` / `run_trend_scheduler` = 전체 크롤링 + 정제 + 후처리
-- `/api/v1/analysis/trend/latest/` = 저장된 데이터에서 최신 5개만 조회
-
-#### RunPod 최신 피드 우선 조회(선택)
-
-최신 트렌드 API는 아래 환경 변수가 켜져 있으면
-`RunPod -> 로컬 ChromaDB -> 로컬 JSON` 순서로 조회를 시도합니다.
-
-```env
-TREND_LATEST_REMOTE_ENABLED=true
-TREND_LATEST_RUNPOD_TIMEOUT=8
-TREND_LATEST_RUNPOD_POLL_INTERVAL=2
+```text
+crawl -> refine -> llm_refine -> vectorize -> rebuild_ncs -> rebuild_styles
 ```
 
-RunPod 핸들러는 아래 입력을 받아야 합니다.
+### 3. 로컬 챗봇 코퍼스
 
-```json
-{
-  "input": {
-    "action": "latest_trends",
-    "limit": 5
-  }
-}
+디자이너 챗봇은 아래 파일과 저장소를 사용합니다.
+
+- 데이터셋: `app/data/chatbot/designer_support_dataset_v5_final_revised_optimized.json`
+- 프롬프트 템플릿: `app/data/chatbot/designer_instructor_persona.md`
+- 로컬 Chroma 저장소: `data/rag/stores/chromadb_chatbot/`
+- 응답 엔진: `app/services/chatbot_local_engine.py`
+- 프롬프트 빌더: `app/services/chatbot_prompt_builder.py`
+
+최근 정리 내용:
+
+- 인사/감사/짧은 질문은 섹션 제목 없이 자연스럽게 응답합니다.
+- 일반 시술 질문은 강사처럼 핵심 설명과 체크 포인트를 나눠서 안내합니다.
+- RAG 랭킹은 질문 토큰 정규화, 조사 제거, 주제별 보너스/패널티, 노이즈 문서 필터를 함께 사용합니다.
+- 예를 들어 `염색 전 주의사항` 질문은 가발 자료보다 패치 테스트, 알레르기, 두피 상태 관련 문서를 우선 참조합니다.
+
+위 Chroma 저장소와 manifest 파일은 로컬 생성물이므로 Git에서는 무시합니다.
+
+---
+
+## 🧪 자주 쓰는 테스트 명령
+
+핵심 테스트:
+
+```bash
+python manage.py test app.tests.test_chatbot_prompt_builder
+python manage.py test app.tests.test_chatbot_local_engine
+python manage.py test app.tests.test_chatbot_service
+python manage.py test app.tests.test_latest_feed
+python manage.py test app.tests.test_vectorize_chromadb
+python manage.py test app.tests.test_ai_facade
 ```
 
-권장 응답 형태:
+한 번에 실행:
 
-```json
-{
-  "status": "ready",
-  "items": [
-    {
-      "title": "Golden-Hour Brunette",
-      "title_ko": "골든아워 브루넷",
-      "summary": "Warm brunette trend...",
-      "summary_ko": "따뜻한 브루넷 컬러 트렌드...",
-      "image_url": "https://...",
-      "article_url": "https://...",
-      "source": "Whowhatwear",
-      "published_at": "2026-03-29T08:00:00+00:00",
-      "crawled_at": "2026-04-07T00:46:17+00:00",
-      "category": "color_trend",
-      "keywords": ["브루넷", "브라운"]
-    }
-  ]
-}
+```bash
+python manage.py test ^
+  app.tests.test_chatbot_prompt_builder ^
+  app.tests.test_chatbot_local_engine ^
+  app.tests.test_chatbot_service ^
+  app.tests.test_latest_feed ^
+  app.tests.test_vectorize_chromadb ^
+  app.tests.test_ai_facade
 ```
 
 ---
 
-## 🔗 주요 접속 경로 (Local Access Paths)
+## 🌐 주요 접속 경로
 
-로컬 개발 환경(`http://localhost:8000`) 기준의 전체 페이지 맵입니다.
+로컬 개발 환경 기준: `http://localhost:8000`
 
-### **1. 고객 서비스 (Customer Journey)**
+### 1. 고객 서비스
 
-- **서비스 시작/로그인**: [http://localhost:8000/customer/](http://localhost:8000/customer/)
-- **최신 헤어 트렌드 페이지**: [http://localhost:8000/customer/trend/](http://localhost:8000/customer/trend/)
-- **스타일 취향 설문**: [http://localhost:8000/customer/survey/](http://localhost:8000/customer/survey/)
-- **페이스 정밀 스캔 (카메라)**: [http://localhost:8000/customer/camera/](http://localhost:8000/customer/camera/)
-- **AI 분석 결과 및 추천**: [http://localhost:8000/customer/recommendations/](http://localhost:8000/customer/recommendations/)
+- 서비스 시작/로그인: `/customer/`
+- 최신 헤어 트렌드 페이지: `/customer/trend/`
+- 스타일 취향 설문: `/customer/survey/`
+- 페이스 촬영: `/customer/camera/`
+- AI 분석 결과 및 추천: `/customer/recommendations/`
 
-### **2. 파트너 센터 (Partner & Designer)**
+### 2. 파트너 센터
 
-- **파트너 로그인/인증**: [http://localhost:8000/partner/](http://localhost:8000/partner/)
-- **디자이너 선택**: [http://localhost:8000/partner/designer-select/](http://localhost:8000/partner/designer-select/)
-- **통합 관리 대시보드 (사업자)**: [http://localhost:8000/partner/dashboard/](http://localhost:8000/partner/dashboard/)
-- **디자이너 전용 대시보드 (Staff)**: [http://localhost:8000/partner/staff/](http://localhost:8000/partner/staff/)
+- 파트너 로그인: `/partner/`
+- 디자이너 선택: `/partner/designer-select/`
+- 통합 관리자 대시보드: `/partner/dashboard/`
+- 디자이너 대시보드: `/partner/staff/`
 
 ---
 
-## 🔐 환경 설정 (Environment Variables)
+## ⚙️ 환경 설정
 
-| 변수명                              | 설명                      | 비고                       |
-| :---------------------------------- | :------------------------ | :------------------------- |
-| `DEBUG`                           | 디버그 모드 여부          | 운영 환경 반드시 `False` |
-| `SUPABASE_URL`                    | API 주소                  | Supabase 연동 필수         |
-| `SUPABASE_USE_REMOTE_DB`          | 원격 DB 사용 여부         | Supabase 연동 시 `True`  |
-| `ENABLE_TREND_SCHEDULER`          | 트렌드 스케줄러 설정 활성화 | 별도 `run_trend_scheduler` 프로세스 필요 |
-| `SESSION_EXPIRE_AT_BROWSER_CLOSE` | 브라우저 종료 시 로그아웃 | 보안 설정 `True` 권장    |
+### 스케줄러
+
+- `ENABLE_TREND_SCHEDULER`
+- `TREND_SCHEDULER_TIMEZONE`
+- `TREND_SCHEDULER_WEEKLY_DAY`
+- `TREND_SCHEDULER_WEEKLY_HOUR`
+- `TREND_SCHEDULER_WEEKLY_MINUTE`
+- `TREND_SCHEDULER_STEPS`
+
+### 최신 트렌드 카드
+
+- `TREND_LATEST_REMOTE_ENABLED`
+- `TREND_LATEST_RUNPOD_TIMEOUT`
+- `TREND_LATEST_RUNPOD_POLL_INTERVAL`
+
+### 챗봇
+
+- `MIRRAI_MODEL_CHATBOT_PROVIDER`
+- `MIRRAI_MODEL_CHATBOT_URL`
+- `MIRRAI_MODEL_CHATBOT_API_KEY`
+- `MIRRAI_MODEL_CHATBOT_TIMEOUT`
+- `MIRRAI_MODEL_CHATBOT_INCLUDE_SYSTEM_PROMPT`
+- `MIRRAI_MODEL_CHATBOT_LOCAL_TOP_K`
+- `MIRRAI_MODEL_CHATBOT_LOCAL_CHUNK_SIZE`
+- `MIRRAI_MODEL_CHATBOT_LOCAL_CHUNK_OVERLAP`
+- `MIRRAI_MODEL_CHATBOT_LOCAL_EMBED_DIM`
 
 ---
 
 ## ☁️ DevOps & 클라우드 아키텍처
 
-본 프로젝트는 고가용성과 관리 편의성을 위해 **AWS 기반의 클라우드 네이티브 아키텍처**를 채택하고 있습니다.
+본 프로젝트는 운영 관점에서 AWS 기반 구성을 염두에 두고 있습니다.
 
-### **인프라 구성 요소 (Architecture)**
+### 인프라 구성 요소
 
-- **Orchestration**: AWS Elastic Beanstalk (Docker Platform)를 활용한 자동 확장 및 로드 밸런싱
-- **Container Registry**: Amazon ECR을 통한 안전한 Docker 이미지 관리
-- **Storage**: Amazon S3를 사용하여 사용자 업로드 이미지 및 배포 버전 관리
-- **Database**: Supabase (Cloud PostgreSQL)를 메인 DB로 활용
-- **Infrastructure as Code**: Terraform을 통해 VPC, ECR, S3 등 모든 리소스를 코드로 정의 및 관리
+- **Orchestration**: AWS Elastic Beanstalk
+- **Container Registry**: Amazon ECR
+- **Storage**: Amazon S3
+- **Database**: Supabase (Cloud PostgreSQL) + 로컬 SQLite
+- **Infrastructure as Code**: Terraform
 
-### **보안 가이드 (Security)**
+### 보안 가이드
 
-- **IAM OIDC**: GitHub Actions와의 연동 시 고정된 액세스 키 대신 OIDC를 사용하여 보안 강화
-- **환경 변수 관리**: 민감한 정보는 AWS SSM Parameter Store 및 EB Environment Properties를 통해 안전하게 주입
-- **Static Serving**: WhiteNoise 라이브러리를 활용하여 Django 내에서 효율적인 정적 파일 서빙 및 보안 유지
-
----
-
-## 📦 CI/CD 파이프라인
-
-본 프로젝트는 **GitHub Actions**와 **AWS**를 연동하여 완전 자동화된 배포 파이프라인을 구축하였습니다.
-
-### **배포 워크플로우 (GitHub Actions)**
-
-1. **Trigger**: `main` 브랜치에 코드 Push 발생 시 가동
-2. **Build**: `backend/Dockerfile`을 기반으로 Docker 이미지 빌드
-3. **Registry**: 빌드된 이미지를 **Amazon ECR**에 업로드
-4. **Configuration**: 최신 이미지 URI를 `Dockerrun.aws.json`에 자동 주입
-5. **Deployment**: **AWS Elastic Beanstalk** 환경 업데이트 트리거
+- 민감한 값은 `.env` 및 외부 시크릿 저장소를 통해 관리
+- 정적 파일은 WhiteNoise 기반 서빙
+- 로컬 생성물과 런타임 산출물은 `.gitignore`, `.dockerignore` 로 분리
 
 ---
 
-## 🧭 헤더 네비게이션 로직 (Navigation Logic)
+## 🔁 CI/CD 파이프라인
 
-사용자의 현재 세션 상태에 따라 헤더 메뉴의 동작 방식이 동적으로 제어됩니다.
+기본 흐름:
 
-### **1. 분석 시작하기 (Customer Journey)**
-
-사용자가 분석을 시작하려 할 때, 필수적인 인증 단계를 순차적으로 강제합니다.
-
-- **로그아웃 상태**: `매장 로그인 페이지`로 이동 (로그인 후 디자이너 선택으로 자동 연결)
-- **매장 로그인만 완료**: `디자이너 선택 페이지`로 즉시 이동 (인증 후 분석 페이지로 자동 연결)
-- **모든 인증 완료**: `고객 분석 시작 페이지(/customer/)`로 즉시 이동
-- **메인 이동**: 로고 또는 `메인` 클릭 시 세션을 유지한 채 현재 활성 흐름에 맞는 메인 화면으로 복귀
-
-### **2. 파트너 센터 메뉴 (Admin/Designer Flow)**
-
-로그인 전후의 목적지를 명확히 분리하여 업무 효율을 높입니다.
-
-- **로그인 전**:
-  - **디자이너**: 클릭 시 로그인 후 `디자이너 선택`으로 리다이렉트
-  - **파트너 센터**: 클릭 시 로그인 후 `통합 대시보드`로 리다이렉트
-- **로그인 후**:
-  - **디자이너**: `디자이너 선택` 페이지로 직접 이동
-  - **파트너 센터**: `통합 대시보드(/partner/dashboard/)`로 직접 이동
-  - **특수 로직**: 디자이너 세션 상태에서 '파트너 센터' 클릭 시, **디자이너 세션만 선택적 파기** 후 관리자 대시보드로 전환 지원 (예정)
-
-### **3. 최신 트렌드 페이지 (Latest Trend Feed)**
-
-- `/customer/trend/`는 고객/매장 관리자/디자이너 세션에서 모두 접근 가능합니다.
-- 화면은 설명형 추천 UI 대신 **최신 크롤링 5건 전용 카드형 피드**로 동작합니다.
-- 카드에는 원문 이미지와 한국어 제목이 노출되며, 클릭 시 원문 기사로 이동합니다.
-- 헤어스타일/헤어컬러 중심 기사만 남기도록 별도 필터링 로직을 적용했습니다.
+1. `main` 브랜치 push
+2. Docker 이미지 빌드
+3. ECR 업로드
+4. 배포 설정 갱신
+5. Elastic Beanstalk 반영
 
 ---
 
-## 🛠️ 기술 스택
+## 🧭 헤더 네비게이션 로직
 
-- **Framework**: Django 5.0 (MVT), DRF
-- **Frontend**: Vanilla JS, Responsive CSS3, Chart.js, MediaPipe
+세션 상태에 따라 헤더와 진입 흐름이 달라집니다.
+
+- 로그아웃 상태에서 분석 시작 시 파트너 로그인 흐름으로 이동 가능
+- 관리자 세션 활성화 후 디자이너 선택 페이지로 진입 가능
+- 디자이너 세션에서는 디자이너 대시보드 우선
+- 고객/파트너 세션은 목적에 따라 분리 유지
+
+최신 트렌드 페이지(`/customer/trend/`)는 고객/매장 관리자/디자이너 세션 모두 접근 가능합니다.
+
+---
+
+## 🧰 기술 스택
+
+- **Framework**: Django 5.x, DRF
+- **Frontend**: Vanilla JS, Responsive CSS, Chart.js, MediaPipe
 - **Database**: Supabase (PostgreSQL), SQLite (Local), ChromaDB
 - **Infra**: AWS Elastic Beanstalk, ECR, S3, GitHub Actions, Terraform
+
+---
+
+## 🧹 저장소 정리 기준
+
+아래 항목들은 로컬 전용 산출물로 취급합니다.
+
+- `.env`
+- `backend/`
+- `__pycache__/`
+- 로컬 SQLite 파일
+- `data/rag/`
+- 로컬 로그 및 생성 스토리지
+
+즉, 로컬 Chroma 저장소, raw trend 캐시, manifest, 임시 실행 산출물은 Git에 올라가지 않고, 실제 소스/문서/테스트 파일은 계속 관리 대상입니다.

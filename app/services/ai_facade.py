@@ -678,6 +678,80 @@ def _rag_context_excerpt(value: object, *, limit: int = 280) -> str | None:
     return text[: limit - 3].rstrip() + "..."
 
 
+def _normalize_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
+def _build_runpod_recommendation_payload(
+    items: list[dict],
+    *,
+    analysis_data: dict | None = None,
+) -> list[dict]:
+    analysis_data = analysis_data or {}
+    payload: list[dict] = []
+    for index, item in enumerate(items[:5], start=1):
+        style_name = str(item.get("style_name") or "").strip()
+        if not style_name:
+            continue
+
+        reasoning_snapshot = dict(item.get("reasoning_snapshot") or {})
+        payload.append(
+            {
+                "rank": int(item.get("rank") or index),
+                "style_id": item.get("style_id"),
+                "style_name": style_name,
+                "hairstyle_text": str(item.get("hairstyle_text") or style_name).strip(),
+                "description": str(
+                    item.get("style_description")
+                    or item.get("llm_explanation")
+                    or reasoning_snapshot.get("summary")
+                    or ""
+                ).strip(),
+                "score": item.get("match_score") if item.get("match_score") is not None else item.get("score"),
+                "face_shapes": _normalize_list(
+                    item.get("face_shapes")
+                    or reasoning_snapshot.get("matched_face_shapes")
+                    or reasoning_snapshot.get("face_shapes")
+                ),
+                "face_shape_detected": analysis_data.get("face_shape") or reasoning_snapshot.get("face_shape"),
+                "golden_ratio_score": analysis_data.get("golden_ratio_score") or item.get("golden_ratio_score"),
+            }
+        )
+    return payload
+
+
+def _fetch_rag_context_for_items(items: list[dict]) -> str | None:
+    try:
+        from app.trend_pipeline.rag_query import build_context, retrieve
+    except Exception as exc:
+        logger.warning("Local trend RAG query module is unavailable: %s", exc)
+        return None
+
+    documents: list[dict] = []
+    seen_titles: set[str] = set()
+    for item in items[:3]:
+        style_name = str(item.get("style_name") or item.get("hairstyle_text") or "").strip()
+        if not style_name:
+            continue
+        try:
+            for doc in retrieve(style_name, n_results=3, expand=True):
+                title = str(doc.get("title") or "").strip()
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                documents.append(doc)
+        except Exception as exc:
+            logger.warning("Local trend RAG lookup failed for style '%s': %s", style_name, exc)
+
+    if not documents:
+        return None
+    return build_context(documents[:5])
+
+
 def _augment_items_with_runpod(
     *,
     items: list[dict],
@@ -688,22 +762,21 @@ def _augment_items_with_runpod(
         return items
 
     image = analysis_data.get("image_url")
-    face_ratios = _build_face_ratios(analysis_data)
-    if not image or not face_ratios:
+    recommendations_payload = _build_runpod_recommendation_payload(items, analysis_data=analysis_data)
+    if not image or not recommendations_payload:
         return items
 
     runpod_payload = {
         "image": image,
-        "face_ratios": face_ratios,
-        "top_k": min(len(items), 5),
+        "recommendations": recommendations_payload,
+        "top_k": len(recommendations_payload),
         "return_base64": True,
     }
-    preference = _build_runpod_preference_payload(survey_data)
-    preference_text = _build_preference_text(survey_data)
-    if preference:
-        runpod_payload["preference"] = preference
-    if preference_text:
-        runpod_payload["preference_text"] = preference_text
+
+    rag_context = _fetch_rag_context_for_items(recommendations_payload)
+    if rag_context:
+        runpod_payload["rag_context"] = rag_context
+
     color_text = (survey_data or {}).get("hair_colour")
     if color_text:
         runpod_payload["color_text"] = color_text
@@ -718,7 +791,7 @@ def _augment_items_with_runpod(
 
     recommendations = remote.get("recommendations")
     if not isinstance(recommendations, list):
-        recommendations = []
+        recommendations = recommendations_payload
 
     rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
     build_tag = str(remote.get("build_tag") or "").strip() or None
