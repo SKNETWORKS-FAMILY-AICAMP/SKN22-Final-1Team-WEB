@@ -1378,6 +1378,157 @@ def _find_legacy_recommendation_item(
     return next((item for item in items if item.get("is_chosen")), items[0])
 
 
+def _find_current_recommendation_item_for_consultation(*, client: "Client") -> dict | None:
+    payload = get_current_recommendations(client)
+    items = list(payload.get("items") or [])
+    if not items:
+        return None
+    return next((item for item in items if item.get("is_chosen")), items[0])
+
+
+def _materialize_direct_consultation_current_recommendation(
+    *,
+    client: "Client",
+    legacy_client_id,
+    source: str,
+    survey_snapshot: dict | None,
+    analysis_snapshot: dict | None,
+    admin: "AdminAccount | None",
+    designer,
+    now,
+) -> tuple[LegacyClientResult | None, LegacyClientResultDetail | None, int | None, str | None]:
+    legacy_item = _find_legacy_recommendation_item(client=client)
+    item_origin = "legacy_former_recommendations"
+    if not legacy_item:
+        legacy_item = _find_current_recommendation_item_for_consultation(client=client)
+        item_origin = "current_recommendations_payload"
+    if not legacy_item:
+        logger.warning(
+            "[legacy_direct_consultation_materialization_failed] client_id=%s legacy_client_id=%s source=%s reason=no_current_recommendation_item item_origin=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            item_origin,
+        )
+        return None, None, None, None
+
+    recommendation_id = legacy_item.get("recommendation_id")
+    style_id = int(legacy_item.get("style_id") or 0) or None
+    selected_result = None
+    selected_detail = None
+    selected_style_name = legacy_item.get("style_name")
+
+    if recommendation_id is not None:
+        try:
+            selected_result, selected_detail = _legacy_result_and_detail_for_recommendation(
+                client=client,
+                recommendation_id=int(recommendation_id),
+            )
+        except (TypeError, ValueError):
+            selected_result, selected_detail = None, None
+
+    if selected_result is not None and selected_detail is not None:
+        logger.info(
+            "[legacy_direct_consultation_materialized] client_id=%s legacy_client_id=%s source=%s mode=linked_existing item_origin=%s recommendation_id=%s style_id=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            item_origin,
+            recommendation_id,
+            style_id,
+        )
+        return selected_result, selected_detail, style_id, "linked_direct_consultation_recommendation"
+
+    if style_id is None:
+        logger.warning(
+            "[legacy_direct_consultation_materialization_failed] client_id=%s legacy_client_id=%s source=%s reason=missing_style_id item_origin=%s recommendation_id=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            item_origin,
+            recommendation_id,
+        )
+        return None, None, None, None
+
+    result_id = _next_legacy_pk(LegacyClientResult, "result_id")
+    detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
+    style_name, style_description = _legacy_style_label(style_id)
+    selected_style_name = selected_style_name or style_name
+    selected_result = LegacyClientResult.objects.create(
+        result_id=result_id,
+        analysis_id=(getattr(get_latest_analysis(client), "id", None) or getattr(get_latest_analysis(client), "analysis_id", None) or 0),
+        client_id=legacy_client_id,
+        selected_hairstyle_id=None,
+        selected_image_url=None,
+        is_confirmed=False,
+        created_at=now.isoformat(),
+        updated_at=now.isoformat(),
+        backend_selection_id=None,
+        backend_consultation_id=None,
+        backend_client_ref_id=client.id,
+        backend_admin_ref_id=(admin.id if admin else client.shop_id),
+        backend_designer_ref_id=(designer.id if designer else client.designer_id),
+        source=source,
+        survey_snapshot=survey_snapshot,
+        analysis_data_snapshot=analysis_snapshot,
+        status="PENDING",
+        is_active=True,
+        is_read=False,
+        closed_at=None,
+        selected_recommendation_id=None,
+    )
+    selected_detail = LegacyClientResultDetail.objects.create(
+        detail_id=detail_id,
+        result_id=result_id,
+        hairstyle_id=style_id,
+        rank=int(legacy_item.get("rank") or 1),
+        similarity_score=float(legacy_item.get("match_score") or 0.0),
+        final_score=float(legacy_item.get("match_score") or 0.0),
+        simulated_image_url=legacy_item.get("simulation_image_url"),
+        recommendation_reason=(
+            legacy_item.get("reasoning")
+            or legacy_item.get("llm_explanation")
+            or "current recommendation direct consultation materialized for handoff"
+        ),
+        backend_recommendation_id=recommendation_id,
+        backend_client_ref_id=client.id,
+        backend_capture_record_id=None,
+        batch_id=_coerce_batch_uuid(legacy_item.get("batch_id")),
+        source=source,
+        style_name_snapshot=selected_style_name,
+        style_description_snapshot=legacy_item.get("style_description") or style_description,
+        keywords_json=list(legacy_item.get("keywords") or []),
+        sample_image_url=legacy_item.get("sample_image_url"),
+        regeneration_snapshot=legacy_item.get("regeneration_snapshot"),
+        reasoning_snapshot={
+            **dict(legacy_item.get("reasoning_snapshot") or {}),
+            "summary": (
+                (legacy_item.get("reasoning_snapshot") or {}).get("summary")
+                or legacy_item.get("reasoning")
+                or legacy_item.get("llm_explanation")
+                or "current recommendation direct consultation materialized for handoff"
+            ),
+            "source": source,
+            "materialized_for_direct_consultation": True,
+        },
+        is_chosen=False,
+        chosen_at=None,
+        is_sent_to_admin=True,
+        sent_at=now,
+        created_at_ts=now,
+    )
+    logger.info(
+        "[legacy_direct_consultation_materialized] client_id=%s legacy_client_id=%s source=%s mode=created_new item_origin=%s recommendation_id=%s style_id=%s",
+        client.id,
+        legacy_client_id,
+        source,
+        item_origin,
+        recommendation_id,
+        style_id,
+    )
+    return selected_result, selected_detail, style_id, "materialized_direct_consultation"
+
+
 def _bridge_recommendation_from_legacy_item(
     *,
     client: "Client",
@@ -2142,15 +2293,36 @@ def _legacy_result_direct_write(
     direct_consultation: bool,
 ) -> dict | None:
     if not _legacy_result_writable():
+        logger.warning(
+            "[legacy_selection_materialization_failed] client_id=%s source=%s direct_consultation=%s reason=legacy_tables_not_writable selected_style_id=%s recommendation_id=%s",
+            client.id,
+            source,
+            direct_consultation,
+            selected_style_id,
+            recommendation_id,
+        )
         return None
 
     legacy_client_id = get_legacy_client_id(client=client)
     if not legacy_client_id:
+        logger.warning(
+            "[legacy_selection_materialization_failed] client_id=%s source=%s direct_consultation=%s reason=missing_legacy_client_id selected_style_id=%s recommendation_id=%s",
+            client.id,
+            source,
+            direct_consultation,
+            selected_style_id,
+            recommendation_id,
+        )
         return None
 
     now = timezone.now()
     selected_result = None
     selected_detail = None
+    selection_record_status = (
+        "direct_consultation_without_selection"
+        if direct_consultation
+        else "style_only_selection"
+    )
 
     if recommendation_id is not None:
         selected_result, selected_detail = _legacy_result_and_detail_for_recommendation(
@@ -2159,11 +2331,92 @@ def _legacy_result_direct_write(
         )
         if selected_detail is not None:
             selected_style_id = int(selected_detail.hairstyle_id)
+            selection_record_status = "linked_existing_recommendation"
     elif source == "current_recommendations" and selected_style_id is not None:
         selected_result, selected_detail = _legacy_result_and_detail_for_style(
             client=client,
             style_id=int(selected_style_id),
         )
+        if selected_detail is not None:
+            selection_record_status = "linked_generated_style_row"
+
+    if selected_result is None and source == "current_recommendations" and direct_consultation and selected_style_id is None:
+        (
+            selected_result,
+            selected_detail,
+            selected_style_id,
+            direct_consultation_status,
+        ) = _materialize_direct_consultation_current_recommendation(
+            client=client,
+            legacy_client_id=legacy_client_id,
+            source=source,
+            survey_snapshot=survey_snapshot,
+            analysis_snapshot=analysis_snapshot,
+            admin=admin,
+            designer=designer,
+            now=now,
+        )
+        if direct_consultation_status:
+            selection_record_status = direct_consultation_status
+
+    if selected_result is None and source == "current_recommendations" and selected_style_id is not None:
+        result_id = _next_legacy_pk(LegacyClientResult, "result_id")
+        detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
+        style_name, style_description = _legacy_style_label(int(selected_style_id or 0))
+        selected_result = LegacyClientResult.objects.create(
+            result_id=result_id,
+            analysis_id=(getattr(get_latest_analysis(client), "id", None) or getattr(get_latest_analysis(client), "analysis_id", None) or 0),
+            client_id=legacy_client_id,
+            selected_hairstyle_id=(None if direct_consultation else selected_style_id),
+            selected_image_url=None,
+            is_confirmed=not direct_consultation,
+            created_at=now.isoformat(),
+            updated_at=now.isoformat(),
+            backend_selection_id=None,
+            backend_consultation_id=None,
+            backend_client_ref_id=client.id,
+            backend_admin_ref_id=(admin.id if admin else client.shop_id),
+            backend_designer_ref_id=(designer.id if designer else client.designer_id),
+            source=source,
+            survey_snapshot=survey_snapshot,
+            analysis_data_snapshot=analysis_snapshot,
+            status="PENDING",
+            is_active=True,
+            is_read=False,
+            closed_at=None,
+            selected_recommendation_id=(None if direct_consultation else detail_id),
+        )
+        selected_detail = LegacyClientResultDetail.objects.create(
+            detail_id=detail_id,
+            result_id=result_id,
+            hairstyle_id=int(selected_style_id or 0),
+            rank=1,
+            similarity_score=0.0,
+            final_score=0.0,
+            simulated_image_url=None,
+            recommendation_reason="current recommendation selection materialized for consultation handoff",
+            backend_recommendation_id=None,
+            backend_client_ref_id=client.id,
+            backend_capture_record_id=None,
+            batch_id=uuid.uuid4(),
+            source=source,
+            style_name_snapshot=style_name,
+            style_description_snapshot=style_description,
+            keywords_json=[],
+            sample_image_url=None,
+            regeneration_snapshot=None,
+            reasoning_snapshot={
+                "summary": "current recommendation selection materialized for consultation handoff",
+                "source": "current_recommendations",
+                "materialized_for_selection": True,
+            },
+            is_chosen=not direct_consultation,
+            chosen_at=(now if not direct_consultation else None),
+            is_sent_to_admin=True,
+            sent_at=now,
+            created_at_ts=now,
+        )
+        selection_record_status = "materialized_current_recommendation"
 
     if selected_result is None and source == "trend":
         result_id = _next_legacy_pk(LegacyClientResult, "result_id")
@@ -2220,9 +2473,18 @@ def _legacy_result_direct_write(
         )
 
     if selected_result is None:
+        logger.warning(
+            "[legacy_selection_materialization_failed] client_id=%s legacy_client_id=%s source=%s direct_consultation=%s reason=no_result_row selected_style_id=%s recommendation_id=%s",
+            client.id,
+            legacy_client_id,
+            source,
+            direct_consultation,
+            selected_style_id,
+            recommendation_id,
+        )
         return None
 
-    LegacyClientResult.objects.filter(client_id=legacy_client_id, is_active=True).exclude(
+    closed_consultation_count = LegacyClientResult.objects.filter(client_id=legacy_client_id, is_active=True).exclude(
         result_id=selected_result.result_id
     ).update(
         is_active=False,
@@ -2263,6 +2525,18 @@ def _legacy_result_direct_write(
         selected_detail.sent_at = now
         selected_detail.save()
 
+    logger.info(
+        "[legacy_selection_materialized] client_id=%s legacy_client_id=%s source=%s direct_consultation=%s selection_record_status=%s recommendation_id=%s selected_style_id=%s consultation_replaced_previous=%s",
+        client.id,
+        legacy_client_id,
+        source,
+        direct_consultation,
+        selection_record_status,
+        recommendation_id,
+        selected_style_id,
+        bool(closed_consultation_count),
+    )
+
     return {
         "consultation_id": selected_result.backend_consultation_id or selected_result.result_id,
         "recommendation_id": (
@@ -2276,6 +2550,10 @@ def _legacy_result_direct_write(
             if selected_detail is not None
             else None
         ),
+        "selection_record_status": selection_record_status,
+        "consultation_record_status": "created",
+        "consultation_replaced_previous": bool(closed_consultation_count),
+        "closed_consultation_count": int(closed_consultation_count),
     }
 
 
@@ -2380,6 +2658,10 @@ def confirm_style_selection(
         "source": source,
         "direct_consultation": direct_consultation,
         "recommendation_id": legacy_direct_result["recommendation_id"],
+        "selection_record_status": legacy_direct_result.get("selection_record_status"),
+        "consultation_record_status": legacy_direct_result.get("consultation_record_status"),
+        "consultation_replaced_previous": bool(legacy_direct_result.get("consultation_replaced_previous")),
+        "closed_consultation_count": int(legacy_direct_result.get("closed_consultation_count") or 0),
         "message": (
             "추천 선택 없이 바로 상담 요청이 접수되었습니다."
             if direct_consultation
