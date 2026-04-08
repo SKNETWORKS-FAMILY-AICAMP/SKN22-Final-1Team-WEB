@@ -6,10 +6,13 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BACKEND_DIR / "data"
 RAG_DIR = DATA_DIR / "rag"
+RAG_SOURCE_DIR = RAG_DIR / "sources"
+NCS_SOURCE_DIR = RAG_SOURCE_DIR / "ncs"
 RAW_DATA_DIR = RAG_DIR / "raw"
 TREND_RAW_DIR = RAW_DATA_DIR / "trends"
 PROCESSED_DATA_DIR = RAG_DIR / "processed"
 TREND_PROCESSED_DIR = PROCESSED_DATA_DIR / "trends"
+NCS_PROCESSED_DIR = PROCESSED_DATA_DIR / "ncs"
 ANALYSIS_DIR = RAG_DIR / "analysis"
 RAG_STORE_DIR = RAG_DIR / "stores"
 CHROMA_TRENDS_DIR = RAG_STORE_DIR / "chromadb_trends"
@@ -22,10 +25,13 @@ def ensure_directories() -> None:
     for path in (
         DATA_DIR,
         RAG_DIR,
+        RAG_SOURCE_DIR,
+        NCS_SOURCE_DIR,
         RAW_DATA_DIR,
         TREND_RAW_DIR,
         PROCESSED_DATA_DIR,
         TREND_PROCESSED_DIR,
+        NCS_PROCESSED_DIR,
         ANALYSIS_DIR,
         RAG_STORE_DIR,
         CHROMA_TRENDS_DIR,

@@ -19,8 +19,7 @@ echo [3/5] Starting FastAPI AI Service on port 8001...
 START /B "FastAPI AI" python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 
 if /I "!ENABLE_TREND_SCHEDULER!"=="true" (
-    echo [4/5] Starting Trend Scheduler...
-    START /B "Trend Scheduler" python manage.py run_trend_scheduler
+echo [4/5] Trend Scheduler will auto-start inside Django because ENABLE_TREND_SCHEDULER=true
 ) else (
     echo [4/5] Trend Scheduler is disabled in .env
 )

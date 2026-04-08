@@ -7,8 +7,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-VALID_STEPS = ("crawl", "refine", "llm_refine", "vectorize", "rebuild_styles", "analyze")
-DEFAULT_REFRESH_STEPS = ("crawl", "refine", "llm_refine", "vectorize", "rebuild_styles")
+VALID_STEPS = ("crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs", "rebuild_styles", "analyze")
+DEFAULT_REFRESH_STEPS = ("crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs", "rebuild_styles")
 
 
 def refresh_trends(steps: list[str] | None = None) -> dict[str, Any]:
@@ -76,6 +76,15 @@ def _run_step(step: str) -> dict[str, Any]:
         collection = build_collection()
         return {
             "description": "Updated ChromaDB trend vectors.",
+            "document_count": (collection.count() if collection else 0),
+        }
+
+    if step == "rebuild_ncs":
+        from .ncs_vectorize_chromadb import build_ncs_collection
+
+        collection = build_ncs_collection()
+        return {
+            "description": "Updated NCS ChromaDB manual vectors.",
             "document_count": (collection.count() if collection else 0),
         }
 

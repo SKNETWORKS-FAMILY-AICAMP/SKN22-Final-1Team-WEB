@@ -341,6 +341,9 @@ def _normalize_remote_item(item: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _localize_items_preserving_existing(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if all(item.get("title_ko") and item.get("summary_ko") for item in items):
+        return items
+
     to_translate = [
         {"title": item.get("title", ""), "summary": item.get("summary", ""), "article_url": item.get("article_url", "")}
         for item in items
@@ -537,10 +540,29 @@ def _pick_display_title(item: dict[str, Any]) -> str:
         article_title_lower = article_title.lower()
         trend_has_signal = _contains_any_keyword(trend_title_lower, STYLE_INCLUDE_KEYWORDS)
         article_has_signal = _contains_any_keyword(article_title_lower, STYLE_INCLUDE_KEYWORDS)
-        if trend_title_lower in generic_titles or (not trend_has_signal and article_has_signal):
+        if (
+            trend_title_lower in generic_titles
+            or _looks_like_section_heading(trend_title)
+            or (not trend_has_signal and article_has_signal)
+        ):
             return article_title
 
     return trend_title
+
+
+def _looks_like_section_heading(value: str) -> bool:
+    title = str(value or "").strip().lower()
+    if not title:
+        return False
+    if re.match(r"^\d+[\.\)]\s*", title):
+        return True
+    if "|" in title and ("then:" in title or "now:" in title):
+        return True
+    if title in {"meet the expert", "frequently asked questions", "related stories", "everything you need to know"}:
+        return True
+    if re.match(r"^(what|why|how|which|when|where)\b", title):
+        return True
+    return False
 
 
 def _looks_like_hairstyle_only(*, title: str, summary: str, article_url: str) -> bool:
@@ -564,6 +586,7 @@ def _looks_like_hairstyle_only(*, title: str, summary: str, article_url: str) ->
 
 def _normalize_item(item: dict[str, Any]) -> dict[str, Any] | None:
     title = _pick_display_title(item)
+    article_title = str(item.get("article_title") or "").strip()
     article_url = str(item.get("article_url") or "").strip()
     image_url = str(item.get("image_url") or "").strip()
     source = str(item.get("source") or "").strip() or "Unknown"
@@ -572,8 +595,16 @@ def _normalize_item(item: dict[str, Any]) -> dict[str, Any] | None:
     crawled_at = str(item.get("crawled_at") or "").strip()
     category = str(item.get("category") or "").strip() or "trend"
     keywords = _extract_keywords(item)
+    title_ko = str(item.get("title_ko") or "").strip()
+    summary_ko = str(item.get("summary_ko") or "").strip()
 
     if not title:
+        return None
+
+    if not (
+        _contains_any_keyword(title.lower(), STYLE_INCLUDE_KEYWORDS)
+        or _contains_any_keyword(article_title.lower(), STYLE_INCLUDE_KEYWORDS)
+    ):
         return None
 
     if not _looks_like_hairstyle_only(title=title, summary=str(description or ""), article_url=article_url):
@@ -598,6 +629,8 @@ def _normalize_item(item: dict[str, Any]) -> dict[str, Any] | None:
         "keywords": keywords,
         "sort_at": sort_at,
         "has_published_at": bool(_parse_datetime(published_at)),
+        "title_ko": title_ko,
+        "summary_ko": summary_ko,
     }
 
 
@@ -639,7 +672,11 @@ def _translate_missing_items(
     items: list[dict[str, Any]],
     cache: dict[str, dict[str, str]],
 ) -> dict[str, dict[str, str]]:
-    missing_items = [item for item in items if _translation_cache_key(item) not in cache]
+    missing_items = [
+        item
+        for item in items
+        if (not item.get("title_ko") or not item.get("summary_ko")) and _translation_cache_key(item) not in cache
+    ]
     if not missing_items:
         return cache
 
@@ -706,6 +743,9 @@ def _translate_missing_items(
 
 
 def _attach_korean_fields(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if all(item.get("title_ko") and item.get("summary_ko") for item in items):
+        return items
+
     cache = _load_translation_cache()
     cache = _translate_missing_items(items, cache)
 
@@ -716,8 +756,8 @@ def _attach_korean_fields(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         localized_items.append(
             {
                 **item,
-                "title_ko": translation.get("title_ko") or item.get("title", ""),
-                "summary_ko": translation.get("summary_ko") or item.get("summary", ""),
+                "title_ko": item.get("title_ko") or translation.get("title_ko") or item.get("title", ""),
+                "summary_ko": item.get("summary_ko") or translation.get("summary_ko") or item.get("summary", ""),
             }
         )
     return localized_items
@@ -765,6 +805,8 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
             "crawled_at": row["crawled_at"],
             "category": row["category"],
             "keywords": row["keywords"],
+            "title_ko": row.get("title_ko", ""),
+            "summary_ko": row.get("summary_ko", ""),
         }
         for row in normalized_items[: max(1, min(int(limit), 5))]
     ]

@@ -44,6 +44,24 @@ def parse_refresh_steps(value: str | Iterable[str] | None) -> list[str] | None:
     return steps
 
 
+def trigger_local_trend_refresh(
+    *,
+    steps: str | Iterable[str] | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    normalized_steps = parse_refresh_steps(steps) or list(DEFAULT_REFRESH_STEPS)
+    result: dict[str, Any] = {
+        "request_mode": "local_pipeline",
+        "request_input": {"steps": normalized_steps},
+    }
+    if dry_run:
+        result["dry_run"] = True
+        return result
+
+    result["local_pipeline"] = run_local_refresh_trends_pipeline(steps=normalized_steps)
+    return result
+
+
 def trigger_runpod_trend_refresh(
     *,
     steps: str | Iterable[str] | None = None,
