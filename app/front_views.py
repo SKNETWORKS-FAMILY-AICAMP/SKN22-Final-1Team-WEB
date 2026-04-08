@@ -8,6 +8,7 @@ from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views.decorators.cache import never_cache
 
 from app.api.v1.admin_services import register_admin
@@ -346,6 +347,16 @@ def customer_resume_page(request):
     if notice:
         return redirect(f"{target}?notice={notice}")
     return redirect(target)
+
+
+@never_cache
+def partner_designer_select_page(request: HttpRequest):
+    admin = get_session_admin(request=request)
+    if admin is None:
+        login_url = reverse("partner_login")
+        query = urlencode({"next": request.get_full_path()})
+        return redirect(f"{login_url}?{query}")
+    return render(request, "admin/designer_select.html")
 
 
 @never_cache

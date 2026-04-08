@@ -46,13 +46,13 @@
               {% endif %}
 
               {% if request.session.admin_store_name or request.session.admin_id %}
-                {% if request.session.designer_id %}
-                  <a href="{% url 'designer_logout' %}" data-designer-logout="true" data-after-logout="{% url 'partner_designer_select' %}" class="btn btn-dark session-btn session-btn-muted">{% if request.session.customer_name %}전체 로그아웃{% else %}로그아웃{% endif %}</a>
-                {% else %}
-                  <a href="{% url 'partner_logout' %}" class="btn btn-dark session-btn session-btn-muted">{% if request.session.customer_name %}전체 로그아웃{% else %}로그아웃{% endif %}</a>
-                {% endif %}
                 {% if request.session.customer_name %}
-                  <a href="{% url 'customer_logout' %}" class="btn btn-dark session-btn session-btn-muted">고객 종료</a>
+                  <a href="{% url 'logout' %}" class="btn btn-dark session-btn session-btn-muted">전체 로그아웃</a>
+                  <a href="{% url 'customer_logout' %}" class="btn btn-dark session-btn session-btn-muted">고객종료</a>
+                {% elif request.session.designer_id %}
+                  <a href="{% url 'designer_logout' %}" data-designer-logout="true" data-after-logout="{% url 'partner_designer_select' %}" class="btn btn-dark session-btn session-btn-muted">로그아웃</a>
+                {% else %}
+                  <a href="{% url 'partner_logout' %}" class="btn btn-dark session-btn session-btn-muted">로그아웃</a>
                 {% endif %}
               {% elif request.session.customer_name %}
                 <a href="{% url 'customer_logout' %}" class="btn btn-dark session-btn">로그아웃</a>

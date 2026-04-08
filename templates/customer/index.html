@@ -149,7 +149,7 @@
   }
 
   .modal.show { opacity: 1; pointer-events: auto; }
-  .modal-content { width: 90%; background: white; border-radius: 16px; position: relative; }
+  .modal-content { width: min(92vw, 500px); background: white; border-radius: 16px; position: relative; }
 </style>
 
 <div class="customer-layout" style="display: block;">
@@ -207,7 +207,7 @@
       <div class="agree-box">
         <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;" id="privacyLabel">
           <input type="checkbox" id="privacyAgree" name="agree_privacy" tabindex="6" style="margin-top: 3px; width: 16px; height: 16px;">
-          <span class="section-copy" style="font-size: 13px; line-height: 1.5; color: var(--text-primary);">
+          <span class="section-copy" style="font-size: 13px; line-height: 1.5; color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px;">
             <b>[필수]</b> AI 스타일 분석을 위한 데이터 수집 동의
           </span>
         </label>
@@ -226,7 +226,7 @@
   </div>
 
   <div id="termsModal" class="modal">
-    <div class="modal-content" style="max-width: 500px; padding: 32px;">
+    <div class="modal-content" style="padding: 32px;">
       <h3 class="section-title" style="margin-bottom: 20px; font-size: 20px;">AI 스타일 분석 데이터 수집 동의</h3>
       <div class="stack" style="gap: 16px; max-height: 300px; overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; border: 1px solid var(--line); padding: 16px; border-radius: 8px;">
         <p><strong>1. 수집 항목</strong>: 성함, 성별, 연령, 연락처, 촬영된 얼굴 이미지</p>
@@ -254,20 +254,35 @@
     const confirmTerms = document.getElementById('confirmTerms');
     const genderBtns = document.querySelectorAll('.gender-btn');
 
-    // 공통 모듈 연결
     const validator = window.MirrAIValidator;
 
-    const toggleAgreement = (e) => {
-      if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      if (privacyAgree.checked) {
-        privacyAgree.checked = false;
-        return;
-      }
-      termsModal.classList.add('show');
-    };
+    function openModal() {
+      if (termsModal) termsModal.classList.add('show');
+    }
+
+    function closeModal() {
+      if (termsModal) termsModal.classList.remove('show');
+    }
+
+    // 파트너 회원가입 페이지와 동일한 'e.target !== checkbox' 로직 적용
+    if (privacyLabel && privacyAgree) {
+      privacyLabel.addEventListener('click', (e) => {
+        if (e.target !== privacyAgree) {
+          e.preventDefault();
+          openModal();
+        }
+      });
+    }
+
+    confirmTerms.addEventListener('click', () => {
+      privacyAgree.checked = true;
+      clearErrors();
+      closeModal();
+    });
+
+    termsModal.addEventListener('click', (e) => {
+      if (e.target === termsModal) closeModal();
+    });
 
     function clampAgeValue() {
       if (ageInput.value === '') return;
@@ -307,32 +322,14 @@
       input.addEventListener('change', syncGenderButtons);
     });
 
-    privacyAgree.addEventListener('pointerdown', toggleAgreement);
-    privacyLabel.addEventListener('click', (e) => {
-      if (e.target !== privacyAgree) toggleAgreement(e);
-    });
-
-    confirmTerms.addEventListener('click', () => {
-      privacyAgree.checked = true;
-      clearErrors();
-      termsModal.classList.remove('show');
-    });
-
-    termsModal.addEventListener('click', (e) => {
-      if (e.target === termsModal) termsModal.classList.remove('show');
-    });
-
     const mainBtn = document.querySelector('a.btn-outline');
     if (mainBtn) {
       mainBtn.addEventListener('click', clearErrors);
     }
 
     function clearErrors() {
-      // 상단 요약박스 숨김
       const errorSummary = document.getElementById('errorSummary');
       if (errorSummary) errorSummary.style.display = 'none';
-      
-      // 개별 필드 에러 초기화
       document.querySelectorAll('.field-error').forEach(el => {
         el.textContent = '';
         el.style.display = 'none';
@@ -345,7 +342,6 @@
     function showFieldError(fieldId, message) {
       const errorEl = document.getElementById(`error_${fieldId}`);
       const inputEl = document.getElementById(`id_${fieldId}`);
-      
       if (errorEl) {
         errorEl.textContent = message;
         errorEl.style.display = 'block';
@@ -354,8 +350,6 @@
         inputEl.classList.add('is-invalid');
         inputEl.focus();
       }
-      
-      // 스크롤 처리
       const scrollTarget = errorEl || inputEl;
       if (scrollTarget) {
         scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -364,39 +358,28 @@
 
     function validateForm() {
       clearErrors();
-
-      // 1. 성함 (순서 보장 및 즉시 리턴으로 1개씩만 표시)
       if (!validator || !validator.isValidName(nameInput.value)) { 
         showFieldError('name', '성함을 2~10자 이내로 정확히 입력해 주세요.'); 
         return false;
       }
-      
-      // 2. 성별
       const gender = form.querySelector('input[name="gender"]:checked');
       if (!gender) { 
         showFieldError('gender', '성별을 선택해 주세요.'); 
         return false;
       }
-      
-      // 3. 연령
       const ageVal = ageInput.value.trim();
       if (!ageVal || isNaN(ageVal) || parseInt(ageVal) <= 0) { 
         showFieldError('age', '연령을 숫자 형식으로 정확히 입력해 주세요.'); 
         return false;
       }
-      
-      // 4. 연락처
       if (!validator || !validator.isValidPhone(phoneInput.value)) { 
         showFieldError('phone', '연락처 형식이 올바르지 않습니다. (예: 010-1234-5678)'); 
         return false;
       }
-
-      // 5. 동의
       if (!privacyAgree.checked) { 
         showFieldError('privacy', '서비스 이용을 위해 데이터 수집에 동의해 주세요.'); 
         return false;
       }
-
       return true;
     }
 
@@ -409,12 +392,8 @@
     ageInput.addEventListener('change', clampAgeValue);
 
     form.addEventListener('submit', (e) => {
-      // 기본 제출 기능을 즉시 차단하여 페이지 새로고침(데이터 유실)을 방지합니다.
       e.preventDefault();
-
-      // 유효성 검사를 수행합니다.
       if (validateForm()) {
-        // 모든 검증이 통과된 경우에만 폼을 서버로 전송합니다.
         form.submit();
       }
     });
