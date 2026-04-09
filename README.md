@@ -3,7 +3,7 @@
 AI 기반 퍼스널 헤어 스타일 분석 및 추천 솔루션, **MirrAI** 프로젝트 저장소입니다.  
 고객의 페이스 라인 분석과 개인별 스타일 취향을 결합하여 최적의 헤어스타일을 제안하고, 디자이너와의 스마트한 상담 환경을 제공합니다.
 
-현재 구조는 **Django (MVT)** 아키텍처를 중심으로 동작하며, 로컬 개발 환경에서는 **ChromaDB 기반 RAG**, **자동 트렌드 스케줄러**, **디자이너 챗봇**까지 함께 검증할 수 있습니다.
+현재 구조는 **Django (MVT)** 아키텍처를 중심으로 동작하며, 로컬 개발 환경에서는 **LangChain + ChromaDB 기반 RAG**, **자동 트렌드 스케줄러**, **디자이너 챗봇**까지 함께 검증할 수 있습니다.
 
 ---
 
@@ -72,7 +72,7 @@ MirrAI는 매장 중심의 B2B2C 서비스 구조를 채택합니다.
 
 ```text
 .
-├── app/                    # 비즈니스 로직, API(v1), 서비스, 테스트
+├── app/                    # 비즈니스 로직, API(v1), 서비스
 ├── mirrai_project/         # Django 프로젝트 설정
 ├── static/                 # 정적 자산
 ├── templates/              # HTML 템플릿
@@ -120,19 +120,7 @@ Copy-Item .env.example .env
 - `MIRRAI_MODEL_CHATBOT_OPENAI_MODEL=gpt-4.1-mini`
 - `MIRRAI_MODEL_CHATBOT_API_KEY=<your OpenAI API key>`
 
-### 3) 테스트 데이터 생성
-
-```bash
-python manage.py seed_test_accounts
-```
-
-추가 대량 테스트 데이터가 필요하면:
-
-```bash
-python seed_100_data.py
-```
-
-### 4) 서버 실행
+### 3) 서버 실행
 
 ```bash
 python manage.py runserver
@@ -144,7 +132,7 @@ Windows에서는 아래 배치 파일로도 실행할 수 있습니다.
 run_server.bat
 ```
 
-### 5) 자동 스케줄러
+### 4) 자동 스케줄러
 
 현재는 `.env` 의 `ENABLE_TREND_SCHEDULER=true` 인 상태에서 Django 서버가 시작되면 트렌드 스케줄러도 함께 자동 시작됩니다.
 
@@ -157,49 +145,6 @@ run_server.bat
 ```bash
 python manage.py run_trend_scheduler
 ```
-
----
-
-## 🧪 바로 테스트하기
-
-### 1. 관리자 로그인
-
-`python manage.py seed_test_accounts` 실행 후 아래 계정으로 로그인할 수 있습니다.
-
-- 로그인 페이지: `http://localhost:8000/partner/login/`
-- 관리자 전화번호: `01080001000`
-- 관리자 비밀번호: `1234`
-
-### 2. 디자이너 세션 진입
-
-디자이너 챗봇을 가장 빠르게 확인하는 방법입니다.
-
-1. 관리자 계정으로 로그인
-2. `http://localhost:8000/partner/designer-select/` 이동
-3. 디자이너 선택
-4. 아래 PIN 중 하나 입력
-   - `2468`
-   - `1357`
-5. `http://localhost:8000/partner/staff/` 로 이동되면 챗봇 확인 가능
-
-### 3. 챗봇이 보이는 페이지
-
-- 디자이너 대시보드: `http://localhost:8000/partner/staff/`
-- 파트너 고객 상세: `http://localhost:8000/partner/customer-detail/<client_id>/`
-- 고객 상담 완료 페이지: `http://localhost:8000/customer/consultation/complete/`
-
-예시 질문:
-
-- `볼륨매직 후 관리 방법 알려줘`
-- `허쉬컷 상담 문구 알려줘`
-
-현재 챗봇 라우팅 순서:
-
-- `openai_responses`
-- `chatbot_rag` 로컬 Chroma 근거 검색
-- OpenAI 호출이 실패하면 안내용 fallback 응답
-
----
 
 ## 🔄 최신 트렌드 / RAG 동작
 
@@ -240,45 +185,25 @@ crawl -> refine -> llm_refine -> vectorize -> rebuild_ncs -> rebuild_styles
 - 데이터셋: `app/data/chatbot/designer_support_dataset_v5_final_revised_optimized.json`
 - 프롬프트 템플릿: `app/data/chatbot/designer_instructor_persona.md`
 - 로컬 Chroma 저장소: `data/rag/stores/chromadb_chatbot/`
+- 저장 클라이언트: `app/trend_pipeline/chroma_client.py` 의 `chromadb.PersistentClient(...)`
+- 저장소 루트: `app/trend_pipeline/paths.py` 의 `data/rag/stores/`
 - 응답 엔진: `app/services/chatbot/service.py`
 - RAG 엔진: `app/services/chatbot/rag.py`
 - 프롬프트 빌더: `app/services/chatbot/prompt_builder.py`
+- LangChain 구성: `langchain-openai`, `langchain-chroma`, `langchain-core`
 
 최근 정리 내용:
 
 - 인사/감사/짧은 질문은 섹션 제목 없이 자연스럽게 응답합니다.
 - 일반 시술 질문은 강사처럼 핵심 설명과 체크 포인트를 나눠서 안내합니다.
-- RAG 랭킹은 질문 토큰 정규화, 조사 제거, 주제별 보너스/패널티, 노이즈 문서 필터를 함께 사용합니다.
+- RAG 검색은 질문 토큰 정규화, 조사 제거, 벡터 검색과 어휘 중첩 점수 병합, 지시문 형태 문서 필터를 함께 사용합니다.
 - 예를 들어 `염색 전 주의사항` 질문은 가발 자료보다 패치 테스트, 알레르기, 두피 상태 관련 문서를 우선 참조합니다.
+- 사용자 질문, 클라이언트 측 대화 기록, 검색된 문서 내용은 모두 신뢰하지 않는 입력으로 취급합니다.
+- 시스템 프롬프트 공개나 내부 규칙 무시 요청은 차단하고, 디자이너 이름/역할 변경 요청은 현재 세션 정보를 기준으로만 응답합니다.
+- 검색 문서나 이전 대화에 지시문 형태 문장이 섞여 있으면 프롬프트 구성 전에 제외하거나 마스킹합니다.
+- 응답 생성은 `langchain_openai` 기반 `openai_responses` 가 담당하고, `langchain_chroma` 기반 `chatbot_rag` 는 로컬 근거 검색에 사용됩니다. OpenAI 호출 실패 시에는 안내용 fallback 응답으로 전환합니다.
 
 위 Chroma 저장소와 manifest 파일은 로컬 생성물이므로 Git에서는 무시합니다.
-
----
-
-## 🧪 자주 쓰는 테스트 명령
-
-핵심 테스트:
-
-```bash
-python manage.py test app.tests.test_chatbot_prompt_builder
-python manage.py test app.tests.test_chatbot_rag
-python manage.py test app.tests.test_chatbot_service
-python manage.py test app.tests.test_latest_feed
-python manage.py test app.tests.test_vectorize_chromadb
-python manage.py test app.tests.test_ai_facade
-```
-
-한 번에 실행:
-
-```bash
-python manage.py test ^
-  app.tests.test_chatbot_prompt_builder ^
-  app.tests.test_chatbot_rag ^
-  app.tests.test_chatbot_service ^
-  app.tests.test_latest_feed ^
-  app.tests.test_vectorize_chromadb ^
-  app.tests.test_ai_facade
-```
 
 ---
 
@@ -355,6 +280,9 @@ python manage.py test ^
 - 민감한 값은 `.env` 및 외부 시크릿 저장소를 통해 관리
 - 정적 파일은 WhiteNoise 기반 서빙
 - 로컬 생성물과 런타임 산출물은 `.gitignore`, `.dockerignore` 로 분리
+- 챗봇은 프롬프트 유출과 지침 무시 요청을 보안 이벤트로 취급하고 차단하며, 역할/이름 변경 요청은 세션 정보 기준으로만 응답
+- 사용자 입력, 클라이언트 대화 로그, RAG 검색 결과는 모두 비신뢰 입력으로 다루고 프롬프트에 넣기 전 필터링
+- ChromaDB 저장소는 Supabase가 아니라 로컬 경로 `data/rag/stores/` 아래에 영속 저장
 
 ---
 
@@ -403,4 +331,4 @@ python manage.py test ^
 - `data/rag/`
 - 로컬 로그 및 생성 스토리지
 
-즉, 로컬 Chroma 저장소, raw trend 캐시, manifest, 임시 실행 산출물은 Git에 올라가지 않고, 실제 소스/문서/테스트 파일은 계속 관리 대상입니다.
+즉, 로컬 Chroma 저장소, raw trend 캐시, manifest, 임시 실행 산출물은 Git에 올라가지 않고, 실제 소스와 문서는 계속 관리 대상입니다.

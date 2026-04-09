@@ -5,8 +5,11 @@ import os
 import re
 from typing import Any
 
-import requests
 from django.utils import timezone
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from openai import APIStatusError, APITimeoutError, OpenAIError
 
 from .prompt_builder import (
     build_designer_instructor_system_prompt,
@@ -19,8 +22,6 @@ from .rag import (
 
 
 logger = logging.getLogger(__name__)
-
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 DEFAULT_OPENAI_CHATBOT_MODEL = "gpt-4.1-mini"
 DEFAULT_OPENAI_CHATBOT_FALLBACK_MODEL = ""
 DEFAULT_OPENAI_CHATBOT_MAX_OUTPUT_TOKENS = 2048
@@ -572,128 +573,133 @@ def _build_openai_instructions(
     ).strip()
 
 
-def _build_openai_request_payload(
+def _build_openai_prompt_messages(
     *,
-    model: str,
     message: str,
     rag_context: dict[str, Any],
     admin_name: str | None = None,
     store_name: str | None = None,
     conversation_history: list[dict[str, Any]] | None = None,
+    ) -> list[BaseMessage]:
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                _build_openai_instructions(
+                    rag_context=rag_context,
+                    admin_name=admin_name,
+                    store_name=store_name,
+                ),
+            ),
+            ("human", "{user_context}"),
+        ]
+    )
+    return prompt.format_messages(
+        user_context=_build_user_context_message(
+            latest_message=message,
+            conversation_history=conversation_history,
+            rag_context=rag_context,
+        )
+    )
+
+
+def _build_openai_chat_model_kwargs(
+    *,
+    model: str,
     include_reasoning_summary: bool = True,
 ) -> dict[str, Any]:
-    text_config: dict[str, Any] = {
-        "format": {"type": "text"},
+    model_kwargs: dict[str, Any] = {
+        "text": {"format": {"type": "text"}},
     }
-    request_payload: dict[str, Any] = {
+    kwargs: dict[str, Any] = {
         "model": model,
-        "instructions": _build_openai_instructions(
-            rag_context=rag_context,
-            admin_name=admin_name,
-            store_name=store_name,
-        ),
-        "input": [
-            {
-                "role": "user",
-                "content": _build_user_context_message(
-                    latest_message=message,
-                    conversation_history=conversation_history,
-                    rag_context=rag_context,
-                ),
-            }
-        ],
-        "max_output_tokens": _openai_chatbot_max_output_tokens(),
+        "api_key": _openai_api_key(),
+        "timeout": float(_model_chatbot_timeout()[1]),
+        "max_retries": 0,
+        "use_responses_api": True,
+        "max_tokens": _openai_chatbot_max_output_tokens(),
         "store": _openai_chatbot_store(),
-        "text": text_config,
+        "model_kwargs": model_kwargs,
     }
 
     if _is_reasoning_model(model):
-        request_payload["reasoning"] = {
+        reasoning: dict[str, Any] = {
             "effort": _openai_chatbot_reasoning_effort(),
         }
         if include_reasoning_summary:
-            request_payload["reasoning"]["summary"] = _openai_chatbot_reasoning_summary()
-        text_config["verbosity"] = _openai_chatbot_verbosity()
+            reasoning["summary"] = _openai_chatbot_reasoning_summary()
+        kwargs["reasoning"] = reasoning
+        kwargs["verbosity"] = _openai_chatbot_verbosity()
     else:
-        request_payload["temperature"] = _openai_chatbot_temperature()
-        request_payload["top_p"] = _openai_chatbot_top_p()
+        kwargs["temperature"] = _openai_chatbot_temperature()
+        kwargs["top_p"] = _openai_chatbot_top_p()
 
-    return request_payload
+    return kwargs
 
 
-def _extract_reasoning_summary(payload: dict[str, Any]) -> str | None:
-    output = payload.get("output")
-    if not isinstance(output, list):
-        return None
+def _create_openai_chat_model(
+    *,
+    model: str,
+    include_reasoning_summary: bool = True,
+) -> ChatOpenAI:
+    return ChatOpenAI(
+        **_build_openai_chat_model_kwargs(
+            model=model,
+            include_reasoning_summary=include_reasoning_summary,
+        )
+    )
 
+
+def _extract_reasoning_summary(response: AIMessage) -> str | None:
     summaries: list[str] = []
-    for item in output:
-        if not isinstance(item, dict) or item.get("type") != "reasoning":
+    for block in getattr(response, "content_blocks", None) or []:
+        if not isinstance(block, dict) or block.get("type") != "reasoning":
             continue
-        for summary_item in item.get("summary") or []:
-            if not isinstance(summary_item, dict):
-                continue
-            if summary_item.get("type") != "summary_text":
-                continue
-            text = summary_item.get("text")
-            if isinstance(text, str) and text.strip():
-                summaries.append(text.strip())
+
+        reasoning_text = block.get("reasoning")
+        if isinstance(reasoning_text, str) and reasoning_text.strip():
+            summaries.append(reasoning_text.strip())
+            continue
+
+        summary_text = block.get("summary")
+        if isinstance(summary_text, str) and summary_text.strip():
+            summaries.append(summary_text.strip())
+            continue
+
+        if isinstance(summary_text, list):
+            for item in summary_text:
+                if not isinstance(item, dict):
+                    continue
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    summaries.append(text.strip())
 
     if not summaries:
         return None
     return _normalize_reply_text("\n\n".join(summaries))
 
 
-def _extract_openai_reply(payload: dict[str, Any]) -> str | None:
-    output = payload.get("output")
-    if isinstance(output, list):
-        text_parts: list[str] = []
-        for item in output:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") != "message":
-                continue
-            if item.get("role") != "assistant":
-                continue
-            content = item.get("content")
-            if isinstance(content, str):
-                text_parts.append(content)
-                continue
-            if not isinstance(content, list):
-                continue
-            for part in content:
-                if not isinstance(part, dict):
-                    continue
-                if part.get("type") not in {"output_text", "text"}:
-                    continue
-                text_value = part.get("text")
-                if isinstance(text_value, str):
-                    text_parts.append(text_value)
-        if text_parts:
-            return _normalize_reply_text("\n".join(text_parts))
+def _extract_openai_reply(response: AIMessage | Any) -> str | None:
+    text = getattr(response, "text", None)
+    if isinstance(text, str) and text.strip():
+        return _normalize_reply_text(text)
 
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices:
-        return None
-
-    first_choice = choices[0] if isinstance(choices[0], dict) else {}
-    message = first_choice.get("message") if isinstance(first_choice, dict) else {}
-    if not isinstance(message, dict):
-        return None
-
-    content = message.get("content")
-    if isinstance(content, str):
+    content = getattr(response, "content", None)
+    if isinstance(content, str) and content.strip():
         return _normalize_reply_text(content)
 
     if isinstance(content, list):
-        text_parts = []
+        text_parts: list[str] = []
         for item in content:
+            if isinstance(item, str) and item.strip():
+                text_parts.append(item)
+                continue
             if not isinstance(item, dict):
                 continue
-            if item.get("type") != "text":
+            if item.get("type") not in {"text", "output_text"}:
                 continue
             text_value = item.get("text")
-            if isinstance(text_value, str):
+            if isinstance(text_value, str) and text_value.strip():
                 text_parts.append(text_value)
         if text_parts:
             return _normalize_reply_text("\n".join(text_parts))
@@ -726,46 +732,37 @@ def _request_openai_response(
     include_reasoning_summary: bool = True,
     allow_timeout_retry: bool = True,
 ) -> dict[str, Any] | None:
-    request_payload = _build_openai_request_payload(
-        model=model,
+    prompt_messages = _build_openai_prompt_messages(
         message=message,
         rag_context=rag_context,
         admin_name=admin_name,
         store_name=store_name,
         conversation_history=conversation_history,
-        include_reasoning_summary=include_reasoning_summary,
     )
 
     try:
-        response = requests.post(
-            OPENAI_RESPONSES_URL,
-            json=request_payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {_openai_api_key()}",
-            },
-            timeout=_model_chatbot_timeout(),
-        )
-        response.raise_for_status()
-        payload = response.json() if response.content else {}
-        response_payload = payload if isinstance(payload, dict) else {}
-        reply_text = _extract_openai_reply(response_payload)
+        response = _create_openai_chat_model(
+            model=model,
+            include_reasoning_summary=include_reasoning_summary,
+        ).invoke(prompt_messages)
+        reply_text = _extract_openai_reply(response)
         if not reply_text:
             logger.warning(
                 "[openai_chatbot_invalid_payload] model=%s payload_type=%s",
                 model,
-                type(payload).__name__,
+                type(response).__name__,
             )
             return None
 
+        response_metadata = getattr(response, "response_metadata", {}) or {}
         return {
             "reply": reply_text,
-            "model": model,
-            "response_id": response_payload.get("id"),
-            "reasoning_summary": _extract_reasoning_summary(response_payload),
+            "model": str(response_metadata.get("model_name") or model),
+            "response_id": getattr(response, "id", None) or response_metadata.get("id"),
+            "reasoning_summary": _extract_reasoning_summary(response),
         }
-    except requests.HTTPError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
+    except APIStatusError as exc:
+        status_code = getattr(exc, "status_code", None)
         if _is_reasoning_model(model) and include_reasoning_summary and status_code == 400:
             logger.warning(
                 "[openai_chatbot_reasoning_summary_retry] model=%s status=%s",
@@ -788,7 +785,7 @@ def _request_openai_response(
             exc,
         )
         return None
-    except requests.ReadTimeout as exc:
+    except APITimeoutError as exc:
         if allow_timeout_retry:
             logger.warning(
                 "[openai_chatbot_timeout_retry] model=%s timeout=%s",
@@ -811,7 +808,14 @@ def _request_openai_response(
             exc,
         )
         return None
-    except (requests.RequestException, ValueError) as exc:
+    except (OpenAIError, ValueError, TypeError) as exc:
+        logger.warning(
+            "[openai_chatbot_unavailable] model=%s reason=%s",
+            model,
+            exc,
+        )
+        return None
+    except Exception as exc:
         logger.warning(
             "[openai_chatbot_unavailable] model=%s reason=%s",
             model,
@@ -841,6 +845,7 @@ def _build_openai_success_payload(
         "matched_sources": list(rag_context.get("matched_sources") or []),
         "dataset_source": str(rag_context.get("dataset_source") or "chatbot_rag_chromadb"),
         "provider": "openai_responses",
+        "orchestration": "langchain",
         "requested_model": requested_model,
         "used_model": attempt["model"],
         "quality_fallback_used": fallback_reason == "quality",
@@ -956,6 +961,9 @@ def get_chatbot_backend_status() -> dict[str, Any]:
     )
     return {
         "architecture": "openai_rag",
+        "orchestration": "langchain",
+        "chat_model_backend": "langchain_openai",
+        "vectorstore_backend": "langchain_chroma",
         "provider_priority": provider_order[0],
         "provider_order": provider_order,
         "remote_configured": False,
