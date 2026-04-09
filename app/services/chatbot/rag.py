@@ -13,6 +13,9 @@ from typing import Any
 
 import chromadb
 from chromadb.errors import NotFoundError
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 
 from .prompt_builder import DESIGNER_INSTRUCTOR_PERSONA_PATH
 from app.trend_pipeline.chroma_client import create_persistent_client
@@ -232,6 +235,16 @@ def _embed_text(value: str) -> list[float]:
     return [item / norm for item in vector]
 
 
+class _HashedTokenEmbeddings(Embeddings):
+    """Wrap the existing local embedding logic in the LangChain interface."""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [_embed_text(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return _embed_text(text)
+
+
 def _manifest_payload() -> dict[str, Any]:
     if not CHATBOT_RAG_DATASET_PATH.exists():
         return {}
@@ -353,6 +366,15 @@ def _create_client() -> chromadb.PersistentClient:
     return create_persistent_client(CHATBOT_RAG_CHROMA_DIR)
 
 
+def _create_vector_store() -> Chroma:
+    return Chroma(
+        client=_create_client(),
+        collection_name=CHATBOT_RAG_COLLECTION_NAME,
+        embedding_function=_HashedTokenEmbeddings(),
+        create_collection_if_not_exists=True,
+    )
+
+
 def _reset_collection() -> None:
     if CHATBOT_RAG_CHROMA_DIR.exists():
         shutil.rmtree(CHATBOT_RAG_CHROMA_DIR, ignore_errors=True)
@@ -369,15 +391,18 @@ def ensure_chatbot_rag_index() -> int:
                 pass
 
         _reset_collection()
-        client = _create_client()
-        collection = client.create_collection(CHATBOT_RAG_COLLECTION_NAME)
+        vector_store = _create_vector_store()
         documents = _build_rag_documents()
         if documents:
-            collection.add(
-                ids=[item["id"] for item in documents],
-                documents=[item["document"] for item in documents],
-                metadatas=[item["metadata"] for item in documents],
-                embeddings=[_embed_text(item["document"]) for item in documents],
+            vector_store.add_documents(
+                documents=[
+                    Document(
+                        page_content=str(item["document"] or ""),
+                        metadata=dict(item["metadata"] or {}),
+                    )
+                    for item in documents
+                ],
+                ids=[str(item["id"]) for item in documents],
             )
         _write_manifest()
         return len(documents)
@@ -386,37 +411,21 @@ def ensure_chatbot_rag_index() -> int:
 def _query_collection(question: str, *, limit: int) -> list[dict[str, Any]]:
     try:
         ensure_chatbot_rag_index()
-        client = _create_client()
-        collection = client.get_collection(CHATBOT_RAG_COLLECTION_NAME)
-        query_result = collection.query(
-            query_embeddings=[_embed_text(question)],
-            n_results=limit,
-            include=["documents", "metadatas", "distances"],
-        )
+        results = _create_vector_store().similarity_search_with_score(question, k=limit)
     except Exception as exc:
         logger.warning("[chatbot_rag_chroma_retry] reason=%s", exc)
         ensure_chatbot_rag_index()
-        client = _create_client()
-        collection = client.get_collection(CHATBOT_RAG_COLLECTION_NAME)
-        query_result = collection.query(
-            query_embeddings=[_embed_text(question)],
-            n_results=limit,
-            include=["documents", "metadatas", "distances"],
-        )
-
-    documents = (query_result.get("documents") or [[]])[0]
-    metadatas = (query_result.get("metadatas") or [[]])[0]
-    distances = (query_result.get("distances") or [[]])[0]
+        results = _create_vector_store().similarity_search_with_score(question, k=limit)
 
     matches: list[dict[str, Any]] = []
-    for document, metadata, distance in zip(documents, metadatas, distances):
-        if not document or not isinstance(metadata, dict):
+    for document, distance in results:
+        if not document.page_content or not isinstance(document.metadata, dict):
             continue
         score = max(0.0, 1.0 - float(distance or 0.0))
         matches.append(
             {
-                "document": str(document),
-                "metadata": metadata,
+                "document": str(document.page_content),
+                "metadata": document.metadata,
                 "score": score,
             }
         )
