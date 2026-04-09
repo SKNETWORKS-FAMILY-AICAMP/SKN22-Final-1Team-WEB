@@ -103,6 +103,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware", # Static 서빙 최적화
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "app.middleware.BrowserSessionCleanupMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -147,8 +148,8 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Session configuration
-SESSION_EXPIRE_AT_BROWSER_CLOSE = True
-SESSION_COOKIE_AGE = 3600  # 1 hour default
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_AGE = 86400 * 7  # 7 days persistent session
 SESSION_SAVE_EVERY_REQUEST = True
 
 # Use a manifest only in production-like environments so local runserver

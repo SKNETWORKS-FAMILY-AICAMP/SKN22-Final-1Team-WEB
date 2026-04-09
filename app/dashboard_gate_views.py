@@ -14,15 +14,12 @@ from app.session_state import (
 
 
 def gated_partner_dashboard(request):
-    designer = get_session_designer(request=request)
-    if designer is not None:
-        return redirect("partner_staff_dashboard")
-
     admin = get_session_admin(request=request)
     if admin is None:
         return redirect("partner_index")
-    if not can_access_owner_dashboard(request=request):
-        return redirect(f"{reverse('partner_designer_select')}?next={reverse('partner_dashboard')}")
+    
+    # 매장 관리자 권한이 있다면 즉시 대시보드 표시
+    # (이미 admin_login 또는 partner_verify 단계에서 allow_owner_dashboard가 호출됨)
     return admin_dashboard_page(request)
 
 

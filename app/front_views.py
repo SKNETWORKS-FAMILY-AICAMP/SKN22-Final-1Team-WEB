@@ -356,7 +356,10 @@ def partner_designer_select_page(request: HttpRequest):
         login_url = reverse("partner_login")
         query = urlencode({"next": request.get_full_path()})
         return redirect(f"{login_url}?{query}")
-    return render(request, "admin/designer_select.html")
+    
+    # 고객 세션이 있는 경우 템플릿으로 전달
+    client = get_session_customer(request=request)
+    return render(request, "admin/designer_select.html", {"client": client})
 
 
 @never_cache
@@ -651,6 +654,8 @@ def partner_verify(request):
         clear_customer_session(request=request)
         clear_designer_session(request=request)
         set_admin_session(request=request, admin=admin)
+        # 매장 로그인 성공 시 대시보드 기본 접근은 허용하되, 
+        # 디자이너 관리 등 민감 페이지는 별도 비밀번호 확인 절차를 거침
         return JsonResponse(
             {
                 "status": "success",
@@ -729,6 +734,33 @@ def partner_verify(request):
 
 
 @never_cache
+def partner_select_designer(request):
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "POST method is required."}, status=405)
+
+    admin = get_session_admin(request=request)
+    if admin is None:
+        return JsonResponse({"status": "error", "message": "매장 관리자 로그인이 필요합니다."}, status=401)
+
+    designer_id = (request.POST.get("designer_id") or "").strip()
+    if not designer_id:
+        return JsonResponse({"status": "error", "message": "디자이너를 선택해 주세요."}, status=400)
+
+    designer = get_designer_for_admin(admin=admin, designer_id=designer_id)
+    if designer is None:
+        return JsonResponse({"status": "error", "message": "선택한 디자이너 정보를 찾을 수 없습니다."}, status=404)
+
+    # PIN 없이 세션 설정
+    set_designer_session(request=request, designer=designer)
+
+    return JsonResponse({
+        "status": "success",
+        "designer_id": designer.id,
+        "designer_name": designer.name
+    })
+
+
+@never_cache
 def partner_designer_list(request):
     if _has_standalone_customer_session(request=request):
         return JsonResponse(
@@ -798,9 +830,8 @@ def customer_logout_page(request):
 @never_cache
 def designer_logout_page(request):
     clear_designer_session(request=request)
-    revoke_owner_dashboard(request=request)
     if get_session_admin(request=request) is not None:
-        return redirect("partner_index")
+        return redirect("partner_designer_select")
     return redirect("partner_index")
 
 
