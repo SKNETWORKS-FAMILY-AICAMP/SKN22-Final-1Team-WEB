@@ -2,8 +2,6 @@ import base64
 import json
 import logging
 import os
-import re
-import sys
 import time
 from math import dist
 from types import SimpleNamespace
@@ -13,7 +11,6 @@ import requests
 from app.api.v1.recommendation_logic import (
     DEFAULT_SCORING_WEIGHTS,
     ScoringWeights,
-    STYLE_CATALOG,
     canonical_budget,
     canonical_length,
     canonical_scalp,
@@ -29,9 +26,6 @@ _AI_HEALTH_CACHE: dict[str, object] = {
     "expires_at": 0.0,
     "payload": None,
 }
-
-RUNPOD_QUEUE_STATUSES = {"IN_QUEUE", "IN_PROGRESS"}
-FAILED_RUNPOD_STATUSES = {"FAILED", "CANCELLED", "TIMED_OUT"}
 
 
 def _service_base_url() -> str:
@@ -69,22 +63,6 @@ def _runpod_endpoint_id() -> str:
 def _runpod_health_timeout() -> tuple[int, int]:
     read_timeout = int(os.environ.get("MIRRAI_AI_HEALTH_TIMEOUT", "5"))
     return (3, max(3, read_timeout))
-
-
-def _runpod_sync_timeout_seconds() -> int:
-    configured = os.environ.get("MIRRAI_RUNPOD_SYNC_TIMEOUT", "").strip() or "120"
-    return max(15, int(configured))
-
-
-def _runpod_poll_interval_seconds(*, elapsed_seconds: float) -> float:
-    configured = os.environ.get("MIRRAI_RUNPOD_POLL_INTERVAL", "").strip()
-    if configured:
-        return max(0.5, float(configured))
-    if elapsed_seconds < 10.0:
-        return 2.0
-    if elapsed_seconds < 30.0:
-        return 5.0
-    return 30.0
 
 
 def _service_timeout() -> int:
@@ -130,7 +108,6 @@ def get_ai_runtime_config_snapshot() -> dict:
     configured_provider = os.environ.get("MIRRAI_AI_PROVIDER", "").strip().lower() or "auto"
     endpoint_id = _runpod_endpoint_id()
     service_url = _service_base_url()
-    probe_payload_json = os.environ.get("MIRRAI_RUNPOD_PROBE_PAYLOAD_JSON", "").strip()
     return {
         "configured_provider": configured_provider,
         "resolved_provider": _ai_provider(),
@@ -141,7 +118,6 @@ def get_ai_runtime_config_snapshot() -> dict:
         "runpod_enabled": _runpod_enabled(),
         "runpod_api_key_configured": bool(_runpod_api_key()),
         "runpod_endpoint_id_configured": bool(endpoint_id),
-        "runpod_probe_payload_configured": bool(probe_payload_json),
     }
 
 
@@ -156,303 +132,27 @@ def _extract_runpod_output(payload: dict) -> dict | None:
     return None
 
 
-def _runpod_headers() -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {_runpod_api_key()}",
-        "Content-Type": "application/json",
-    }
-
-
-def _classify_runpod_request_exception(exc: requests.RequestException) -> tuple[str, str]:
-    response = getattr(exc, "response", None)
-    if response is not None:
-        status_code = int(getattr(response, "status_code", 0) or 0)
-        if status_code in {401, 403}:
-            return "auth_error", f"RunPod authentication failed with status={status_code}."
-        return "failed", f"RunPod request failed with status={status_code}."
-    return "network_error", str(exc) or "RunPod request failed."
-
-
-def _runpod_probe_payload() -> dict | None:
-    raw = os.environ.get("MIRRAI_RUNPOD_PROBE_PAYLOAD_JSON", "").strip()
-    if not raw:
-        return None
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        logger.warning("RunPod probe payload env is not valid JSON.")
-        return None
-    if not isinstance(parsed, dict):
-        logger.warning("RunPod probe payload env must be a JSON object.")
-        return None
-    return parsed
-
-
-def _has_runpod_recommendation_metadata(payload: dict | None) -> bool:
-    if not isinstance(payload, dict):
-        return False
-    recommendations = payload.get("recommendations")
-    if not isinstance(recommendations, list):
-        return False
-    for item in recommendations:
-        if not isinstance(item, dict):
-            continue
-        if item.get("face_shape_detected") and item.get("golden_ratio_score") is not None:
-            return True
-    return False
-
-
-def _poll_runpod_job_output(*, job_id: str, timeout_seconds: int) -> dict:
-    status_url = f"{_runpod_base_url()}/{_runpod_endpoint_id()}/status/{job_id}"
-    start = time.monotonic()
-    deadline = start + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            response = requests.get(
-                status_url,
-                headers={"Authorization": f"Bearer {_runpod_api_key()}"},
-                timeout=min(timeout_seconds, 60),
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except requests.RequestException as exc:
-            state, message = _classify_runpod_request_exception(exc)
-            logger.warning("RunPod job %s polling failed: %s", job_id, message)
-            return {
-                "state": state,
-                "message": message,
-                "job_id": job_id,
-                "job_status": None,
-                "output": None,
-                "last_error_code": "RUNPOD_STATUS_REQUEST_FAILED",
-            }
-        except ValueError:
-            logger.warning("RunPod job %s polling returned invalid JSON", job_id)
-            return {
-                "state": "failed",
-                "message": "RunPod status polling returned invalid JSON.",
-                "job_id": job_id,
-                "job_status": None,
-                "output": None,
-                "last_error_code": "RUNPOD_STATUS_INVALID_JSON",
-            }
-        status = str((payload or {}).get("status") or "").upper()
-        if status == "COMPLETED":
-            output_url = payload.get("output_url")
-            if output_url:
-                try:
-                    output_response = requests.get(str(output_url), timeout=min(timeout_seconds, 120))
-                    output_response.raise_for_status()
-                    fetched = output_response.json()
-                except requests.RequestException as exc:
-                    state, message = _classify_runpod_request_exception(exc)
-                    logger.warning("RunPod job %s output fetch failed: %s", job_id, message)
-                    return {
-                        "state": state,
-                        "message": message,
-                        "job_id": job_id,
-                        "job_status": status,
-                        "output": None,
-                        "last_error_code": "RUNPOD_OUTPUT_FETCH_FAILED",
-                    }
-                except ValueError:
-                    logger.warning("RunPod job %s output fetch returned invalid JSON", job_id)
-                    return {
-                        "state": "failed",
-                        "message": "RunPod output fetch returned invalid JSON.",
-                        "job_id": job_id,
-                        "job_status": status,
-                        "output": None,
-                        "last_error_code": "RUNPOD_OUTPUT_INVALID_JSON",
-                    }
-                extracted = _extract_runpod_output(fetched if isinstance(fetched, dict) else {"output": fetched})
-                return {
-                    "state": "completed",
-                    "message": "RunPod job completed after polling.",
-                    "job_id": job_id,
-                    "job_status": status,
-                    "output": extracted,
-                    "last_error_code": None,
-                }
-            return {
-                "state": "completed",
-                "message": "RunPod job completed after polling.",
-                "job_id": job_id,
-                "job_status": status,
-                "output": _extract_runpod_output(payload),
-                "last_error_code": None,
-            }
-        if status in FAILED_RUNPOD_STATUSES:
-            logger.warning("RunPod job %s failed with status=%s error=%s output=%s", job_id, status, payload.get("error"), payload.get("output"))
-            return {
-                "state": "failed",
-                "message": str(payload.get("error") or f"RunPod job failed with status={status}."),
-                "job_id": job_id,
-                "job_status": status,
-                "output": None,
-                "last_error_code": f"RUNPOD_JOB_{status}",
-            }
-        elapsed = time.monotonic() - start
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        poll_interval = min(_runpod_poll_interval_seconds(elapsed_seconds=elapsed), remaining)
-        time.sleep(max(0.1, poll_interval))
-    logger.warning("RunPod job %s did not complete within %s seconds", job_id, timeout_seconds)
-    return {
-        "state": "timeout",
-        "message": f"RunPod job did not complete within {timeout_seconds} seconds.",
-        "job_id": job_id,
-        "job_status": "TIMEOUT",
-        "output": None,
-        "last_error_code": "RUNPOD_SYNC_TIMEOUT",
-    }
-
-
-def _runpod_request_details(input_payload: dict, *, sync: bool = True, timeout: tuple[int, int] | None = None) -> dict:
+def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, int] | None = None) -> dict | None:
     if not _runpod_enabled():
-        return {
-            "state": "misconfigured",
-            "message": "RunPod API key or endpoint id is missing.",
-            "job_id": None,
-            "job_status": None,
-            "output": None,
-            "last_error_code": "RUNPOD_NOT_CONFIGURED",
-        }
+        return None
 
     route = "runsync" if sync else "run"
-    request_timeout = timeout or (5, 120)
     url = f"{_runpod_base_url()}/{_runpod_endpoint_id()}/{route}"
     try:
         response = requests.post(
             url,
             json={"input": input_payload},
-            headers=_runpod_headers(),
-            timeout=request_timeout,
+            headers={
+                "Authorization": f"Bearer {_runpod_api_key()}",
+                "Content-Type": "application/json",
+            },
+            timeout=timeout or (5, 120),
         )
         response.raise_for_status()
-        payload = response.json()
-    except requests.RequestException as exc:
-        state, message = _classify_runpod_request_exception(exc)
-        logger.warning("RunPod request failed: %s", message)
-        return {
-            "state": state,
-            "message": message,
-            "job_id": None,
-            "job_status": None,
-            "output": None,
-            "last_error_code": "RUNPOD_REQUEST_FAILED",
-            "traceback_excerpt": None,
-            "remote_keys": [],
-        }
-    except ValueError:
-        logger.warning("RunPod request returned invalid JSON")
-        return {
-            "state": "failed",
-            "message": "RunPod request returned invalid JSON.",
-            "job_id": None,
-            "job_status": None,
-            "output": None,
-            "last_error_code": "RUNPOD_INVALID_JSON",
-            "traceback_excerpt": None,
-            "remote_keys": [],
-        }
-
-    extracted = _extract_runpod_output(payload)
-    payload_summary = _runpod_payload_summary(extracted if isinstance(extracted, dict) else payload)
-    traceback_excerpt = _traceback_excerpt(
-        ((extracted or {}).get("traceback") if isinstance(extracted, dict) else None)
-        or ((payload or {}).get("traceback") if isinstance(payload, dict) else None)
-    )
-    status = str((payload or {}).get("status") or "").upper()
-    job_id = str((payload or {}).get("id") or "").strip() or None
-    if sync and status in RUNPOD_QUEUE_STATUSES:
-        if not job_id:
-            logger.warning("RunPod sync response queued without job id: %s", payload)
-            return {
-                "state": "queued",
-                "message": "RunPod sync response is queued without a job id.",
-                "job_id": None,
-                "job_status": status,
-                "output": extracted,
-                "last_error_code": "RUNPOD_QUEUE_WITHOUT_JOB_ID",
-                "traceback_excerpt": traceback_excerpt,
-                "remote_keys": payload_summary["remote_keys"],
-            }
-        timeout_seconds = max(
-            _runpod_sync_timeout_seconds(),
-            int(request_timeout[1] if len(request_timeout) > 1 else request_timeout[0]),
-        )
-        polled = _poll_runpod_job_output(
-            job_id=job_id,
-            timeout_seconds=timeout_seconds,
-        )
-        polled.setdefault("job_id", job_id)
-        polled.setdefault("job_status", status)
-        return polled
-    if status in FAILED_RUNPOD_STATUSES:
-        return {
-            "state": "failed",
-            "message": str(payload.get("error") or f"RunPod request failed with status={status}."),
-            "job_id": job_id,
-            "job_status": status,
-            "output": extracted,
-            "last_error_code": f"RUNPOD_REQUEST_{status}",
-            "traceback_excerpt": traceback_excerpt,
-            "remote_keys": payload_summary["remote_keys"],
-        }
-    return {
-        "state": "completed",
-        "message": "RunPod request completed.",
-        "job_id": job_id,
-        "job_status": status or None,
-        "output": extracted,
-        "last_error_code": None,
-        "traceback_excerpt": traceback_excerpt,
-        "remote_keys": payload_summary["remote_keys"],
-    }
-
-
-def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, int] | None = None) -> dict | None:
-    details = _runpod_request_details(input_payload, sync=sync, timeout=timeout)
-    if details.get("state") != "completed":
-        logger.warning(
-            "Falling back after RunPod call failure: %s last_error_code=%s traceback_excerpt=%s remote_keys=%s",
-            details.get("message"),
-            details.get("last_error_code"),
-            details.get("traceback_excerpt"),
-            details.get("remote_keys"),
-        )
-    return details.get("output")
-
-
-def _runpod_payload_summary(payload: dict | None) -> dict:
-    if not isinstance(payload, dict):
-        return {
-            "remote_keys": [],
-            "recommendation_count": 0,
-            "result_count": 0,
-            "has_traceback": False,
-        }
-
-    recommendations = payload.get("recommendations")
-    results = payload.get("results")
-    return {
-        "remote_keys": sorted(payload.keys()),
-        "recommendation_count": (len(recommendations) if isinstance(recommendations, list) else 0),
-        "result_count": (len(results) if isinstance(results, list) else 0),
-        "has_traceback": bool(payload.get("traceback")),
-    }
-
-
-def _traceback_excerpt(value: object, *, limit: int = 400) -> str | None:
-    text = str(value or "").strip()
-    if not text:
+        return _extract_runpod_output(response.json())
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Falling back after RunPod call failure: %s", exc)
         return None
-    compact = " ".join(text.split())
-    if len(compact) <= limit:
-        return compact
-    return compact[: limit - 3].rstrip() + "..."
 
 
 def _service_headers(*, include_json_content_type: bool) -> dict[str, str]:
@@ -661,10 +361,8 @@ def _normalize_explain_style_payload(payload: dict | None, *, card: dict) -> dic
 def _compute_ai_health() -> dict:
     provider = _ai_provider()
     if provider == "runpod":
-        details = _runpod_request_details({"action": "health_check"}, timeout=_runpod_health_timeout())
-        payload = details.get("output")
-        state = str(details.get("state") or "unknown")
-        if isinstance(payload, dict):
+        payload = _post_runpod({"action": "health_check"}, timeout=_runpod_health_timeout())
+        if payload:
             raw_status = str(payload.get("status", "ok")).lower()
             if raw_status in {"ok", "completed"}:
                 status = "online"
@@ -681,18 +379,13 @@ def _compute_ai_health() -> dict:
                     or payload.get("message")
                     or "runpod"
                 ),
-                "connectivity_state": state,
-                "last_error_code": details.get("last_error_code"),
             }
             logger.info("[ai_health] provider=runpod status=%s message=%s", result["status"], result["message"])
             return result
-        status = "offline" if state in {"network_error", "timeout", "failed", "auth_error"} else state
         result = {
-            "status": status,
+            "status": "offline",
             "mode": "runpod",
-            "message": details.get("message") or "RunPod health check failed.",
-            "connectivity_state": state,
-            "last_error_code": details.get("last_error_code"),
+            "message": "RunPod health check failed.",
         }
         logger.info("[ai_health] provider=runpod status=%s message=%s", result["status"], result["message"])
         return result
@@ -754,11 +447,9 @@ def build_ai_runtime_diagnostic_snapshot(*, use_cache: bool = True) -> dict:
 
 
 def _face_analysis_runtime_mode(config: dict) -> str:
-    if config.get("resolved_provider") == "runpod":
-        return "runpod_inference_metadata"
     if config.get("service_enabled"):
         return "service_remote"
-    return "disabled"
+    return "local_mock_fallback"
 
 
 def _recommendation_runtime_mode(config: dict) -> str:
@@ -766,78 +457,8 @@ def _recommendation_runtime_mode(config: dict) -> str:
     if resolved_provider == "service":
         return "service_remote"
     if resolved_provider == "runpod":
-        return "runpod_direct_primary_with_sync_polling"
+        return "local_scoring_with_runpod_augmentation"
     return "local_scoring_fallback"
-
-
-def build_runpod_inference_probe_snapshot() -> dict:
-    config = get_ai_runtime_config_snapshot()
-    if config.get("resolved_provider") != "runpod":
-        return {
-            "provider": config.get("resolved_provider"),
-            "status": "skipped",
-            "inference_status": "skipped",
-            "sync_contract_state": "not_applicable",
-            "metadata_state": "unknown",
-            "queue_state": "not_applicable",
-            "message": "RunPod is not the active provider.",
-            "last_error_code": None,
-        }
-
-    probe_payload = _runpod_probe_payload()
-    if not probe_payload:
-        return {
-            "provider": "runpod",
-            "status": "skipped",
-            "inference_status": "not_configured",
-            "sync_contract_state": "unknown",
-            "metadata_state": "unknown",
-            "queue_state": "unknown",
-            "message": "RunPod probe payload is not configured.",
-            "last_error_code": "RUNPOD_PROBE_PAYLOAD_NOT_CONFIGURED",
-        }
-
-    started_at = time.monotonic()
-    details = _runpod_request_details(probe_payload, sync=True, timeout=(5, _runpod_sync_timeout_seconds()))
-    elapsed_ms = int((time.monotonic() - started_at) * 1000)
-    state = str(details.get("state") or "unknown")
-    output = details.get("output")
-    metadata_present = _has_runpod_recommendation_metadata(output)
-
-    inference_status = state
-    sync_contract_state = "satisfied" if state == "completed" else "degraded"
-    metadata_state = "present" if metadata_present else "missing"
-    queue_state = "resolved"
-
-    if state == "completed" and not metadata_present:
-        inference_status = "metadata_missing"
-        metadata_state = "missing"
-        sync_contract_state = "degraded"
-    elif state == "completed":
-        inference_status = "completed"
-    elif state in RUNPOD_QUEUE_STATUSES:
-        queue_state = state.lower()
-    elif state == "timeout":
-        queue_state = "stuck"
-    elif state == "skipped":
-        queue_state = "unknown"
-
-    if state not in {"completed", "queued", "timeout"}:
-        queue_state = "not_applicable"
-
-    return {
-        "provider": "runpod",
-        "status": "ok" if state == "completed" and metadata_present else inference_status,
-        "inference_status": inference_status,
-        "sync_contract_state": sync_contract_state,
-        "metadata_state": metadata_state,
-        "queue_state": queue_state,
-        "message": details.get("message"),
-        "last_error_code": details.get("last_error_code"),
-        "elapsed_ms": elapsed_ms,
-        "job_id": details.get("job_id"),
-        "job_status": details.get("job_status"),
-    }
 
 
 def build_model_connection_validation_snapshot(*, attempts: int = 3, use_cache: bool = False) -> dict:
@@ -872,8 +493,6 @@ def build_model_connection_validation_snapshot(*, attempts: int = 3, use_cache: 
                 "message": health.get("message"),
                 "cached": bool(health.get("cached")),
                 "elapsed_ms": elapsed_ms,
-                "connectivity_state": health.get("connectivity_state") or status,
-                "last_error_code": health.get("last_error_code"),
             }
         )
 
@@ -885,20 +504,15 @@ def build_model_connection_validation_snapshot(*, attempts: int = 3, use_cache: 
     elif offline_count > 0:
         overall_state = "unstable"
 
-    inference_probe = build_runpod_inference_probe_snapshot()
     warnings: list[str] = []
+    if config.get("resolved_provider") == "runpod" and not config.get("service_enabled"):
+        warnings.append("face_analysis_uses_local_mock_fallback")
     if config.get("resolved_provider") == "runpod" and online_count and offline_count:
         warnings.append("runpod_health_flaky")
     if config.get("resolved_provider") == "runpod" and online_count == 0:
         warnings.append("runpod_health_unavailable")
     if config.get("resolved_provider") == "local":
         warnings.append("remote_model_not_active")
-    if inference_probe.get("inference_status") == "not_configured":
-        warnings.append("runpod_probe_payload_not_configured")
-    if inference_probe.get("inference_status") == "timeout":
-        warnings.append("runpod_sync_timeout")
-    if inference_probe.get("inference_status") == "metadata_missing":
-        warnings.append("runpod_metadata_missing")
 
     return {
         "config": config,
@@ -911,16 +525,8 @@ def build_model_connection_validation_snapshot(*, attempts: int = 3, use_cache: 
             "mode_counts": mode_counts,
             "face_analysis_mode": _face_analysis_runtime_mode(config),
             "recommendation_mode": _recommendation_runtime_mode(config),
-            "connectivity_state": "online" if online_count else "offline",
-            "inference_status": inference_probe.get("inference_status"),
-            "sync_contract_state": inference_probe.get("sync_contract_state"),
-            "metadata_state": inference_probe.get("metadata_state"),
-            "queue_state": inference_probe.get("queue_state"),
-            "last_error_code": inference_probe.get("last_error_code"),
-            "last_error_message": inference_probe.get("message"),
         },
         "probes": probes,
-        "inference_probe": inference_probe,
         "warnings": warnings,
     }
 
@@ -1003,15 +609,17 @@ def _build_preference_text(survey_data: dict | None) -> str | None:
     return text or None
 
 
+def _build_runpod_image_payload(analysis_data: dict) -> dict | None:
+    image_base64 = str(analysis_data.get("image_base64") or "").strip()
+    if image_base64:
+        return {"image_base64": image_base64}
 
+    image_url = str(analysis_data.get("image_url") or "").strip()
+    if image_url.startswith(("http://", "https://")):
+        return {"image_url": image_url}
 
-def _emit_runpod_direct_primary_skipped(reason: str, **details) -> None:
-    detail_text = " ".join(f"{key}={value!r}" for key, value in details.items())
-    message = f"[runpod_direct_primary_skipped] reason={reason}"
-    if detail_text:
-        message = f"{message} {detail_text}"
-    logger.warning(message)
-    print(message, file=sys.stderr, flush=True)
+    return None
+
 
 def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     analysis_data = analysis_data or {}
@@ -1019,13 +627,11 @@ def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     face_bbox = snapshot.get("face_bbox") or {}
     landmarks = snapshot.get("landmarks") or {}
     if not face_bbox:
-        _emit_runpod_direct_primary_skipped("missing_face_bbox", analysis_keys=sorted(analysis_data.keys()), snapshot_keys=sorted(snapshot.keys()))
         return None
 
     face_height = float(face_bbox.get("height") or 0)
     face_width = float(face_bbox.get("width") or 0)
     if face_height <= 0 or face_width <= 0:
-        _emit_runpod_direct_primary_skipped("invalid_face_bbox_dimensions", face_height=face_height, face_width=face_width, face_bbox=face_bbox)
         return None
 
     left_eye = (landmarks.get("left_eye") or {}).get("point")
@@ -1033,23 +639,11 @@ def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     mouth_center = (landmarks.get("mouth_center") or {}).get("point")
     chin_center = (landmarks.get("chin_center") or {}).get("point")
     if not (left_eye and right_eye and mouth_center and chin_center):
-        missing_parts = [
-            name
-            for name, value in (
-                ("left_eye", left_eye),
-                ("right_eye", right_eye),
-                ("mouth_center", mouth_center),
-                ("chin_center", chin_center),
-            )
-            if not value
-        ]
-        _emit_runpod_direct_primary_skipped("missing_landmark_points", missing_parts=missing_parts, landmark_keys=sorted(landmarks.keys()))
         return None
 
     eye_distance = dist((left_eye["x"], left_eye["y"]), (right_eye["x"], right_eye["y"]))
     jaw_height = max(0.0, float(chin_center["y"]) - float(mouth_center["y"]))
     if eye_distance <= 0 or jaw_height <= 0:
-        _emit_runpod_direct_primary_skipped("invalid_ratio_components", eye_distance=eye_distance, jaw_height=jaw_height)
         return None
 
     return {
@@ -1087,40 +681,6 @@ def _match_runpod_recommendation(
     return None
 
 
-def _runpod_candidate_maps(*, recommendation_meta: dict | None, result: dict | None) -> list[dict]:
-    candidate_maps: list[dict] = []
-    for candidate in (recommendation_meta, result):
-        if not isinstance(candidate, dict):
-            continue
-        candidate_maps.append(candidate)
-        for nested_key in (
-            "recommended_style",
-            "style",
-            "hairstyle",
-            "recommended_hairstyle",
-            "output",
-            "result",
-            "simulation",
-            "image",
-            "metadata",
-            "analysis",
-        ):
-            nested = candidate.get(nested_key)
-            if isinstance(nested, dict):
-                candidate_maps.append(nested)
-    return candidate_maps
-
-
-def _runpod_scalar_candidates(*, candidate_maps: list[dict], keys: tuple[str, ...]) -> list[object]:
-    values: list[object] = []
-    for candidate in candidate_maps:
-        for key in keys:
-            value = candidate.get(key)
-            if value not in (None, "", []):
-                values.append(value)
-    return values
-
-
 def _rag_context_excerpt(value: object, *, limit: int = 280) -> str | None:
     text = str(value or "").strip()
     if not text:
@@ -1130,425 +690,240 @@ def _rag_context_excerpt(value: object, *, limit: int = 280) -> str | None:
     return text[: limit - 3].rstrip() + "..."
 
 
-def _extract_runpod_image_reference(*, result: dict, recommendation_meta: dict | None) -> tuple[str | None, str | None, str | None]:
-    candidate_maps = _runpod_candidate_maps(recommendation_meta=recommendation_meta, result=result)
+def _normalize_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
 
-    for candidate in candidate_maps:
-        for url_key, expires_key in (
-            ("simulation_image_url", "simulation_image_url_expires_at"),
-            ("synthetic_image_url", "synthetic_image_url_expires_at"),
-            ("image_url", "image_url_expires_at"),
-            ("generated_image_url", "generated_image_url_expires_at"),
-            ("simulation_url", "simulation_url_expires_at"),
-            ("result_image_url", "result_image_url_expires_at"),
-            ("output_image_url", "output_image_url_expires_at"),
-        ):
-            value = str(candidate.get(url_key) or "").strip()
-            if value:
-                return value, str(candidate.get(expires_key) or "").strip() or None, "signed_url"
-        raw_image_value = candidate.get("image")
-        if isinstance(raw_image_value, str) and raw_image_value.strip().startswith(("http://", "https://", "data:image/")):
-            return raw_image_value.strip(), None, ("data_url" if raw_image_value.strip().startswith("data:image/") else "signed_url")
 
-    for image_base64 in _runpod_scalar_candidates(
-        candidate_maps=candidate_maps,
-        keys=("image_base64", "simulation_image_base64", "synthetic_image_base64", "generated_image_base64", "base64"),
-    ):
-        text = str(image_base64 or "").strip()
-        if not text:
+def _build_runpod_recommendation_payload(
+    items: list[dict],
+    *,
+    analysis_data: dict | None = None,
+) -> list[dict]:
+    analysis_data = analysis_data or {}
+    payload: list[dict] = []
+    for index, item in enumerate(items[:5], start=1):
+        style_name = str(item.get("style_name") or "").strip()
+        if not style_name:
             continue
-        if text.startswith("data:image/"):
-            return text, None, "data_url"
-        return f"data:image/png;base64,{text}", None, "base64_data_url"
 
-    return None, None, None
-
-
-def _normalize_style_token(value: object) -> str:
-    return str(value or "").strip().lower().replace("-", "").replace("_", "").replace(" ", "")
-
-
-def _style_alias_tokens(*, style_id: int, styles_by_id: dict[int, object] | None) -> set[str]:
-    styles_by_id = styles_by_id or {}
-    aliases: set[str] = set()
-    style = styles_by_id.get(style_id)
-    profile = _style_profile_for_id(style_id)
-    for candidate in (
-        getattr(style, "name", None),
-        getattr(style, "style_name", None),
-        getattr(style, "vibe", None),
-        (profile.fallback_name if profile else None),
-    ):
-        token = _normalize_style_token(candidate)
-        if token:
-            aliases.add(token)
-    if profile:
-        for keyword in profile.keywords:
-            token = _normalize_style_token(keyword)
-            if token:
-                aliases.add(token)
-    return aliases
+        reasoning_snapshot = dict(item.get("reasoning_snapshot") or {})
+        payload.append(
+            {
+                "rank": int(item.get("rank") or index),
+                "style_id": item.get("style_id"),
+                "style_name": style_name,
+                "hairstyle_text": str(item.get("hairstyle_text") or style_name).strip(),
+                "description": str(
+                    item.get("style_description")
+                    or item.get("llm_explanation")
+                    or reasoning_snapshot.get("summary")
+                    or ""
+                ).strip(),
+                "score": item.get("match_score") if item.get("match_score") is not None else item.get("score"),
+                "face_shapes": _normalize_list(
+                    item.get("face_shapes")
+                    or reasoning_snapshot.get("matched_face_shapes")
+                    or reasoning_snapshot.get("face_shapes")
+                ),
+                "face_shape_detected": analysis_data.get("face_shape") or reasoning_snapshot.get("face_shape"),
+                "golden_ratio_score": analysis_data.get("golden_ratio_score") or item.get("golden_ratio_score"),
+            }
+        )
+    return payload
 
 
-def _score_style_alias_match(*, candidate_token: str, alias_token: str) -> int:
-    if not candidate_token or not alias_token:
-        return 0
-    if candidate_token == alias_token:
-        return 1000 + len(alias_token)
-    if len(alias_token) >= 4 and alias_token in candidate_token:
-        return 200 + len(alias_token)
-    if len(candidate_token) >= 4 and candidate_token in alias_token:
-        return 100 + len(candidate_token)
-    return 0
-
-
-def _coerce_runpod_style_id(candidate: object, *, styles_by_id: dict[int, object] | None) -> int | None:
-    styles_by_id = styles_by_id or {}
+def _fetch_rag_context_for_items(items: list[dict]) -> str | None:
     try:
-        style_id = int(candidate)
-    except (TypeError, ValueError):
-        style_id = None
-    if style_id is not None and (style_id in styles_by_id or _style_profile_for_id(style_id) is not None):
-        return style_id
-
-    text = str(candidate or "").strip()
-    if not text:
+        from app.trend_pipeline.rag_query import build_context, retrieve
+    except Exception as exc:
+        logger.warning("Local trend RAG query module is unavailable: %s", exc)
         return None
-    digit_matches = re.findall(r"\d+", text)
-    for match in reversed(digit_matches):
+
+    documents: list[dict] = []
+    seen_titles: set[str] = set()
+    for item in items[:3]:
+        style_name = str(item.get("style_name") or item.get("hairstyle_text") or "").strip()
+        if not style_name:
+            continue
         try:
-            parsed = int(match)
-        except ValueError:
-            continue
-        if parsed in styles_by_id or _style_profile_for_id(parsed) is not None:
-            return parsed
-    return None
+            for doc in retrieve(style_name, n_results=3, expand=True):
+                title = str(doc.get("title") or "").strip()
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                documents.append(doc)
+        except Exception as exc:
+            logger.warning("Local trend RAG lookup failed for style '%s': %s", style_name, exc)
 
-
-def _style_profile_for_id(style_id: int):
-    return next((profile for profile in STYLE_CATALOG if profile.style_id == style_id), None)
-
-
-def _style_reference_for_id(*, style_id: int, styles_by_id: dict[int, object] | None) -> dict:
-    styles_by_id = styles_by_id or {}
-    style = styles_by_id.get(style_id)
-    profile = _style_profile_for_id(style_id)
-    style_name = (
-        getattr(style, "name", None)
-        or getattr(style, "style_name", None)
-        or (profile.fallback_name if profile else f"Style {style_id}")
-    )
-    style_description = (
-        getattr(style, "description", None)
-        or (profile.fallback_description if profile else "")
-        or ""
-    )
-    sample_image_url = getattr(style, "image_url", None) or (profile.fallback_sample_image_url if profile else None)
-    keywords = list(profile.keywords) if profile else ([getattr(style, "vibe", None)] if getattr(style, "vibe", None) else [])
-    return {
-        "style_id": style_id,
-        "style_name": style_name,
-        "style_description": style_description,
-        "sample_image_url": sample_image_url,
-        "keywords": keywords,
-    }
-
-
-def _resolve_runpod_style_id(
-    *,
-    recommendation_meta: dict | None,
-    result: dict,
-    styles_by_id: dict[int, object] | None,
-) -> int | None:
-    styles_by_id = styles_by_id or {}
-    candidate_maps = _runpod_candidate_maps(recommendation_meta=recommendation_meta, result=result)
-    numeric_candidates = _runpod_scalar_candidates(
-        candidate_maps=candidate_maps,
-        keys=("style_id", "hairstyle_id", "backend_style_id", "id", "style_code", "styleCode"),
-    )
-    for candidate in numeric_candidates:
-        style_id = _coerce_runpod_style_id(candidate, styles_by_id=styles_by_id)
-        if style_id is not None:
-            return style_id
-
-    style_name_candidates = _runpod_scalar_candidates(
-        candidate_maps=candidate_maps,
-        keys=("style_name", "hairstyle_name", "recommended_style_name", "name", "label", "title"),
-    )
-    best_style_id = None
-    best_score = 0
-    score_tie = False
-    known_style_ids = sorted({*styles_by_id.keys(), *(profile.style_id for profile in STYLE_CATALOG)})
-    for candidate in style_name_candidates:
-        candidate_token = _normalize_style_token(candidate)
-        if not candidate_token:
-            continue
-        for style_id in known_style_ids:
-            aliases = _style_alias_tokens(style_id=style_id, styles_by_id=styles_by_id)
-            style_score = max((_score_style_alias_match(candidate_token=candidate_token, alias_token=alias) for alias in aliases), default=0)
-            if style_score > best_score:
-                best_style_id = style_id
-                best_score = style_score
-                score_tie = False
-            elif style_score and style_score == best_score and best_style_id != style_id:
-                score_tie = True
-    if best_style_id is not None and not score_tie:
-        return best_style_id
-    return None
-
-
-def _match_runpod_result(
-    *,
-    results: list[dict],
-    index: int,
-    recommendation_meta: dict | None,
-) -> dict:
-    if index < len(results) and isinstance(results[index], dict):
-        return results[index]
-
-    candidate_maps = _runpod_candidate_maps(recommendation_meta=recommendation_meta, result=None)
-    style_id_candidates = {
-        str(value).strip()
-        for value in _runpod_scalar_candidates(
-            candidate_maps=candidate_maps,
-            keys=("style_id", "hairstyle_id", "backend_style_id", "id", "style_code", "styleCode"),
-        )
-        if str(value or "").strip()
-    }
-    style_name_candidates = {
-        _normalize_style_token(value)
-        for value in _runpod_scalar_candidates(
-            candidate_maps=candidate_maps,
-            keys=("style_name", "hairstyle_name", "recommended_style_name", "name", "label", "title"),
-        )
-        if _normalize_style_token(value)
-    }
-    for result in results:
-        if not isinstance(result, dict):
-            continue
-        result_maps = _runpod_candidate_maps(recommendation_meta=None, result=result)
-        result_ids = {
-            str(value).strip()
-            for value in _runpod_scalar_candidates(
-                candidate_maps=result_maps,
-                keys=("style_id", "hairstyle_id", "backend_style_id", "id", "style_code", "styleCode"),
-            )
-            if str(value or "").strip()
-        }
-        result_names = {
-            _normalize_style_token(value)
-            for value in _runpod_scalar_candidates(
-                candidate_maps=result_maps,
-                keys=("style_name", "hairstyle_name", "recommended_style_name", "name", "label", "title"),
-            )
-            if _normalize_style_token(value)
-        }
-        if style_id_candidates and (style_id_candidates & result_ids):
-            return result
-        if style_name_candidates and (style_name_candidates & result_names):
-            return result
-    return {}
-
-
-def _normalize_runpod_direct_items(
-    *,
-    client_id: int | None,
-    remote: dict,
-    styles_by_id: dict[int, object] | None,
-) -> list[dict] | None:
-    recommendations = remote.get("recommendations")
-    results = remote.get("results")
-    if not isinstance(results, list):
-        results = []
-    if not isinstance(recommendations, list) or not recommendations:
-        recommendations = [result for result in results if isinstance(result, dict)]
-    if not recommendations:
+    if not documents:
         return None
+    return build_context(documents[:5])
+
+
+def _augment_items_with_runpod(
+    *,
+    items: list[dict],
+    survey_data: dict | None,
+    analysis_data: dict,
+) -> list[dict]:
+    if _ai_provider() != "runpod":
+        return items
+
+    image = analysis_data.get("image_url")
+    recommendations_payload = _build_runpod_recommendation_payload(items, analysis_data=analysis_data)
+    if not image or not recommendations_payload:
+        return items
+
+    runpod_payload = {
+        "image": image,
+        "recommendations": recommendations_payload,
+        "top_k": len(recommendations_payload),
+        "return_base64": True,
+    }
+
+    rag_context = _fetch_rag_context_for_items(recommendations_payload)
+    if rag_context:
+        runpod_payload["rag_context"] = rag_context
+
+    color_text = (survey_data or {}).get("hair_colour")
+    if color_text:
+        runpod_payload["color_text"] = color_text
+
+    remote = _post_runpod(runpod_payload)
+    if not remote:
+        return items
+
+    results = remote.get("results")
+    if not isinstance(results, list) or not results:
+        return items
+
+    recommendations = remote.get("recommendations")
+    if not isinstance(recommendations, list):
+        recommendations = recommendations_payload
 
     rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
     build_tag = str(remote.get("build_tag") or "").strip() or None
     runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
 
-    normalized_items: list[dict] = []
-    skipped_style_matches = 0
-    kept_style_matches = 0
-    dropped_candidates: list[dict] = []
-    for index, recommendation_meta in enumerate(recommendations):
-        if not isinstance(recommendation_meta, dict):
-            continue
-        result = _match_runpod_result(results=results, index=index, recommendation_meta=recommendation_meta)
-        style_id = _resolve_runpod_style_id(
-            recommendation_meta=recommendation_meta,
-            result=result,
-            styles_by_id=styles_by_id,
-        )
-        if style_id is None:
-            skipped_style_matches += 1
-            dropped_candidates.append(
-                {
-                    "index": index,
-                    "raw_style_id": recommendation_meta.get("style_id"),
-                    "raw_style_name": recommendation_meta.get("style_name"),
-                    "matched_result_style_id": ((result.get("recommended_style") or {}).get("style_id") if isinstance(result, dict) else None),
-                    "matched_result_style_name": ((result.get("recommended_style") or {}).get("style_name") if isinstance(result, dict) else None),
-                }
+    augmented: list[dict] = []
+    for index, item in enumerate(items):
+        enriched = dict(item)
+        if index < len(results):
+            result = results[index] or {}
+            recommendation_meta = _match_runpod_recommendation(
+                recommendations=recommendations,
+                index=index,
+                result=result,
             )
-            continue
-        style_reference = _style_reference_for_id(style_id=style_id, styles_by_id=styles_by_id)
-        image_reference, image_expires_at, image_transport = _extract_runpod_image_reference(
-            result=result,
-            recommendation_meta=recommendation_meta,
-        )
-        try:
-            match_score = float(
-                recommendation_meta.get("score")
-                or recommendation_meta.get("recommendation_score")
-                or (result.get("recommended_style") or {}).get("recommendation_score")
-                or result.get("recommendation_score")
-                or result.get("clip_score")
-                or 0.0
-            )
-        except (TypeError, ValueError):
-            match_score = 0.0
-        summary = (
-            recommendation_meta.get("description")
-            or recommendation_meta.get("reason")
-            or result.get("description")
-            or result.get("reason")
-            or style_reference["style_description"]
-            or f"RunPod direct recommendation for {style_reference['style_name']}."
-        )
-        rank = recommendation_meta.get("rank") or result.get("rank") or (index + 1)
-        try:
-            rank = int(rank)
-        except (TypeError, ValueError):
-            rank = index + 1
-
-        result_maps = _runpod_candidate_maps(recommendation_meta=recommendation_meta, result=result)
-        runpod_snapshot = {
-            "provider": "runpod",
-            "clip_score": result.get("clip_score"),
-            "mask_used": result.get("mask_used"),
-            "elapsed_seconds": remote.get("elapsed_seconds"),
-            "recommended_style": result.get("recommended_style"),
-            "build_tag": build_tag,
-            "runtime": runpod_runtime,
-            "rag_context_excerpt": rag_context_excerpt,
-            "recommendation": recommendation_meta,
-            "face_shape_detected": next(
-                (
-                    value
-                    for value in _runpod_scalar_candidates(
-                        candidate_maps=result_maps,
-                        keys=("face_shape_detected", "face_shape", "detected_face_shape"),
-                    )
-                    if str(value or "").strip()
-                ),
-                None,
-            ),
-            "golden_ratio_score": next(
-                (
-                    value
-                    for value in _runpod_scalar_candidates(
-                        candidate_maps=result_maps,
-                        keys=("golden_ratio_score", "golden_ratio", "ratio_score"),
-                    )
-                    if value not in (None, "")
-                ),
-                None,
-            ),
-            "face_shapes": next(
-                (
-                    value
-                    for value in _runpod_scalar_candidates(
-                        candidate_maps=result_maps,
-                        keys=("face_shapes",),
-                    )
-                    if value not in (None, "")
-                ),
-                None,
-            ),
-        }
-        if image_transport:
-            runpod_snapshot["image_transport"] = image_transport
-        if image_expires_at:
-            runpod_snapshot["simulation_image_url_expires_at"] = image_expires_at
-
-        normalized_items.append(
-            {
-                "source": "generated",
-                "style_id": style_reference["style_id"],
-                "style_name": style_reference["style_name"],
-                "style_description": style_reference["style_description"] or summary,
-                "keywords": style_reference["keywords"],
-                "sample_image_url": style_reference["sample_image_url"],
-                "simulation_image_url": image_reference,
-                "synthetic_image_url": image_reference,
-                "llm_explanation": summary,
-                "reasoning": summary,
-                "reasoning_snapshot": {
-                    "summary": summary,
-                    "source": "runpod_direct_primary",
-                    "remote_score": match_score,
-                    "runpod": runpod_snapshot,
-                },
-                "match_score": match_score,
-                "rank": rank,
+            image_base64 = result.get("image_base64")
+            if image_base64:
+                data_url = f"data:image/png;base64,{image_base64}"
+                enriched["simulation_image_url"] = data_url
+                enriched["synthetic_image_url"] = data_url
+            snapshot = dict(enriched.get("reasoning_snapshot") or {})
+            runpod_snapshot = {
+                "provider": "runpod",
+                "clip_score": result.get("clip_score"),
+                "mask_used": result.get("mask_used"),
+                "elapsed_seconds": remote.get("elapsed_seconds"),
+                "recommended_style": result.get("recommended_style"),
+                "build_tag": build_tag,
+                "runtime": runpod_runtime,
+                "rag_context_excerpt": rag_context_excerpt,
             }
-        )
-        kept_style_matches += 1
+            if recommendation_meta:
+                runpod_snapshot["recommendation"] = recommendation_meta
+                runpod_snapshot["face_shape_detected"] = recommendation_meta.get("face_shape_detected")
+                runpod_snapshot["golden_ratio_score"] = recommendation_meta.get("golden_ratio_score")
+                runpod_snapshot["face_shapes"] = recommendation_meta.get("face_shapes")
+                if recommendation_meta.get("description"):
+                    enriched["llm_explanation"] = enriched.get("llm_explanation") or recommendation_meta.get("description")
+                    enriched["style_description"] = enriched.get("style_description") or recommendation_meta.get("description")
+            snapshot["runpod"] = runpod_snapshot
+            enriched["reasoning_snapshot"] = snapshot
+        augmented.append(enriched)
+    return augmented
 
-    if not normalized_items:
-        _emit_runpod_direct_primary_skipped("style_mapping_failed", recommendation_count=len(recommendations), result_count=len(results), skipped_style_matches=skipped_style_matches)
-        logger.warning(
-            "[runpod_direct_primary_mapping] client_id=%s normalized_count=0 recommendation_count=%s result_count=%s skipped_style_matches=%s dropped_candidates=%s",
-            client_id,
-            len(recommendations),
-            len(results),
-            skipped_style_matches,
-            dropped_candidates[:5],
-        )
-        return None
 
-    normalized_items.sort(key=lambda item: (int(item.get("rank") or 999), -float(item.get("match_score") or 0.0)))
+def simulate_face_analysis(*, image_url: str | None = None, image_bytes: bytes | None = None) -> dict:
+    payload = {"image_url": image_url}
+    if image_bytes is not None:
+        payload["image_base64"] = base64.b64encode(image_bytes).decode("ascii")
+    remote = _request_service("POST", "/internal/analyze-face", payload)
+    normalized = _normalize_analysis_payload(remote, fallback_image_url=image_url)
+    if normalized:
+        logger.info(
+            "[ai_face_analysis] provider=service remote_success=True request_id=%s face_shape=%s",
+            (normalized.get("response_meta") or {}).get("request_id"),
+            normalized.get("face_shape"),
+        )
+        return normalized
     logger.info(
-        "[runpod_direct_primary_mapping] client_id=%s normalized_count=%s recommendation_count=%s result_count=%s kept_style_matches=%s skipped_style_matches=%s kept_style_ids=%s dropped_candidates=%s",
-        client_id,
-        len(normalized_items),
-        len(recommendations),
-        len(results),
-        kept_style_matches,
-        skipped_style_matches,
-        [item.get("style_id") for item in normalized_items],
-        dropped_candidates[:5],
+        "[ai_face_analysis] provider=%s remote_success=False fallback=local_mock",
+        _ai_provider(),
     )
-    return normalized_items[:5]
+    return {
+        "face_shape": "Oval",
+        "golden_ratio_score": 0.92,
+        "image_url": image_url,
+    }
 
 
-def _build_runpod_image_payload(analysis_data: dict) -> dict | None:
-    image_base64 = str(analysis_data.get("image_base64") or "").strip()
-    if image_base64:
-        return {"image_base64": image_base64}
-
-    image_url = str(analysis_data.get("image_url") or "").strip()
-    if image_url.startswith(("http://", "https://")):
-        return {"image_url": image_url}
-
-    return None
+def _runpod_direct_outcome_snapshot(*, status: str, reason: str | None, invoked: bool) -> dict:
+    return {
+        "status": status,
+        "reason": reason,
+        "invoked": invoked,
+    }
 
 
-def _generate_runpod_recommendation_batch(
+def _attach_runpod_direct_outcome(items: list[dict], outcome: dict | None) -> list[dict]:
+    if not outcome or not items:
+        return items
+
+    snapshot = _runpod_direct_outcome_snapshot(
+        status=str(outcome.get("status") or "unknown"),
+        reason=(str(outcome.get("reason")) if outcome.get("reason") else None),
+        invoked=bool(outcome.get("invoked")),
+    )
+    enriched_items: list[dict] = []
+    for item in items:
+        enriched = dict(item)
+        reasoning_snapshot = dict(enriched.get("reasoning_snapshot") or {})
+        reasoning_snapshot["runpod_direct"] = dict(snapshot)
+        enriched["reasoning_snapshot"] = reasoning_snapshot
+        enriched_items.append(enriched)
+    return enriched_items
+
+
+def _generate_runpod_recommendation_batch_details(
     *,
     client_id: int | None,
     survey_data: dict | None,
     analysis_data: dict,
     styles_by_id: dict[int, object] | None,
-) -> list[dict] | None:
+) -> dict:
     image_payload = _build_runpod_image_payload(analysis_data)
     face_ratios = _build_face_ratios(analysis_data)
     if not image_payload or not face_ratios:
-        _emit_runpod_direct_primary_skipped("missing_required_payload", has_image_payload=bool(image_payload), has_face_ratios=bool(face_ratios), has_image_url=bool(str(analysis_data.get("image_url") or "").strip()), has_image_base64=bool(str(analysis_data.get("image_base64") or "").strip()), has_landmark_snapshot=bool(analysis_data.get("landmark_snapshot")))
-        return None
+        _emit_runpod_direct_primary_skipped(
+            "missing_required_payload",
+            has_image_payload=bool(image_payload),
+            has_face_ratios=bool(face_ratios),
+            has_image_url=bool(str(analysis_data.get("image_url") or "").strip()),
+            has_image_base64=bool(str(analysis_data.get("image_base64") or "").strip()),
+            has_landmark_snapshot=bool(analysis_data.get("landmark_snapshot")),
+        )
+        return {
+            "status": "skipped",
+            "reason": "missing_required_payload",
+            "invoked": False,
+            "items": None,
+        }
 
     runpod_payload = {
         **image_payload,
@@ -1569,7 +944,13 @@ def _generate_runpod_recommendation_batch(
     remote = _post_runpod(runpod_payload)
     if not remote:
         _emit_runpod_direct_primary_skipped("empty_runpod_response", payload_keys=sorted(runpod_payload.keys()))
-        return None
+        return {
+            "status": "failed",
+            "reason": "empty_runpod_response",
+            "invoked": True,
+            "items": None,
+        }
+
     summary = _runpod_payload_summary(remote)
     logger.info(
         "[runpod_direct_primary_response] client_id=%s remote_keys=%s recommendation_count=%s result_count=%s has_traceback=%s",
@@ -1581,107 +962,25 @@ def _generate_runpod_recommendation_batch(
     )
     normalized = _normalize_runpod_direct_items(client_id=client_id, remote=remote, styles_by_id=styles_by_id)
     if normalized is None:
-        _emit_runpod_direct_primary_skipped("normalization_failed", remote_keys=sorted(remote.keys()), recommendation_count=len(remote.get("recommendations") or []) if isinstance(remote.get("recommendations"), list) else 0, result_count=len(remote.get("results") or []) if isinstance(remote.get("results"), list) else 0)
-        return None
-    return normalized
+        _emit_runpod_direct_primary_skipped(
+            "normalization_failed",
+            remote_keys=sorted(remote.keys()),
+            recommendation_count=len(remote.get("recommendations") or []) if isinstance(remote.get("recommendations"), list) else 0,
+            result_count=len(remote.get("results") or []) if isinstance(remote.get("results"), list) else 0,
+        )
+        return {
+            "status": "failed",
+            "reason": "normalization_failed",
+            "invoked": True,
+            "items": None,
+        }
 
-
-def _augment_items_with_runpod(
-    *,
-    items: list[dict],
-    survey_data: dict | None,
-    analysis_data: dict,
-) -> list[dict]:
-    if _ai_provider() != "runpod":
-        return items
-
-    image_payload = _build_runpod_image_payload(analysis_data)
-    face_ratios = _build_face_ratios(analysis_data)
-    if not image_payload or not face_ratios:
-        return items
-
-    runpod_payload = {
-        **image_payload,
-        "face_ratios": face_ratios,
-        "top_k": min(len(items), 5),
-        "return_base64": True,
+    return {
+        "status": "completed",
+        "reason": None,
+        "invoked": True,
+        "items": normalized,
     }
-    preference = _build_runpod_preference_payload(survey_data)
-    preference_text = _build_preference_text(survey_data)
-    if preference:
-        runpod_payload["preference"] = preference
-    if preference_text:
-        runpod_payload["preference_text"] = preference_text
-    color_text = (survey_data or {}).get("hair_colour")
-    if color_text:
-        runpod_payload["color_text"] = color_text
-
-    remote = _post_runpod(runpod_payload)
-    if not remote:
-        return items
-
-    results = remote.get("results")
-    if not isinstance(results, list) or not results:
-        return items
-
-    recommendations = remote.get("recommendations")
-    if not isinstance(recommendations, list):
-        recommendations = []
-
-    rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
-    build_tag = str(remote.get("build_tag") or "").strip() or None
-    runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
-
-    augmented: list[dict] = []
-    for index, item in enumerate(items):
-        enriched = dict(item)
-        if index < len(results):
-            result = results[index] or {}
-            recommendation_meta = _match_runpod_recommendation(
-                recommendations=recommendations,
-                index=index,
-                result=result,
-            )
-            image_reference, image_expires_at, image_transport = _extract_runpod_image_reference(
-                result=result,
-                recommendation_meta=recommendation_meta,
-            )
-            if image_reference:
-                enriched["simulation_image_url"] = image_reference
-                enriched["synthetic_image_url"] = image_reference
-            snapshot = dict(enriched.get("reasoning_snapshot") or {})
-            runpod_snapshot = {
-                "provider": "runpod",
-                "clip_score": result.get("clip_score"),
-                "mask_used": result.get("mask_used"),
-                "elapsed_seconds": remote.get("elapsed_seconds"),
-                "recommended_style": result.get("recommended_style"),
-                "build_tag": build_tag,
-                "runtime": runpod_runtime,
-                "rag_context_excerpt": rag_context_excerpt,
-            }
-            if image_transport:
-                runpod_snapshot["image_transport"] = image_transport
-            if image_expires_at:
-                runpod_snapshot["simulation_image_url_expires_at"] = image_expires_at
-            if recommendation_meta:
-                runpod_snapshot["recommendation"] = recommendation_meta
-                runpod_snapshot["face_shape_detected"] = recommendation_meta.get("face_shape_detected")
-                runpod_snapshot["golden_ratio_score"] = recommendation_meta.get("golden_ratio_score")
-                runpod_snapshot["face_shapes"] = recommendation_meta.get("face_shapes")
-                if recommendation_meta.get("description"):
-                    enriched["llm_explanation"] = enriched.get("llm_explanation") or recommendation_meta.get("description")
-                    enriched["style_description"] = enriched.get("style_description") or recommendation_meta.get("description")
-            snapshot["runpod"] = runpod_snapshot
-            enriched["reasoning_snapshot"] = snapshot
-        augmented.append(enriched)
-    return augmented
-
-
-def simulate_face_analysis(*, image_url: str | None = None, image_bytes: bytes | None = None) -> dict:
-    raise RuntimeError(
-        "simulate_face_analysis fallback is disabled. RunPod direct recommendation metadata is required."
-    )
 
 
 def generate_recommendation_batch(
@@ -1694,13 +993,15 @@ def generate_recommendation_batch(
 ) -> list[dict]:
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
     provider = _ai_provider()
+    runpod_direct_outcome = None
     if provider == "runpod":
-        direct_items = _generate_runpod_recommendation_batch(
+        runpod_direct_outcome = _generate_runpod_recommendation_batch_details(
             client_id=client_id,
             survey_data=survey_data,
             analysis_data=analysis_data,
             styles_by_id=styles_by_id,
         )
+        direct_items = runpod_direct_outcome.get("items")
         if direct_items is not None:
             logger.info(
                 "[ai_recommendations] provider=runpod remote_success=True client_id=%s item_count=%s direct_primary=True",
@@ -1744,6 +1045,7 @@ def generate_recommendation_batch(
     )
     items = _augment_items_with_runpod(items=items, survey_data=survey_data, analysis_data=analysis_data)
     if provider == "runpod":
+        items = _attach_runpod_direct_outcome(items, runpod_direct_outcome)
         augmented_count = sum(
             1 for item in items if isinstance((item.get("reasoning_snapshot") or {}).get("runpod"), dict)
         )

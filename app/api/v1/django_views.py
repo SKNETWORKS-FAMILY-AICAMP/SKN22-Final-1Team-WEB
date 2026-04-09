@@ -447,11 +447,11 @@ class FormerRecommendationView(CompatEnvelopeAPIView):
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = _query_value(request, "client_id", "customer_id", "customer")
+        client_id = _query_value(request, "client_id")
+        if not client_id:
+            return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
         client = _get_client_or_404(client_id)
         payload = get_former_recommendations(client)
-        if request.query_params.get("customer_id") or request.query_params.get("customer"):
-            return Response(payload.get("items", []))
         return Response(payload)
 
 
@@ -462,7 +462,9 @@ class RecommendationView(CompatEnvelopeAPIView):
         responses={200: RecommendationListResponseSerializer},
     )
     def get(self, request):
-        client_id = _query_value(request, "client_id", "customer_id", "customer")
+        client_id = _query_value(request, "client_id")
+        if not client_id:
+            return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
         client = _get_client_or_404(client_id)
         payload = get_current_recommendations(client)
         logger.info(
@@ -471,8 +473,6 @@ class RecommendationView(CompatEnvelopeAPIView):
             len(payload.get("items", [])),
             payload.get("recommendation_stage"),
         )
-        if request.query_params.get("customer_id") or request.query_params.get("customer"):
-            return Response(payload.get("items", []))
         return Response(payload)
 
 
@@ -525,8 +525,24 @@ class RetryRecommendationView(CompatEnvelopeAPIView):
     def post(self, request):
         serializer = RetryRecommendationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        client_id = serializer.validated_data.get("client_id") or serializer.validated_data.get("customer_id") or serializer.validated_data.get("customer")
+        logger.info(
+            "[retry_recommendations_request] payload_keys=%s raw_client_id=%s raw_customer_id=%s raw_customer=%s",
+            sorted(request.data.keys()),
+            request.data.get("client_id"),
+            request.data.get("customer_id"),
+            request.data.get("customer"),
+        )
+        client_id = (
+            serializer.validated_data.get("client_id")
+            or serializer.validated_data.get("customer_id")
+            or serializer.validated_data.get("customer")
+        )
         if not client_id:
+            logger.warning(
+                "[retry_recommendations_missing_client_id] payload=%s validated=%s",
+                dict(request.data),
+                dict(serializer.validated_data),
+            )
             return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
         client = _get_client_or_404(client_id)
         try:
@@ -553,9 +569,23 @@ class SelectionView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
+        logger.info(
+            "[selection_request] payload_keys=%s raw_client_id=%s raw_customer_id=%s raw_customer=%s raw_style_id=%s",
+            sorted(request.data.keys()),
+            request.data.get("client_id"),
+            request.data.get("customer_id"),
+            request.data.get("customer"),
+            request.data.get("style_id"),
+        )
         client_id = _request_value(request, "client_id", "customer_id", "customer")
         style_id = _request_value(request, "style_id")
         if not client_id or not style_id:
+            logger.warning(
+                "[selection_missing_required_fields] payload=%s resolved_client_id=%s resolved_style_id=%s",
+                dict(request.data),
+                client_id,
+                style_id,
+            )
             return detail_response(
                 "client_id와 style_id를 모두 전달해 주세요.",
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -581,6 +611,7 @@ class ConfirmView(CompatEnvelopeAPIView):
                     "client_id": {"type": "string"},
                     "recommendation_id": {"type": "integer"},
                     "style_id": {"type": "integer"},
+                    "selected_image_url": {"type": "string"},
                     "admin_id": {"type": "string"},
                     "source": {"type": "string", "example": "current_recommendations"},
                     "direct_consultation": {"type": "boolean", "default": False},
@@ -591,13 +622,30 @@ class ConfirmView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
+        logger.info(
+            "[confirm_request] payload_keys=%s raw_client_id=%s raw_customer_id=%s raw_customer=%s raw_style_id=%s raw_recommendation_id=%s direct_consultation=%s",
+            sorted(request.data.keys()),
+            request.data.get("client_id"),
+            request.data.get("customer_id"),
+            request.data.get("customer"),
+            request.data.get("style_id"),
+            request.data.get("recommendation_id"),
+            request.data.get("direct_consultation"),
+        )
         client_id = _request_value(request, "client_id", "customer_id", "customer")
+        if not client_id:
+            logger.warning(
+                "[confirm_missing_client_id] payload=%s",
+                dict(request.data),
+            )
+            return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
         client = _get_client_or_404(client_id)
         try:
             payload = confirm_style_selection(
                 client=client,
                 recommendation_id=_request_value(request, "recommendation_id"),
                 style_id=_request_value(request, "style_id"),
+                selected_image_url=request.data.get("selected_image_url"),
                 admin_id=request.data.get("admin_id"),
                 source=request.data.get("source", "current_recommendations"),
                 direct_consultation=bool(request.data.get("direct_consultation", False)),
@@ -616,6 +664,7 @@ class CancelView(CompatEnvelopeAPIView):
                 "properties": {
                     "client_id": {"type": "string"},
                     "recommendation_id": {"type": "integer"},
+                    "selected_image_url": {"type": "string"},
                     "source": {"type": "string", "example": "current_recommendations"},
                 },
                 "required": ["client_id"],
@@ -624,12 +673,27 @@ class CancelView(CompatEnvelopeAPIView):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     def post(self, request):
+        logger.info(
+            "[cancel_request] payload_keys=%s raw_client_id=%s raw_customer_id=%s raw_customer=%s raw_recommendation_id=%s",
+            sorted(request.data.keys()),
+            request.data.get("client_id"),
+            request.data.get("customer_id"),
+            request.data.get("customer"),
+            request.data.get("recommendation_id"),
+        )
         client_id = _request_value(request, "client_id", "customer_id", "customer")
+        if not client_id:
+            logger.warning(
+                "[cancel_missing_client_id] payload=%s",
+                dict(request.data),
+            )
+            return detail_response("client_id is required.", status_code=status.HTTP_400_BAD_REQUEST)
         client = _get_client_or_404(client_id)
         try:
             payload = cancel_style_selection(
                 client=client,
                 recommendation_id=_request_value(request, "recommendation_id"),
+                selected_image_url=request.data.get("selected_image_url"),
                 source=request.data.get("source", "current_recommendations"),
             )
         except ValueError as exc:
