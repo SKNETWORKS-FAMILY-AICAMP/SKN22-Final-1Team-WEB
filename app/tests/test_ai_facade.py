@@ -374,6 +374,10 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
         self.assertEqual(items[0]["simulation_image_url"], "https://cdn.example.com/sim.png?expires=1775200000&token=abc")
         self.assertEqual(items[0]["match_score"], 0.9132)
         self.assertEqual(items[0]["llm_explanation"], "Direct recommendation summary.")
+        _, kwargs = mock_post.call_args
+        request_payload = kwargs["json"]["input"]
+        self.assertEqual(request_payload["image_url"], "https://cdn.example.com/original.png")
+        self.assertNotIn("image_base64", request_payload)
         snapshot = items[0]["reasoning_snapshot"]["runpod"]
         self.assertEqual(snapshot["image_transport"], "signed_url")
         self.assertEqual(snapshot["simulation_image_url_expires_at"], "2026-04-03T15:20:00Z")
@@ -459,6 +463,180 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
         request_payload = kwargs["json"]["input"]
         self.assertNotIn("image", request_payload)
         self.assertEqual(request_payload["image_base64"], "ZmFrZS1pbWFnZQ==")
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_prefers_image_base64_over_image_url(self, mock_score_recommendations, mock_post):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 0,
+                            "clip_score": 0.41,
+                            "simulation_image_url": "https://cdn.example.com/sim-base64-wins.png?expires=1775200000&token=abc",
+                            "recommended_style": {
+                                "style_id": "prada-bob-1",
+                                "style_name": "Side-Parted Lob",
+                                "recommendation_score": 0.9132,
+                            },
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 0,
+                            "style_id": "prada-bob-1",
+                            "style_name": "Side-Parted Lob",
+                            "score": 0.9132,
+                            "description": "Base64 wins over URL.",
+                            "face_shape_detected": "oval",
+                            "golden_ratio_score": 0.7425,
+                            "face_shapes": ["oval", "heart", "oblong"],
+                        }
+                    ],
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "https://cdn.example.com/original.png",
+                "image_base64": "ZmFrZS1pbWFnZQ==",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+            styles_by_id={
+                201: SimpleNamespace(
+                    name="Side-Parted Lob",
+                    style_name="Side-Parted Lob",
+                    description="Rounded cheeks are balanced with a longer side silhouette.",
+                    image_url="/media/styles/201.jpg",
+                    vibe="Chic",
+                )
+            },
+        )
+
+        self.assertEqual(len(items), 1)
+        _, kwargs = mock_post.call_args
+        request_payload = kwargs["json"]["input"]
+        self.assertEqual(request_payload["image_base64"], "ZmFrZS1pbWFnZQ==")
+        self.assertNotIn("image_url", request_payload)
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_skips_internal_media_image_url(self, mock_score_recommendations, mock_post):
+        mock_score_recommendations.return_value = [
+            {
+                "style_id": 201,
+                "style_name": "Side-Parted Lob",
+                "style_description": "Local fallback item.",
+                "keywords": ["lob"],
+                "match_score": 0.77,
+                "rank": 1,
+                "reasoning_snapshot": {"summary": "local summary"},
+            }
+        ]
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "image_url": "/media/analysis-inputs/private.png",
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+        )
+
+        mock_post.assert_not_called()
+        mock_score_recommendations.assert_called_once()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["style_name"], "Side-Parted Lob")
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "stable-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    @patch("app.services.ai_facade.score_recommendations")
+    def test_runpod_direct_skips_when_image_inputs_are_missing(self, mock_score_recommendations, mock_post):
+        mock_score_recommendations.return_value = [
+            {
+                "style_id": 201,
+                "style_name": "Side-Parted Lob",
+                "style_description": "Local fallback item.",
+                "keywords": ["lob"],
+                "match_score": 0.77,
+                "rank": 1,
+                "reasoning_snapshot": {"summary": "local summary"},
+            }
+        ]
+
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={
+                "face_shape": "Oval",
+                "golden_ratio_score": 0.91,
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+        )
+
+        mock_post.assert_not_called()
+        mock_score_recommendations.assert_called_once()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["style_name"], "Side-Parted Lob")
 
     @patch.dict(
         os.environ,

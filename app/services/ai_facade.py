@@ -1531,7 +1531,7 @@ def _build_runpod_image_payload(analysis_data: dict) -> dict | None:
         return {"image_base64": image_base64}
 
     image_url = str(analysis_data.get("image_url") or "").strip()
-    if image_url.startswith(("http://", "https://", "data:image/")):
+    if image_url.startswith(("http://", "https://")):
         return {"image_url": image_url}
 
     return None

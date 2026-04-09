@@ -2935,7 +2935,12 @@ def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None =
             storage_snapshot["path_count"],
         )
 
-        analysis_input_url = resolve_storage_reference(record.processed_path)
+        resolved_analysis_input_reference = resolve_storage_reference(record.processed_path)
+        analysis_input_url = (
+            resolved_analysis_input_reference
+            if str(resolved_analysis_input_reference or "").startswith(("http://", "https://"))
+            else None
+        )
         analysis_input_base64 = (
             base64.b64encode(processed_bytes).decode("ascii")
             if processed_bytes
@@ -2945,8 +2950,8 @@ def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None =
             resolve_storage_reference(
                 persist_analysis_input_image_reference(processed_bytes)
             )
-            if processed_bytes and not analysis_input_url
-            else analysis_input_url
+            if processed_bytes and not resolved_analysis_input_reference
+            else resolved_analysis_input_reference
         )
         _emit_pipeline_probe(
             record_id,

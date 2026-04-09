@@ -467,6 +467,9 @@ class SeedTestAccountsCommandTests(TestCase):
             run_mirrai_analysis_pipeline(record_id=capture_record.id)
 
         mock_generate.assert_called_once()
+        _, kwargs = mock_generate.call_args
+        self.assertEqual(kwargs["analysis_data"]["image_url"], "https://example.com/processed.png")
+        self.assertIsNone(kwargs["analysis_data"]["image_base64"])
         analysis_row = (
             LegacyClientAnalysis.objects.filter(backend_capture_record_id=capture_record.id)
             .order_by("-analysis_id")
@@ -564,6 +567,69 @@ class SeedTestAccountsCommandTests(TestCase):
         )
         self.assertIsNotNone(latest_result)
         self.assertEqual(latest_result.analysis_data_snapshot["source"], "runpod_direct_primary")
+
+    def test_run_mirrai_analysis_pipeline_blocks_internal_media_path_from_runpod_input(self):
+        call_command("seed_test_accounts")
+        client_record = LegacyClient.objects.get(phone="01090001003")
+        client = get_client_by_identifier(identifier=client_record.backend_client_id)
+        capture_record = create_legacy_capture_upload_record(
+            client=client,
+            original_path="/media/captures/original.png",
+            processed_path="/media/captures/private.processed.jpg",
+            filename="capture-internal-media.png",
+            status="PENDING",
+            face_count=1,
+            landmark_snapshot={
+                "face_bbox": {"width": 100, "height": 140},
+                "landmarks": {
+                    "left_eye": {"point": {"x": 20, "y": 40}},
+                    "right_eye": {"point": {"x": 80, "y": 40}},
+                    "mouth_center": {"point": {"x": 50, "y": 90}},
+                    "chin_center": {"point": {"x": 50, "y": 130}},
+                },
+            },
+            deidentified_path=None,
+            privacy_snapshot={"storage_policy": "ephemeral"},
+            error_note=None,
+        )
+        direct_items = [
+            {
+                "style_id": 201,
+                "style_name": "Side-Parted Lob",
+                "style_description": "internal media block test",
+                "keywords": ["lob", "direct"],
+                "sample_image_url": "https://example.com/sample-direct.png",
+                "simulation_image_url": "https://example.com/generated-direct.png?expires=1775200000&token=abc",
+                "llm_explanation": "internal media block explanation",
+                "reasoning_snapshot": {
+                    "summary": "internal media block explanation",
+                    "source": "runpod_direct_primary",
+                    "runpod": {
+                        "provider": "runpod",
+                        "face_shape_detected": "oval",
+                        "golden_ratio_score": 0.7425,
+                    },
+                },
+                "match_score": 91.32,
+                "rank": 1,
+            }
+        ]
+
+        with patch("app.api.v1.services_django.generate_recommendation_batch", return_value=direct_items) as mock_generate:
+            run_mirrai_analysis_pipeline(record_id=capture_record.id)
+
+        mock_generate.assert_called_once()
+        _, kwargs = mock_generate.call_args
+        self.assertIsNone(kwargs["analysis_data"]["image_url"])
+        self.assertIsNone(kwargs["analysis_data"]["image_base64"])
+        analysis_row = (
+            LegacyClientAnalysis.objects.filter(backend_capture_record_id=capture_record.id)
+            .order_by("-analysis_id")
+            .first()
+        )
+        self.assertIsNotNone(analysis_row)
+        self.assertEqual(analysis_row.status, "DONE")
+        self.assertTrue(str(analysis_row.analysis_image_url or "").startswith("/media/"))
 
     def test_run_mirrai_analysis_pipeline_fails_when_runpod_metadata_is_missing(self):
         call_command("seed_test_accounts")
