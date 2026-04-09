@@ -63,8 +63,10 @@ app.openapi = custom_openapi
 
 
 class AnalyzeFaceRequest(BaseModel):
+    request_id: str | None = None
     image_url: str | None = None
     image_base64: str | None = None
+    include_visualization: bool = False
 
 
 class GenerateSimulationsRequest(BaseModel):
@@ -119,7 +121,7 @@ def _success_payload(
     *,
     request: Request,
     data: dict[str, Any],
-    status_text: str = "success",
+    status_text: str = "ok",
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
@@ -149,35 +151,52 @@ def _error_payload(
         "response_version": RESPONSE_VERSION,
         "request_id": _request_id(request),
         "processing_time_ms": _processing_time_ms(request),
-        "error_code": error_code,
-        "message": message,
-        "detail": detail,
-        "retryable": retryable,
+        "error": {
+            "error_code": error_code,
+            "message": message,
+            "detail": detail if detail is not None else {},
+            "retryable": retryable,
+        },
     }
 
 
-def _simulate_face_analysis(image_url: str | None = None, image_base64: str | None = None) -> dict[str, Any]:
-    return {
-        "face_shape": "Oval",
-        "golden_ratio_score": 0.92,
+def _simulate_face_analysis(
+    image_url: str | None = None,
+    image_base64: str | None = None,
+    include_visualization: bool = False,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "face_shape": "oval",
+        "face_shape_scores": {
+            "oval": 0.4211,
+            "round": 0.1084,
+            "square": 0.1321,
+            "heart": 0.1832,
+            "oblong": 0.1552,
+        },
+        "golden_ratio_score": 0.7425,
         "face_ratios": {
-            "cheekbone_to_height": 0.34,
-            "jaw_to_height": 0.27,
-            "temple_to_height": 0.58,
-            "jaw_to_cheekbone": 1.12,
+            "cheekbone_to_height": 0.721334,
+            "jaw_to_height": 0.601241,
+            "temple_to_height": 0.701197,
+            "jaw_to_cheekbone": 0.833394,
         },
         "face_bbox": {
-            "x": 144,
-            "y": 92,
-            "width": 480,
-            "height": 620,
+            "x1": 205,
+            "y1": 74,
+            "x2": 598,
+            "y2": 602,
         },
         "image_url": image_url,
-        "visualization": {
+        "image_url_expires_at": None,
+        "schema_version": SCHEMA_VERSION,
+    }
+    if include_visualization:
+        data["visualization"] = {
             "image_url": image_url,
             "source": "local_stub" if image_url or image_base64 else "no_image",
-        },
-    }
+        }
+    return data
 
 
 @app.middleware("http")
@@ -305,6 +324,9 @@ async def analyze_face(
             ),
         )
 
+    if payload.request_id:
+        request.state.request_id = payload.request_id
+
     if not payload.image_url and not payload.image_base64:
         return JSONResponse(
             status_code=422,
@@ -322,6 +344,7 @@ async def analyze_face(
         data=_simulate_face_analysis(
             image_url=payload.image_url,
             image_base64=payload.image_base64,
+            include_visualization=payload.include_visualization,
         ),
     )
 

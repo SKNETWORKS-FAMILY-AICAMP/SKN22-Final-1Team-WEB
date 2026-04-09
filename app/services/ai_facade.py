@@ -29,11 +29,15 @@ _AI_HEALTH_CACHE: dict[str, object] = {
 
 
 def _service_base_url() -> str:
-    return os.environ.get("MIRRAI_AI_SERVICE_URL", "").rstrip("/")
+    base = _runpod_base_url()
+    endpoint = _runpod_endpoint_id()
+    if base and endpoint:
+        return f"{base}/{endpoint}"
+    return ""
 
 
 def _internal_api_token() -> str:
-    return os.environ.get("MIRRAI_INTERNAL_API_TOKEN", "").strip()
+    return _runpod_api_key()
 
 
 def _legacy_internal_api_key() -> str:
@@ -53,11 +57,7 @@ def _runpod_api_key() -> str:
 
 
 def _runpod_endpoint_id() -> str:
-    for env_name in ("RUNPOD_ENDPOINT_ID", "STABLE_DIFFUSION_ENDPOINT", "RUNPOD_TRENDS_ENDPOINT_ID"):
-        value = os.environ.get(env_name, "").strip()
-        if value:
-            return value
-    return ""
+    return os.environ.get("RUNPOD_ENDPOINT_ID", "").strip()
 
 
 def _runpod_health_timeout() -> tuple[int, int]:
@@ -206,9 +206,10 @@ def _request_service(method: str, path: str, payload: dict | None = None) -> dic
         retryable = None
         message = response.text[:200]
         if isinstance(parsed, dict):
-            error_code = parsed.get("error_code")
-            retryable = parsed.get("retryable")
-            message = parsed.get("message") or parsed.get("detail") or message
+            error_obj = parsed.get("error") or {}
+            error_code = error_obj.get("error_code") or parsed.get("error_code")
+            retryable = error_obj.get("retryable") if "retryable" in error_obj else parsed.get("retryable")
+            message = error_obj.get("message") or parsed.get("message") or parsed.get("detail") or message
         logger.warning(
             "AI service request failed. method=%s path=%s status=%s error_code=%s retryable=%s message=%s",
             method.upper(),
@@ -249,7 +250,7 @@ def _unwrap_service_data(payload: dict | None, *, allow_partial_success: bool = 
     status = str(payload.get("status") or "").lower()
     data = payload.get("data")
     if isinstance(data, dict):
-        if status == "success" or (allow_partial_success and status == "partial_success"):
+        if status in {"ok", "success"} or (allow_partial_success and status == "partial_success"):
             normalized = dict(data)
             partial_failures = payload.get("partial_failures")
             if allow_partial_success and status == "partial_success" and isinstance(partial_failures, list):
@@ -257,11 +258,12 @@ def _unwrap_service_data(payload: dict | None, *, allow_partial_success: bool = 
             normalized["service_status"] = status
             return _with_response_meta(normalized, payload)
         if status == "error":
+            error_obj = payload.get("error") or {}
             logger.warning(
                 "AI service returned an error payload. error_code=%s message=%s retryable=%s",
-                payload.get("error_code"),
-                payload.get("message"),
-                payload.get("retryable"),
+                error_obj.get("error_code") or payload.get("error_code"),
+                error_obj.get("message") or payload.get("message"),
+                error_obj.get("retryable") if "retryable" in error_obj else payload.get("retryable"),
             )
             return None
     return payload

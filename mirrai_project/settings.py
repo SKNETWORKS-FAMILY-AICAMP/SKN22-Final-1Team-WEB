@@ -185,10 +185,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 RUNPOD_BASE_URL = env("RUNPOD_BASE_URL", default="https://api.runpod.ai/v2").rstrip("/")
 RUNPOD_API_KEY = env("RUNPOD_API_KEY", default="")
-RUNPOD_TRENDS_ENDPOINT_ID = env(
-    "RUNPOD_TRENDS_ENDPOINT_ID",
-    default=env("RUNPOD_ENDPOINT_ID", default=""),
-)
+RUNPOD_ENDPOINT_ID = env("RUNPOD_ENDPOINT_ID", default="")
 GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
 TREND_REFINER_MODEL = env("TREND_REFINER_MODEL", default="gemini-2.5-flash")
 TREND_SCHEDULER_ENABLED = env.bool("ENABLE_TREND_SCHEDULER", default=False)

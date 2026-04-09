@@ -43,12 +43,11 @@ class AiFacadeContractTests(SimpleTestCase):
     @patch.dict(
         os.environ,
         {
-            "MIRRAI_AI_PROVIDER": "service",
-            "MIRRAI_AI_SERVICE_URL": "https://mirrai.shop",
-            "MIRRAI_INTERNAL_API_TOKEN": "secret-token",
+            "MIRRAI_AI_PROVIDER": "runpod",
             "MIRRAI_AI_API_VERSION": "2026-04-06",
-            "RUNPOD_API_KEY": "legacy-runpod-key",
-            "RUNPOD_ENDPOINT_ID": "legacy-runpod-endpoint",
+            "RUNPOD_API_KEY": "secret-token",
+            "RUNPOD_BASE_URL": "https://api.runpod.ai/v2",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
         },
         clear=False,
     )
@@ -88,9 +87,10 @@ class AiFacadeContractTests(SimpleTestCase):
     @patch.dict(
         os.environ,
         {
-            "MIRRAI_AI_PROVIDER": "service",
-            "MIRRAI_AI_SERVICE_URL": "https://mirrai.shop",
-            "MIRRAI_INTERNAL_API_TOKEN": "secret-token",
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "secret-token",
+            "RUNPOD_BASE_URL": "https://api.runpod.ai/v2",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
         },
         clear=False,
     )
@@ -123,9 +123,10 @@ class AiFacadeContractTests(SimpleTestCase):
     @patch.dict(
         os.environ,
         {
-            "MIRRAI_AI_PROVIDER": "service",
-            "MIRRAI_AI_SERVICE_URL": "https://mirrai.shop",
-            "MIRRAI_INTERNAL_API_TOKEN": "secret-token",
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "secret-token",
+            "RUNPOD_BASE_URL": "https://api.runpod.ai/v2",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
         },
         clear=False,
     )
@@ -178,24 +179,9 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
     @patch.dict(
         os.environ,
         {
-            "RUNPOD_API_KEY": "runpod-key",
-            "RUNPOD_ENDPOINT_ID": "",
-            "STABLE_DIFFUSION_ENDPOINT": "stable-endpoint",
-            "RUNPOD_TRENDS_ENDPOINT_ID": "",
-        },
-        clear=False,
-    )
-    def test_runpod_endpoint_id_falls_back_to_stable_diffusion_endpoint(self):
-        self.assertEqual(ai_facade._runpod_endpoint_id(), "stable-endpoint")
-        self.assertTrue(ai_facade._runpod_enabled())
-
-    @patch.dict(
-        os.environ,
-        {
             "MIRRAI_AI_PROVIDER": "service",
-            "MIRRAI_AI_SERVICE_URL": "",
             "RUNPOD_API_KEY": "runpod-key",
-            "RUNPOD_TRENDS_ENDPOINT_ID": "trend-endpoint",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
         },
         clear=False,
     )
@@ -206,11 +192,8 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
         os.environ,
         {
             "MIRRAI_AI_PROVIDER": "service",
-            "MIRRAI_AI_SERVICE_URL": "",
             "RUNPOD_API_KEY": "runpod-key",
-            "RUNPOD_ENDPOINT_ID": "",
-            "STABLE_DIFFUSION_ENDPOINT": "stable-endpoint",
-            "RUNPOD_TRENDS_ENDPOINT_ID": "",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
         },
         clear=False,
     )
@@ -501,8 +484,6 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
             "MIRRAI_AI_PROVIDER": "runpod",
             "RUNPOD_API_KEY": "",
             "RUNPOD_ENDPOINT_ID": "",
-            "STABLE_DIFFUSION_ENDPOINT": "",
-            "RUNPOD_TRENDS_ENDPOINT_ID": "",
         },
         clear=False,
     )
@@ -518,8 +499,6 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
         os.environ,
         {
             "MIRRAI_AI_PROVIDER": "service",
-            "MIRRAI_AI_SERVICE_URL": "",
-            "MIRRAI_INTERNAL_API_TOKEN": "",
             "RUNPOD_API_KEY": "",
             "RUNPOD_ENDPOINT_ID": "",
         },

@@ -213,12 +213,12 @@ def _submit_runpod_job(
     timeout: int,
     poll_interval: float,
 ) -> dict[str, Any]:
-    resolved_endpoint_id = endpoint_id or getattr(settings, "RUNPOD_TRENDS_ENDPOINT_ID", "")
+    resolved_endpoint_id = endpoint_id or getattr(settings, "RUNPOD_ENDPOINT_ID", "")
     resolved_api_key = api_key or getattr(settings, "RUNPOD_API_KEY", "")
     resolved_base_url = (base_url or getattr(settings, "RUNPOD_BASE_URL", "https://api.runpod.ai/v2")).rstrip("/")
 
     if not resolved_endpoint_id:
-        raise TrendRefreshError("RUNPOD_TRENDS_ENDPOINT_ID is not configured.")
+        raise TrendRefreshError("RUNPOD_ENDPOINT_ID is not configured.")
     if not resolved_api_key:
         raise TrendRefreshError("RUNPOD_API_KEY is not configured.")
 

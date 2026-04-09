@@ -97,7 +97,7 @@ class LegacyClientSurvey(models.Model):
 class LegacyClientAnalysis(models.Model):
     analysis_id = models.IntegerField(primary_key=True)
     client_id = models.CharField(max_length=255)
-    designer_id = models.CharField(max_length=255)
+    designer_id = models.CharField(max_length=255, null=True, blank=True)
     original_image_url = models.TextField(null=True, blank=True)
     face_type = models.CharField(max_length=255, null=True, blank=True)
     face_ratio_vector = models.TextField()
