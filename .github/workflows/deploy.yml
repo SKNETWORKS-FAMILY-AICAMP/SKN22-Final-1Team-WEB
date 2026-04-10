@@ -1,6 +1,7 @@
 ﻿name: Deploy Backend to Elastic Beanstalk
 
 on:
+  # No-op metadata change to force a valid main push for deployment.
   push:
     branches:
       - main
