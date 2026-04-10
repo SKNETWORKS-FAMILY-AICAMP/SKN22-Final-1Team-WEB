@@ -612,6 +612,24 @@ a {
 .rounded-xl { border-radius: var(--radius-lg); }
 .is-hidden { display: none !important; }
 
+/* ── 공통 로딩 스피너 애니메이션 ── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes pulse-ring {
+  0%   { opacity: 1; transform: scale(1); }
+  50%  { opacity: 0.5; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+
 /* Responsive Media Queries */
 @media (max-width: 1320px) {
   .site-header {

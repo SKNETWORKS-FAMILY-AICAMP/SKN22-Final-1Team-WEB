@@ -119,14 +119,23 @@ def _store_generated_asset_in_supabase(*, asset_bytes: bytes, extension: str, su
     if client is None:
         return None
 
-    ensure_supabase_bucket()
+    try:
+        ensure_supabase_bucket()
+    except Exception as exc:
+        logger.warning("[storage] Supabase 버킷 준비 실패, 로컬 저장으로 전환합니다: %s", exc)
+        return None
+
     key = f"{subdir}/{uuid.uuid4()}{extension}"
     bucket = client.storage.from_(settings.SUPABASE_BUCKET)
-    bucket.upload(
-        key,
-        asset_bytes,
-        file_options={"content-type": mime_type},
-    )
+    try:
+        bucket.upload(
+            key,
+            asset_bytes,
+            file_options={"content-type": mime_type},
+        )
+    except Exception as exc:
+        logger.warning("[storage] Supabase 업로드 실패 (key=%s): %s", key, exc)
+        return None
     return key
 
 
