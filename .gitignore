@@ -58,7 +58,9 @@ PDF/
 backend/
 
 # Generated local RAG assets
-data/rag/
+data/rag/*
+!data/rag/stores/
+!data/rag/stores/**
 
 # Security and keys
 *.pem

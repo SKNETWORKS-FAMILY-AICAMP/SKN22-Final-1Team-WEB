@@ -14,6 +14,7 @@ on:
       - 'requirements.txt'
       - 'requirements-deploy.txt'
       - 'requirements-trends.txt'
+      - 'data/rag/stores/**'
       - 'Dockerrun.aws.json'
       - '.github/workflows/deploy.yml'
 
@@ -52,7 +53,7 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker build -t "$IMAGE_URI" .
+          docker build --build-arg INSTALL_TRENDS_DEPS=1 -t "$IMAGE_URI" .
           docker push "$IMAGE_URI"
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
