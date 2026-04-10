@@ -200,3 +200,32 @@ TREND_SCHEDULER_TIMEOUT = env.int("TREND_SCHEDULER_TIMEOUT", default=1800)
 TREND_SCHEDULER_POLL_INTERVAL = env.float("TREND_SCHEDULER_POLL_INTERVAL", default=5.0)
 TREND_SCHEDULER_SLEEP_INTERVAL = env.float("TREND_SCHEDULER_SLEEP_INTERVAL", default=15.0)
 TREND_SCHEDULER_TEST_AT = env("TREND_SCHEDULER_TEST_AT", default="")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[{asctime}] {levelname} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        "app": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}

@@ -215,6 +215,15 @@ def extract_landmark_snapshot(*, processed_bytes: bytes) -> dict:
     )
     primary_face = _largest_face(faces)
     if primary_face is None:
+        equalized = cv2.equalizeHist(gray)
+        relaxed_faces = _FACE_CASCADE.detectMultiScale(
+            equalized,
+            scaleFactor=1.05,
+            minNeighbors=4,
+            minSize=(72, 72),
+        )
+        primary_face = _largest_face(relaxed_faces)
+    if primary_face is None:
         return {
             "version": "coarse-v1",
             "face_count": 0,

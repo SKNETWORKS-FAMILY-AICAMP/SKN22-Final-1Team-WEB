@@ -611,6 +611,15 @@ def _build_preference_text(survey_data: dict | None) -> str | None:
     return text or None
 
 
+def _build_hairstyle_text(survey_data: dict | None) -> str:
+    survey_data = survey_data or {}
+    parts = [
+        str(survey_data.get("target_length") or "").strip(),
+        str(survey_data.get("target_vibe") or "").strip(),
+    ]
+    return " ".join(part for part in parts if part) or "natural"
+
+
 def _build_runpod_image_payload(analysis_data: dict) -> dict | None:
     image_base64 = str(analysis_data.get("image_base64") or "").strip()
     if image_base64:
@@ -629,11 +638,20 @@ def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     face_bbox = snapshot.get("face_bbox") or {}
     landmarks = snapshot.get("landmarks") or {}
     if not face_bbox:
+        logger.warning(
+            "[face_ratios_failed] reason=no_face_bbox snapshot_keys=%s",
+            sorted(snapshot.keys()),
+        )
         return None
 
     face_height = float(face_bbox.get("height") or 0)
     face_width = float(face_bbox.get("width") or 0)
     if face_height <= 0 or face_width <= 0:
+        logger.warning(
+            "[face_ratios_failed] reason=zero_face_dimensions face_width=%s face_height=%s",
+            face_width,
+            face_height,
+        )
         return None
 
     left_eye = (landmarks.get("left_eye") or {}).get("point")
@@ -641,6 +659,14 @@ def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     mouth_center = (landmarks.get("mouth_center") or {}).get("point")
     chin_center = (landmarks.get("chin_center") or {}).get("point")
     if not (left_eye and right_eye and mouth_center and chin_center):
+        logger.warning(
+            "[face_ratios_failed] reason=missing_landmarks has_left_eye=%s has_right_eye=%s has_mouth=%s has_chin=%s landmark_keys=%s",
+            bool(left_eye),
+            bool(right_eye),
+            bool(mouth_center),
+            bool(chin_center),
+            sorted(landmarks.keys()),
+        )
         return None
 
     eye_distance = dist((left_eye["x"], left_eye["y"]), (right_eye["x"], right_eye["y"]))
@@ -775,25 +801,28 @@ def _augment_items_with_runpod(
     if _ai_provider() != "runpod":
         return items
 
-    image = analysis_data.get("image_url")
-    recommendations_payload = _build_runpod_recommendation_payload(items, analysis_data=analysis_data)
-    if not image or not recommendations_payload:
+    image_payload = _build_runpod_image_payload(analysis_data)
+    if not image_payload:
         return items
 
+    hairstyle_text = _build_hairstyle_text(survey_data)
+    color_text = str((survey_data or {}).get("hair_colour") or "").strip()
+
     runpod_payload = {
-        "image": image,
-        "recommendations": recommendations_payload,
-        "top_k": len(recommendations_payload),
+        **image_payload,
+        "hairstyle_text": hairstyle_text,
+        "top_k": min(len(items), 5),
         "return_base64": True,
     }
-
-    rag_context = _fetch_rag_context_for_items(recommendations_payload)
-    if rag_context:
-        runpod_payload["rag_context"] = rag_context
-
-    color_text = (survey_data or {}).get("hair_colour")
     if color_text:
         runpod_payload["color_text"] = color_text
+
+    logger.info(
+        "[runpod_augment] hairstyle_text=%s color_text=%s top_k=%s",
+        hairstyle_text,
+        color_text or None,
+        runpod_payload["top_k"],
+    )
 
     remote = _post_runpod(runpod_payload)
     if not remote:
@@ -801,13 +830,9 @@ def _augment_items_with_runpod(
 
     results = remote.get("results")
     if not isinstance(results, list) or not results:
+        logger.warning("[runpod_augment] no results in response. remote_keys=%s", sorted(remote.keys()))
         return items
 
-    recommendations = remote.get("recommendations")
-    if not isinstance(recommendations, list):
-        recommendations = recommendations_payload
-
-    rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
     build_tag = str(remote.get("build_tag") or "").strip() or None
     runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
 
@@ -816,39 +841,61 @@ def _augment_items_with_runpod(
         enriched = dict(item)
         if index < len(results):
             result = results[index] or {}
-            recommendation_meta = _match_runpod_recommendation(
-                recommendations=recommendations,
-                index=index,
-                result=result,
-            )
             image_base64 = result.get("image_base64")
             if image_base64:
                 data_url = f"data:image/png;base64,{image_base64}"
                 enriched["simulation_image_url"] = data_url
                 enriched["synthetic_image_url"] = data_url
             snapshot = dict(enriched.get("reasoning_snapshot") or {})
-            runpod_snapshot = {
+            snapshot["runpod"] = {
                 "provider": "runpod",
                 "clip_score": result.get("clip_score"),
                 "mask_used": result.get("mask_used"),
                 "elapsed_seconds": remote.get("elapsed_seconds"),
-                "recommended_style": result.get("recommended_style"),
                 "build_tag": build_tag,
                 "runtime": runpod_runtime,
-                "rag_context_excerpt": rag_context_excerpt,
             }
-            if recommendation_meta:
-                runpod_snapshot["recommendation"] = recommendation_meta
-                runpod_snapshot["face_shape_detected"] = recommendation_meta.get("face_shape_detected")
-                runpod_snapshot["golden_ratio_score"] = recommendation_meta.get("golden_ratio_score")
-                runpod_snapshot["face_shapes"] = recommendation_meta.get("face_shapes")
-                if recommendation_meta.get("description"):
-                    enriched["llm_explanation"] = enriched.get("llm_explanation") or recommendation_meta.get("description")
-                    enriched["style_description"] = enriched.get("style_description") or recommendation_meta.get("description")
-            snapshot["runpod"] = runpod_snapshot
             enriched["reasoning_snapshot"] = snapshot
         augmented.append(enriched)
+
+    logger.info(
+        "[runpod_augment] done. items=%s simulated=%s",
+        len(augmented),
+        sum(1 for item in augmented if item.get("simulation_image_url")),
+    )
     return augmented
+
+
+def analyze_face_with_runpod(*, image_bytes: bytes | None = None, image_url: str | None = None) -> dict | None:
+    """Call RunPod with action=analyze_face. Returns dict with face_shape/golden_ratio_score or None on failure."""
+    if not _runpod_enabled():
+        return None
+
+    payload: dict = {"action": "analyze_face"}
+    if image_bytes:
+        payload["image_base64"] = base64.b64encode(image_bytes).decode("ascii")
+    elif image_url and image_url.startswith(("http://", "https://")):
+        payload["image_url"] = image_url
+    else:
+        logger.warning("[analyze_face_runpod] no valid image provided — image_bytes=%s image_url=%s", bool(image_bytes), bool(image_url))
+        return None
+
+    remote = _post_runpod(payload)
+    if not remote:
+        logger.warning("[analyze_face_runpod] empty response from RunPod")
+        return None
+
+    face_shape = remote.get("face_shape")
+    golden_ratio_score = remote.get("golden_ratio_score")
+    if not face_shape and golden_ratio_score is None:
+        logger.warning("[analyze_face_runpod] no face data in response. remote_keys=%s", sorted(remote.keys()))
+        return None
+
+    logger.info("[analyze_face_runpod] face_shape=%s golden_ratio_score=%s", face_shape, golden_ratio_score)
+    return {
+        "face_shape": face_shape,
+        "golden_ratio_score": golden_ratio_score,
+    }
 
 
 def simulate_face_analysis(*, image_url: str | None = None, image_bytes: bytes | None = None) -> dict:
@@ -908,6 +955,17 @@ def _attach_runpod_direct_outcome(items: list[dict], outcome: dict | None) -> li
         enriched["reasoning_snapshot"] = reasoning_snapshot
         enriched_items.append(enriched)
     return enriched_items
+
+
+def _runpod_payload_summary(remote: dict) -> dict:
+    recommendations = remote.get("recommendations")
+    results = remote.get("results")
+    return {
+        "remote_keys": sorted(remote.keys()),
+        "recommendation_count": len(recommendations) if isinstance(recommendations, list) else 0,
+        "result_count": len(results) if isinstance(results, list) else 0,
+        "has_traceback": bool(remote.get("traceback") or remote.get("error")),
+    }
 
 
 def _generate_runpod_recommendation_batch_details(
@@ -1004,22 +1062,6 @@ def generate_recommendation_batch(
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
     provider = _ai_provider()
     runpod_direct_outcome = None
-    if provider == "runpod":
-        runpod_direct_outcome = _generate_runpod_recommendation_batch_details(
-            client_id=client_id,
-            survey_data=survey_data,
-            analysis_data=analysis_data,
-            styles_by_id=styles_by_id,
-        )
-        direct_items = runpod_direct_outcome.get("items")
-        if direct_items is not None:
-            logger.info(
-                "[ai_recommendations] provider=runpod remote_success=True client_id=%s item_count=%s direct_primary=True",
-                client_id,
-                len(direct_items),
-            )
-            return direct_items
-
     if provider == "service":
         remote = _request_service(
             "POST",
@@ -1053,12 +1095,10 @@ def generate_recommendation_batch(
         styles_by_id=styles_by_id,
         scoring_weights=scoring_weights,
     )
-    items = _augment_items_with_runpod(items=items, survey_data=survey_data, analysis_data=analysis_data)
+
     if provider == "runpod":
-        items = _attach_runpod_direct_outcome(items, runpod_direct_outcome)
-        augmented_count = sum(
-            1 for item in items if isinstance((item.get("reasoning_snapshot") or {}).get("runpod"), dict)
-        )
+        items = _augment_items_with_runpod(items=items, survey_data=survey_data, analysis_data=analysis_data)
+        augmented_count = sum(1 for item in items if item.get("simulation_image_url"))
         logger.info(
             "[ai_recommendations] provider=runpod client_id=%s item_count=%s augmented_items=%s",
             client_id,

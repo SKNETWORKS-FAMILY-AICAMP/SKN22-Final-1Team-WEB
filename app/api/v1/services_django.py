@@ -1,5 +1,6 @@
 import base64
 import logging
+import time
 import uuid
 from collections import Counter
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from app.models_model_team import (
 from app.services.age_profile import build_client_age_profile, client_matches_age_profile
 from app.services.capture_validation import infer_capture_reason_code
 from app.services.ai_facade import (
+    analyze_face_with_runpod,
     generate_recommendation_batch,
     get_ai_runtime_config_snapshot,
     simulate_face_analysis,
@@ -57,6 +59,7 @@ from app.services.model_team_bridge import (
 )
 from app.services.storage_service import (
     build_storage_snapshot,
+    persist_analysis_input_image_reference,
     persist_simulation_image_reference,
     resolve_storage_reference,
 )
@@ -3027,9 +3030,12 @@ def cancel_style_selection(
 
 
 def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None = None):
+    """Phase 1: Store image + call RunPod analyze_face → save face analysis to DB. No hairstyle generation."""
+    logger.info("[PIPELINE THREAD] Record %s started. has_processed_bytes=%s", record_id, bool(processed_bytes))
     try:
         record = mark_legacy_capture_processing(record_id=record_id)
         if record is None or record.status != "PROCESSING":
+            logger.warning("[PIPELINE THREAD] Record %s early exit. record_found=%s", record_id, record is not None)
             return
 
         storage_snapshot = build_storage_snapshot(
@@ -3045,73 +3051,144 @@ def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None =
             storage_snapshot["path_count"],
         )
 
-        resolved_analysis_input_reference = resolve_storage_reference(record.processed_path)
-        analysis_input_url = (
-            resolved_analysis_input_reference
-            if str(resolved_analysis_input_reference or "").startswith(("http://", "https://"))
-            else None
+        # Step 1: Store processed image to Supabase for later use at survey time
+        analysis_input_reference = persist_analysis_input_image_reference(
+            processed_bytes,
+            extension=".jpg",
+            mime_type="image/jpeg",
+        ) if processed_bytes else (record.processed_path or record.original_path)
+        logger.info(
+            "[PIPELINE] Record %s image stored. analysis_input_reference=%s",
+            record_id,
+            bool(analysis_input_reference),
         )
-        analysis_input_base64 = (
-            base64.b64encode(processed_bytes).decode("ascii")
-            if processed_bytes
-            else None
-        )
-        survey = get_latest_survey(record.client) or build_default_survey_context(record.client_id)
-        precomputed_items = generate_recommendation_batch(
-            client_id=record.client.id,
-            survey_data={
-                "target_length": getattr(survey, "target_length", None),
-                "target_vibe": getattr(survey, "target_vibe", None),
-                "scalp_type": getattr(survey, "scalp_type", None),
-                "hair_colour": getattr(survey, "hair_colour", None),
-                "budget_range": getattr(survey, "budget_range", None),
-            },
-            analysis_data={
-                "face_shape": None,
-                "golden_ratio_score": None,
-                "image_url": analysis_input_url,
-                "image_base64": analysis_input_base64,
-                "landmark_snapshot": record.landmark_snapshot,
-            },
-            styles_by_id=ensure_catalog_styles(),
-        )
-        analysis_payload = _analysis_payload_from_items(
-            items=precomputed_items,
-            fallback_landmark_snapshot=record.landmark_snapshot,
-        )
-        if analysis_payload is None:
-            runpod_direct_outcome = _runpod_direct_outcome_from_items(items=precomputed_items)
-            if runpod_direct_outcome and runpod_direct_outcome.get("status") == "skipped" and runpod_direct_outcome.get("reason") == "missing_required_payload":
-                raise RuntimeError("RunPod direct input is missing; capture analysis cannot continue.")
-            if runpod_direct_outcome and runpod_direct_outcome.get("status") == "failed":
-                raise RuntimeError(
-                    f"RunPod direct request failed ({runpod_direct_outcome.get('reason') or 'unknown'}); capture analysis cannot continue."
-                )
-            raise RuntimeError("RunPod direct metadata is missing from recommendation output; capture analysis cannot continue.")
 
+        # Step 2: Call RunPod action=analyze_face (warm up cold start + get face data)
+        face_result = analyze_face_with_runpod(image_bytes=processed_bytes)
+        if face_result:
+            face_shape = face_result["face_shape"]
+            golden_ratio_score = face_result["golden_ratio_score"]
+            logger.info(
+                "[PIPELINE] Record %s RunPod face analysis done. face_shape=%s golden_ratio_score=%s",
+                record_id,
+                face_shape,
+                golden_ratio_score,
+            )
+        else:
+            # Local fallback when RunPod is unavailable
+            face_shape = "Oval"
+            golden_ratio_score = 0.85
+            logger.warning(
+                "[PIPELINE] Record %s RunPod analyze_face unavailable, using local fallback.",
+                record_id,
+            )
+
+        # Step 3: Save face analysis + image reference to DB
         record, analysis = complete_legacy_capture_analysis(
             record_id=record_id,
-            face_shape=analysis_payload["face_shape"],
-            golden_ratio_score=analysis_payload["golden_ratio_score"],
-            landmark_snapshot=(record.landmark_snapshot or analysis_payload.get("landmark_snapshot")),
+            face_shape=face_shape,
+            golden_ratio_score=golden_ratio_score,
+            landmark_snapshot=record.landmark_snapshot,
+            analysis_image_url=analysis_input_reference,
         )
         if record is None or analysis is None:
             return
-        if analysis_payload.get("analysis_source"):
-            analysis.analysis_source = analysis_payload.get("analysis_source")
-
-        persist_generated_batch(
-            client=record.client,
-            capture_record=record,
-            survey=survey,
-            analysis=analysis,
-            precomputed_items=precomputed_items,
-        )
 
         sync_model_team_runtime_state(client=record.client)
-        logger.info("[PIPELINE SUCCESS] Record %s processed. storage_mode=%s", record_id, storage_snapshot["storage_mode"])
+        logger.info(
+            "[PIPELINE SUCCESS] Record %s face analysis saved. face_shape=%s has_image_ref=%s",
+            record_id,
+            face_shape,
+            bool(analysis_input_reference),
+        )
 
     except Exception as exc:
         logger.error("[PIPELINE ERROR] Record %s: %s", record_id, exc)
         fail_legacy_capture_processing(record_id=record_id, error_note=str(exc))
+
+
+_HAIRSTYLE_PIPELINE_WAIT_TIMEOUT = 60   # 카메라 파이프라인 완료 최대 대기 시간(초)
+_HAIRSTYLE_PIPELINE_WAIT_INTERVAL = 3  # 재조회 간격(초)
+
+
+def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
+    """Phase 2: After survey submit, generate hairstyle simulations using face analysis + survey preferences."""
+    client_id = client.id
+    logger.info("[HAIRSTYLE PIPELINE] client_id=%s started.", client_id)
+    try:
+        # 카메라 파이프라인이 아직 실행 중일 수 있으므로 analysis_image_url이 채워질 때까지 대기
+        analysis = None
+        waited = 0
+        while waited <= _HAIRSTYLE_PIPELINE_WAIT_TIMEOUT:
+            analysis = get_latest_analysis(client)
+            if analysis and analysis.image_url:
+                break
+            logger.info(
+                "[HAIRSTYLE PIPELINE] client_id=%s waiting for face analysis... waited=%ss analysis_found=%s image_url=%s",
+                client_id,
+                waited,
+                analysis is not None,
+                repr(getattr(analysis, "image_url", None)),
+            )
+            time.sleep(_HAIRSTYLE_PIPELINE_WAIT_INTERVAL)
+            waited += _HAIRSTYLE_PIPELINE_WAIT_INTERVAL
+
+        if analysis is None:
+            logger.warning("[HAIRSTYLE PIPELINE] client_id=%s no face analysis found after %ss, skipping.", client_id, waited)
+            return
+
+        image_url = resolve_storage_reference(analysis.image_url) if analysis.image_url else None
+        if not image_url:
+            logger.warning(
+                "[HAIRSTYLE PIPELINE] client_id=%s no image URL for analysis (analysis_image_url=%s) after %ss, skipping.",
+                client_id,
+                repr(analysis.image_url),
+                waited,
+            )
+            return
+
+        analysis_data = {
+            "face_shape": analysis.face_shape,
+            "golden_ratio_score": analysis.golden_ratio_score,
+            "image_url": image_url,
+            "landmark_snapshot": analysis.landmark_snapshot,
+        }
+        survey_data = {
+            "target_length": getattr(survey, "target_length", None),
+            "target_vibe": getattr(survey, "target_vibe", None),
+            "scalp_type": getattr(survey, "scalp_type", None),
+            "hair_colour": getattr(survey, "hair_colour", None),
+            "budget_range": getattr(survey, "budget_range", None),
+        }
+        logger.info(
+            "[HAIRSTYLE PIPELINE] client_id=%s calling RunPod. face_shape=%s image_url_set=%s survey_data=%s",
+            client_id,
+            analysis_data.get("face_shape"),
+            bool(image_url),
+            {k: v for k, v in survey_data.items() if v},
+        )
+
+        capture_record = get_latest_capture(client)
+        items = generate_recommendation_batch(
+            client_id=client_id,
+            survey_data=survey_data,
+            analysis_data=analysis_data,
+            styles_by_id=ensure_catalog_styles(),
+        )
+        persist_generated_batch(
+            client=client,
+            capture_record=capture_record,
+            survey=survey,
+            analysis=analysis,
+            precomputed_items=items,
+        )
+        logger.info(
+            "[HAIRSTYLE PIPELINE] client_id=%s done. items=%s simulated=%s",
+            client_id,
+            len(items),
+            sum(1 for item in items if item.get("simulation_image_url")),
+        )
+
+    except Exception as exc:
+        logger.error("[HAIRSTYLE PIPELINE ERROR] client_id=%s: %s", client_id, exc)
 

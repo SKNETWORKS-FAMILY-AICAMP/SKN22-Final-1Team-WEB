@@ -32,6 +32,7 @@ from app.api.v1.services_django import (
     get_trend_recommendations,
     regenerate_recommendation_simulation,
     retry_current_recommendations,
+    run_hairstyle_generation_pipeline,
     run_mirrai_analysis_pipeline,
     serialize_capture_status,
     upsert_survey,
@@ -210,6 +211,16 @@ class SurveyView(CompatEnvelopeAPIView):
         client = _get_client_or_404(client_id)
         survey = upsert_survey(client, request.data)
         logger.info("[survey_saved] client_id=%s survey_id=%s", client.id, survey.id)
+
+        # Phase 2: 비동기 — 백그라운드에서 헤어스타일 생성
+        thread = threading.Thread(
+            target=run_hairstyle_generation_pipeline,
+            args=(client, survey),
+            daemon=True,
+        )
+        thread.start()
+        logger.info("[survey_saved] hairstyle pipeline started. client_id=%s", client.id)
+
         return Response(SurveySerializer(survey).data)
 
 

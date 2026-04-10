@@ -459,7 +459,10 @@
           body: JSON.stringify(data)
         });
         if (!response.ok) throw new Error("Survey submission failed");
-        window.location.href = isReanalysisFlow ? "/customer/recommendations/?reanalysis=1" : "/customer/recommendations/";
+        const freshTs = Math.floor(Date.now() / 1000);
+        window.location.href = isReanalysisFlow
+          ? `/customer/recommendations/?reanalysis=1&fresh=${freshTs}`
+          : `/customer/recommendations/?fresh=${freshTs}`;
       } catch (error) {
         alert("저장 중 오류가 발생했습니다.");
         submitBtn.disabled = false;
