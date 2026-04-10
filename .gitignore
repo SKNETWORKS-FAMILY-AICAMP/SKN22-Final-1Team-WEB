@@ -45,7 +45,9 @@ local_settings.py
 
 # Local runtime data
 *.sqlite3
+!data/rag/stores/**/*.sqlite3
 *.db
+!data/rag/stores/**/*.db
 mirrai.db
 storage/
 media/
