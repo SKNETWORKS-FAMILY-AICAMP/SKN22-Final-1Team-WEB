@@ -146,6 +146,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "app.middleware.ElasticBeanstalkHealthCheckMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",

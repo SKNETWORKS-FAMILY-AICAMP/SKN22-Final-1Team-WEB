@@ -1,5 +1,25 @@
+from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
+
 from app.session_state import clear_customer_session, clear_designer_session
+
+
+class ElasticBeanstalkHealthCheckMiddleware(MiddlewareMixin):
+    """
+    Return a lightweight 200 response for ALB/ELB health checks before Django's
+    host validation runs.
+    """
+
+    HEALTH_PATHS = {"/", "/health", "/health/"}
+    HEALTHCHECK_USER_AGENT_PREFIXES = ("ELB-HealthChecker/",)
+
+    def process_request(self, request):
+        user_agent = str(request.META.get("HTTP_USER_AGENT") or "")
+        if request.path not in self.HEALTH_PATHS:
+            return None
+        if not user_agent.startswith(self.HEALTHCHECK_USER_AGENT_PREFIXES):
+            return None
+        return JsonResponse({"status": "django_running", "framework": "Django"})
 
 class BrowserSessionCleanupMiddleware(MiddlewareMixin):
     """
