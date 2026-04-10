@@ -109,7 +109,7 @@ RETRY_RECOMMENDATION_POLICY = {
 }
 
 CURRENT_RECOMMENDATION_WAIT_POLICY = RecommendationWaitPolicy(
-    timeout_seconds=120.0,
+    timeout_seconds=45.0,
     interval_seconds=3.0,
 )
 FAILED_RECOMMENDATION_INPUT_STATUSES = {"FAILED", "NEEDS_RETAKE", "ERROR"}
