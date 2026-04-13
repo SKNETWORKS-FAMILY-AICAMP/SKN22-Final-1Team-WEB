@@ -121,7 +121,7 @@
               alt="{{ item.style_name }}"
             >
             <span style="position: absolute; top: 12px; left: 12px; padding: 4px 12px; background: var(--accent-neon); color: var(--bg-dark); border-radius: var(--radius-pill); font-size: 11px; font-weight: 800;">
-              {{ item.match_score|default:0 }}% Match
+              {{ item.match_score|default:0 }}% 매칭
             </span>
           </div>
           <div class="history-info">
@@ -175,7 +175,7 @@
       selectedState.recommendationId = Number(card.dataset.recommendationId);
       selectedState.styleName = card.dataset.styleName || "선택한 스타일";
       selectedState.matchScore = card.dataset.matchScore || 0;
-      selectedInfo.textContent = `${selectedState.styleName} · ${selectedState.matchScore}% Match`;
+      selectedInfo.textContent = `${selectedState.styleName} · ${selectedState.matchScore}% 매칭`;
       consultBtn.disabled = false;
     }
 

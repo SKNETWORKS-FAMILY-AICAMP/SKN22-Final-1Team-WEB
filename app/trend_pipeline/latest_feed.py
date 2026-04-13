@@ -24,6 +24,48 @@ CHROMA_COLLECTION_NAME = "hair_trends"
 DEFAULT_RUNPOD_LATEST_TIMEOUT = 8
 DEFAULT_RUNPOD_LATEST_POLL_INTERVAL = 2.0
 
+PUBLICATION_HOST_MAP = {
+    "allure.com": "Allure",
+    "byrdie.com": "Byrdie",
+    "cosmopolitan.com": "Cosmopolitan",
+    "elle.com": "ELLE",
+    "glamour.com": "Glamour",
+    "harpersbazaar.com": "Harper's Bazaar",
+    "instyle.com": "InStyle",
+    "marieclaire.com": "Marie Claire",
+    "newbeauty.com": "NewBeauty",
+    "oprahdaily.com": "Oprah Daily",
+    "people.com": "People",
+    "popsugar.com": "POPSUGAR",
+    "refinery29.com": "Refinery29",
+    "teenvogue.com": "Teen Vogue",
+    "thezoereport.com": "The Zoe Report",
+    "vogue.com": "Vogue",
+    "whowhatwear.com": "Who What Wear",
+    "wmagazine.com": "W Magazine",
+}
+
+PUBLICATION_SOURCE_MAP = {
+    "allure": "Allure",
+    "byrdie": "Byrdie",
+    "cosmopolitan": "Cosmopolitan",
+    "elle": "ELLE",
+    "glamour": "Glamour",
+    "harpersbazaar": "Harper's Bazaar",
+    "instyle": "InStyle",
+    "marieclaire": "Marie Claire",
+    "newbeauty": "NewBeauty",
+    "oprahdaily": "Oprah Daily",
+    "people": "People",
+    "popsugar": "POPSUGAR",
+    "refinery29": "Refinery29",
+    "teenvogue": "Teen Vogue",
+    "thezoereport": "The Zoe Report",
+    "vogue": "Vogue",
+    "whowhatwear": "Who What Wear",
+    "wmagazine": "W Magazine",
+}
+
 STYLE_INCLUDE_KEYWORDS = (
     "hairstyle",
     "haircut",
@@ -313,6 +355,34 @@ def _runpod_latest_poll_interval() -> float:
         return DEFAULT_RUNPOD_LATEST_POLL_INTERVAL
 
 
+def _source_slug(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _publication_name_from_url(article_url: Any) -> str:
+    parsed = urlparse(str(article_url or "").strip())
+    host = parsed.netloc.lower().strip()
+    if host.startswith("www."):
+        host = host[4:]
+    return PUBLICATION_HOST_MAP.get(host, "")
+
+
+def _display_source_name(*, source: Any, article_url: Any) -> str:
+    source_name = _publication_name_from_url(article_url)
+    if source_name:
+        return source_name
+
+    normalized = PUBLICATION_SOURCE_MAP.get(_source_slug(source))
+    if normalized:
+        return normalized
+
+    cleaned = " ".join(str(source or "").split())
+    if cleaned and cleaned.lower() != "unknown":
+        return cleaned
+
+    return "Unknown"
+
+
 def _normalize_remote_item(item: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
@@ -321,12 +391,16 @@ def _normalize_remote_item(item: dict[str, Any]) -> dict[str, Any] | None:
     if not title:
         return None
 
+    article_url = str(item.get("article_url") or "").strip() or None
+    source = str(item.get("source") or item.get("publisher") or item.get("publication") or "").strip() or "Unknown"
+
     return {
         "title": title,
         "summary": _compact_summary(item.get("summary") or item.get("description") or ""),
         "image_url": str(item.get("image_url") or "").strip() or None,
-        "article_url": str(item.get("article_url") or "").strip() or None,
-        "source": str(item.get("source") or "").strip() or "Unknown",
+        "article_url": article_url,
+        "source": source,
+        "source_name": _display_source_name(source=source, article_url=article_url),
         "published_at": str(item.get("published_at") or "").strip() or None,
         "crawled_at": str(item.get("crawled_at") or "").strip() or None,
         "category": str(item.get("category") or "").strip() or "trend",
@@ -619,6 +693,7 @@ def _normalize_item(item: dict[str, Any]) -> dict[str, Any] | None:
         "image_url": image_url or None,
         "article_url": article_url or None,
         "source": source,
+        "source_name": _display_source_name(source=source, article_url=article_url),
         "published_at": published_at or None,
         "crawled_at": crawled_at or None,
         "category": category,
@@ -797,6 +872,7 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
             "image_url": row["image_url"],
             "article_url": row["article_url"],
             "source": row["source"],
+            "source_name": row.get("source_name") or row["source"],
             "published_at": row["published_at"],
             "crawled_at": row["crawled_at"],
             "category": row["category"],

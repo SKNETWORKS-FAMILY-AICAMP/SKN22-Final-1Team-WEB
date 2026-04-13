@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
@@ -11,6 +12,8 @@ from app.session_state import (
     get_session_admin,
     get_session_customer,
     get_session_designer,
+    has_admin_session,
+    has_designer_session,
     revoke_owner_dashboard,
 )
 
@@ -50,6 +53,12 @@ class CurrentFlowNavigationMiddleware:
             return "partner_dashboard"
         return None
 
+    def _redirect_response(self, request: HttpRequest, route_name: str, *, ajax_route_name: str | None = None):
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            target_route = ajax_route_name or route_name
+            return JsonResponse({"status": "success", "redirect": reverse(target_route)})
+        return redirect(route_name)
+
     def _handle_home(self, request):
         current_main_route = self._resolve_current_main_route(request=request)
         if current_main_route is not None:
@@ -72,17 +81,16 @@ class CurrentFlowNavigationMiddleware:
 
     def _handle_customer_logout(self, request):
         clear_customer_session(request=request)
-        remaining_main_route = self._resolve_current_main_route(request=request, include_customer=False)
-        if remaining_main_route is not None:
-            return redirect(remaining_main_route)
-        return redirect("index")
+        if has_admin_session(request=request) or has_designer_session(request=request):
+            return self._redirect_response(request, "partner_index")
+        return self._redirect_response(request, "index")
 
     def _handle_designer_logout(self, request):
         clear_designer_session(request=request)
         revoke_owner_dashboard(request=request)
-        if get_session_admin(request=request) is not None:
-            return redirect("partner_designer_select")
-        return redirect("partner_index")
+        if has_admin_session(request=request):
+            return self._redirect_response(request, "partner_index", ajax_route_name="partner_designer_select")
+        return self._redirect_response(request, "partner_index")
 
     def _handle_partner_dashboard(self, request):
         designer = get_session_designer(request=request)

@@ -1,245 +1,293 @@
-# 🪞 MirrAI (SKN22-Final-1Team-WEB)
+# MirrAI
 
-AI 기반 퍼스널 헤어 스타일 분석 및 추천 솔루션, **MirrAI** 프로젝트 저장소입니다.  
-고객의 페이스 라인 분석과 개인별 스타일 취향을 결합하여 최적의 헤어스타일을 제안하고, 디자이너와의 스마트한 상담 환경을 제공합니다.
-
-현재 구조는 **Django (MVT)** 아키텍처를 중심으로 동작하며, 로컬 개발 환경에서는 **LangChain + ChromaDB 기반 RAG**, **자동 트렌드 스케줄러**, **디자이너 챗봇**까지 함께 검증할 수 있습니다.
+MirrAI는 고객 촬영 이미지와 설문 데이터를 바탕으로 얼굴 분석, 헤어스타일 추천, 상담 연계를 제공하는 Django 기반 살롱 추천 플랫폼입니다. 고객 화면, 파트너/디자이너 운영 화면, 최신 트렌드 피드, 챗봇 보조 기능까지 하나의 저장소 안에서 함께 운영합니다.
 
 ---
 
-## 💡 서비스 개요
+## 서비스 개요
 
-- **고객(Customer) 여정**: 서비스 시작 → 개인정보 동의 → 취향 설문 → 페이스 스캔 → AI 분석 리포트 및 추천 확인
-- **파트너(Partner) 관리**: 실시간 고객 검색, 상세 분석 이력 관리, 매장 고객/상담 흐름 확인
-- **디자이너(Designer) 업무 지원**: 디자이너 대시보드, 고객 상세 페이지, 상담 완료 페이지에서 챗봇 기반 상담 보조
-- **트렌드/RAG 파이프라인**: 최신 헤어 트렌드 수집, 정제, 벡터화, ChromaDB 저장 및 최신 카드 피드 제공
-- **디자인 컨셉**: 소프트 미니멀리즘 + 에디토리얼 레이아웃 기반의 반응형 웹(PC/Tablet/Mobile/Kiosk) 최적화
-
----
-
-## 🧭 비즈니스 계층 및 세션 구조
-
-MirrAI는 매장 중심의 B2B2C 서비스 구조를 채택합니다.
-
-### 1. 계층 구조
-
-- **파트너 (Partner / Store Owner)**: 매장 전체 운영을 총괄하는 관리자 계정
-- **디자이너 (Designer / Staff)**: 실제 고객 상담과 시술을 담당하는 전문가 계정
-- **고객 (Customer)**: 분석 및 추천 서비스를 이용하는 최종 사용자
-
-### 2. 페이지별 독립 구동 모델
-
-- **통합 대시보드**: `/partner/dashboard/`
-  - 대상: 매장 관리자
-  - 주요 기능: 디자이너 관리, 고객 목록 조회, 매장 단위 운영 화면
-- **디자이너 대시보드**: `/partner/staff/`
-  - 대상: 디자이너 PIN 인증 사용자
-  - 주요 기능: 담당 고객 확인, 상담 보조 챗봇, 디자이너 전용 업무 화면
-
-### 3. 인증 및 세션 흐름
-
-1. **파트너 인증**: 관리자 연락처와 비밀번호로 매장 세션 활성화
-2. **디자이너 인증**: 활성화된 매장 안에서 디자이너를 선택하고 4자리 PIN으로 2차 인증
-3. **세션 분리**:
-   - `/partner/dashboard/` 는 관리자 화면
-   - `/partner/staff/` 는 디자이너 화면
-4. **보안 흐름**:
-   - 고객 세션과 파트너 세션은 분리
-   - 디자이너 세션에서는 관리자 전용 화면 접근이 제한됨
+- 고객(Customer) 여정
+  서비스 시작, 고객 정보 입력, 설문 응답, 촬영, AI 분석 결과 확인, 추천 스타일 선택, 상담 요청
+- 파트너(Partner) 운영
+  매장 단위 고객 조회, 디자이너 선택, 고객 상세 이력 확인, 상담 상태 관리
+- 디자이너(Designer) 지원
+  디자이너 전용 화면, 고객 상세 페이지, 상담 완료 페이지, 챗봇 기반 상담 보조
+- 최신 트렌드 피드
+  최신 헤어 트렌드 기사/스타일 카드 제공, 최신 5선 노출, 매체명 표시
+- 트렌드/RAG 파이프라인
+  크롤링, 정제, 벡터화, 카드 재구성, 챗봇 검색용 로컬 벡터 스토어 운영
 
 ---
 
-## 🚀 핵심 기능
+## 비즈니스 계정 및 세션 구조
 
-- **정교한 스타일 설문**: 길이, 분위기, 모발 상태, 컬러, 예산 기반 취향 수집
-- **AI 페이스 분석**:
-  - 프론트엔드: MediaPipe 기반 실시간 얼굴 분석과 촬영 품질 체크
-  - 백엔드: OpenCV 기반 이미지 전처리 및 얼굴형 분석
-- **최신 헤어 트렌드 피드**:
-  - 최신 크롤링 결과 기반 헤어스타일/헤어컬러 기사 5건 선별
-  - `/api/v1/analysis/trend/latest/` API 제공
-  - 고객/매장 관리자/디자이너 모두 접근 가능
-- **로컬 ChromaDB 기반 RAG**:
-  - 트렌드 카드: `chromadb_trends`
-  - 챗봇: `chromadb_chatbot`
-- **디자이너 챗봇**:
-  - 로컬 ChromaDB + 디자이너 지원 데이터셋 기반 응답
-  - 디자이너 대시보드, 고객 상세, 상담 완료 페이지에서 사용 가능
+MirrAI는 매장 중심 B2B2C 구조를 기준으로 동작합니다.
+
+- 파트너 계정
+  매장 전체 운영을 관리하는 관리자 계정
+- 디자이너 계정
+  실제 상담과 시술을 담당하는 실무 계정
+- 고객 계정
+  촬영/분석/추천 서비스를 이용하는 최종 사용자
+
+페이지 구분:
+
+- 파트너 대시보드: `/partner/dashboard/`
+- 디자이너 화면: `/partner/staff/`
+- 고객 흐름: `/customer/` 이하
+
+세션 흐름:
+
+1. 파트너가 로그인하여 매장 세션을 생성합니다.
+2. 디자이너를 선택하고 PIN으로 디자이너 세션을 확정합니다.
+3. 고객은 별도 세션으로 설문, 촬영, 결과 확인을 진행합니다.
+4. 파트너/디자이너 세션과 고객 세션은 목적에 따라 분리되어 동작합니다.
 
 ---
 
-## 🗂 프로젝트 구조
+## 핵심 기능
+
+### 1. 고객 설문 및 촬영
+
+- 길이, 분위기, 두피 상태, 컬러, 예산 등 선호도 수집
+- 프론트 검증 + 백엔드 검증을 통한 촬영 품질 확인
+- 필요 시 캡처 이미지 저장, 비식별화 이미지 저장, 스토리지 정책 기록
+
+### 2. 얼굴 분석 및 추천
+
+- 촬영 업로드 후 얼굴 분석 비동기 실행
+- 설문 + 얼굴 분석 결과를 조합해 Top-5 추천 생성
+- 추천 선택 후 상담 요청 또는 바로 상담 요청 가능
+
+### 3. 추천 결과 페이지 동작
+
+최근 변경 사항:
+
+- 결과 페이지는 이제 실제 추천 이미지가 준비되기 전까지 로딩 상태를 유지합니다.
+- 샘플 스타일 이미지는 최종 추천 완료 상태로 간주하지 않습니다.
+- 최신 추천 배치가 처리 중이면 결과 페이지가 계속 폴링하며 기다립니다.
+- 추천 이미지 준비 안내 문구에 예상 시간(보통 1~2분)을 표시합니다.
+- `styles/...` 자산이 누락된 경우에도 플레이스홀더 이미지로 안전하게 대체합니다.
+- 로딩 중 **단계별 진행 표시**(이미지 저장 → 얼굴 분석 → 스타일 추천 → 이미지 합성)가 노출됩니다.
+- 다중 링 스피너 애니메이션이 로딩 중 화면에서 올바르게 작동합니다.
+
+### 4. 최신 트렌드 피드
+
+- 최신 헤어 트렌드 5선 카드 제공
+- 카드에 잡지사/매체명 노출
+- `source_name` 기준으로 보기 좋은 출처명 표시
+
+### 5. 디자이너 챗봇
+
+- 로컬 ChromaDB + 디자이너 지원 데이터셋 기반 응답
+- 고객 상세/상담 완료 페이지에서 상담 보조
+- 프롬프트 우회, 역할 변경 요청 등 보안상 민감한 입력은 차단 대상
+
+---
+
+## 저장소 구조
 
 ```text
-.
-├── app/                    # 비즈니스 로직, API(v1), 서비스
-├── mirrai_project/         # Django 프로젝트 설정
-├── static/                 # 정적 자산
-├── templates/              # HTML 템플릿
-├── data/                   # 로컬 데이터셋 및 트렌드/Chroma 저장소
-├── docs/                   # 문서
-├── terraform/              # 인프라 코드
-├── manage.py               # Django 관리 스크립트
-├── requirements.txt        # 기본 파이썬 의존성
-├── requirements-trends.txt # 트렌드/RAG 확장 의존성
-└── run_server.bat          # Windows 로컬 실행 보조 스크립트
+app/                    Django 앱, API, 서비스 로직
+mirrai_project/         Django 프로젝트 설정 및 URL
+templates/              고객/관리자/공용 템플릿
+static/                 정적 자산
+data/                   트렌드 및 벡터 스토어 입력 데이터
+terraform/              인프라 코드
+requirements.txt        로컬 개발용 전체 의존성
+requirements-deploy.txt 배포용 최소 런타임 의존성
+requirements-trends.txt 배포용 + 트렌드 파이프라인 확장 의존성
 ```
 
 ---
 
-## 🛠 로컬 실행 및 초기 설정
+## 의존성 파일 구성
 
-### 1) 패키지 설치 및 DB 초기화
+최근 변경 사항:
+
+- `requirements-deploy.txt`
+  배포 웹 컨테이너에서 필요한 최소 런타임 의존성
+- `requirements-trends.txt`
+  배포 기본 의존성 위에 트렌드 파이프라인 관련 패키지를 추가한 파일
+- `requirements.txt`
+  로컬 개발용 전체 의존성 파일. 현재 `requirements-trends.txt`를 포함하고 Playwright 같은 로컬 도구를 추가합니다.
+
+설치:
 
 ```bash
 pip install -r requirements.txt
-pip install -r requirements-trends.txt
-python manage.py migrate
-playwright install chromium
 ```
 
-### 2) 환경 변수 설정
+---
 
-Windows CMD:
+## 로컬 실행 및 초기 설정
 
-```bash
-copy .env.example .env
-```
-
-PowerShell:
+### 1. 환경 변수 파일 준비
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-로컬 권장 설정:
+주요 설정 패턴:
 
-- `ENABLE_TREND_SCHEDULER=true`
-- `TREND_LATEST_REMOTE_ENABLED=false`
-- `MIRRAI_MODEL_CHATBOT_PROVIDER=openai`
-- `MIRRAI_MODEL_CHATBOT_OPENAI_MODEL=gpt-4.1-mini`
-- `MIRRAI_MODEL_CHATBOT_API_KEY=<your OpenAI API key>`
+- 로컬 SQLite 사용:
+  `LOCAL_DATABASE_URL=sqlite:///db.sqlite3`
+- 로컬 Postgres 사용:
+  `LOCAL_DATABASE_URL=postgres://user:pass@localhost:5432/mirrai_db`
+- 공유/배포 Postgres 사용:
+  `SUPABASE_USE_REMOTE_DB=True`
+  `SUPABASE_DB_URL=postgresql://...`
+- Redis 캐시/세션 사용:
+  `REDIS_URL=redis://127.0.0.1:6379/1`
 
-### 3) 서버 실행
+최근 변경 사항:
+
+- 설정은 이제 `DATABASE_URL`과 `LOCAL_DATABASE_URL`을 모두 인식합니다.
+- Docker Compose, 로컬 셸, 배포 환경에서 같은 규칙을 조금 더 안전하게 쓸 수 있습니다.
+
+### 2. 마이그레이션 및 서버 실행
 
 ```bash
+python manage.py migrate
 python manage.py runserver
 ```
 
-Windows에서는 아래 배치 파일로도 실행할 수 있습니다.
+### 3. 자주 쓰는 점검 명령
 
 ```bash
-run_server.bat
+python manage.py check
+python manage.py test
 ```
 
-### 4) 자동 스케줄러
-
-현재는 `.env` 의 `ENABLE_TREND_SCHEDULER=true` 인 상태에서 Django 서버가 시작되면 트렌드 스케줄러도 함께 자동 시작됩니다.
-
-- 시간대는 `.env` 의 `TREND_SCHEDULER_TIMEZONE` 을 사용
-- 기본적으로 `TIME_ZONE` 과 같은 값으로 맞춰서 사용 가능
-- `run_server.bat` 뿐 아니라 `python manage.py runserver` 실행 시에도 자동 시작
-
-별도 프로세스로만 스케줄러를 보고 싶다면:
+### 4. 브라우저 기반 테스트 도구 설치
 
 ```bash
-python manage.py run_trend_scheduler
+playwright install chromium
 ```
 
-## 🔄 최신 트렌드 / RAG 동작
+---
 
-### 1. 최신 트렌드 카드
+## Docker Compose
 
-최신 트렌드 카드는 현재 로컬 우선 설정입니다.
+`docker-compose.yml` 제공 서비스:
 
-- `TREND_LATEST_REMOTE_ENABLED=false`
-- 조회 순서: `chromadb_trends -> refined_trends.json -> raw trend JSON`
+- `web`
+  Django 앱 컨테이너
+- `db`
+  Postgres
+- `redis`
+  Redis
+- `scheduler`
+  트렌드 스케줄러 전용 컨테이너
 
-페이지:
+실행:
 
-- `http://localhost:8000/customer/trend/`
+```bash
+docker compose up --build
+```
 
-API:
+최근 변경 사항:
 
-- `GET /api/v1/analysis/trend/latest/?limit=5`
+- `scheduler`는 `INSTALL_TRENDS_DEPS=1`로 빌드됩니다.
+- 스케줄러 실행 명령은 `python manage.py run_trend_scheduler`로 정리했습니다.
+- Compose 환경에서도 `DATABASE_URL`과 `LOCAL_DATABASE_URL`을 함께 넣어 로컬/배포 규칙 차이를 줄였습니다.
 
-### 2. 트렌드 전체 갱신
+---
+
+## 추천 결과 파이프라인
+
+고객 추천 흐름:
+
+1. 고객이 촬영 이미지를 업로드합니다.
+2. 촬영 이미지를 검증하고 설정에 따라 저장합니다.
+3. 얼굴 분석이 비동기로 실행됩니다.
+4. 설문과 얼굴 분석이 준비되면 헤어스타일 추천 생성이 시작됩니다.
+5. 결과 페이지는 실제 추천 이미지가 준비될 때까지 로딩을 유지합니다.
+
+현재 동작 기준:
+
+- 최신 캡처/분석이 아직 처리 중이면 `processing` 상태를 반환합니다.
+- 현재 분석 기준 배치가 있어도 샘플 이미지뿐이면 `ready`로 처리하지 않습니다.
+- 최신 분석 기준의 실제 시뮬레이션 이미지가 준비된 경우에만 최종 결과를 보여줍니다.
+
+---
+
+## 최신 트렌드 / RAG / 챗봇
+
+### 최신 트렌드 피드
+
+- 페이지: `/customer/trend/`
+- API: `GET /api/v1/analysis/trend/latest/?limit=5`
+- 최신 5선 카드에서 잡지사/매체명 표시
+
+### 트렌드 전체 갱신
 
 ```bash
 python manage.py refresh_trends
 python manage.py refresh_trends --mode local --steps vectorize
 python manage.py refresh_trends --mode runpod-pipeline
-python manage.py refresh_trends --mode runpod-archive --build-local
+python manage.py run_trend_scheduler
 ```
 
-기본 로컬 파이프라인 순서:
-
-```text
-crawl -> refine -> llm_refine -> vectorize -> rebuild_ncs -> rebuild_styles
-```
-
-### 3. 로컬 챗봇 코퍼스
-
-디자이너 챗봇은 아래 파일과 저장소를 사용합니다.
+### 로컬 챗봇/RAG 구성
 
 - 데이터셋: `app/data/chatbot/designer_support_dataset_v5_final_revised_optimized.json`
-- 프롬프트 템플릿: `app/data/chatbot/designer_instructor_persona.md`
-- 로컬 Chroma 저장소: `data/rag/stores/chromadb_chatbot/`
-- 저장 클라이언트: `app/trend_pipeline/chroma_client.py` 의 `chromadb.PersistentClient(...)`
-- 저장소 루트: `app/trend_pipeline/paths.py` 의 `data/rag/stores/`
-- 응답 엔진: `app/services/chatbot/service.py`
-- RAG 엔진: `app/services/chatbot/rag.py`
+- 페르소나 프롬프트: `app/data/chatbot/designer_instructor_persona.md`
+- 로컬 벡터 스토어 루트: `data/rag/stores/`
+- 챗봇 서비스: `app/services/chatbot/service.py`
+- RAG 로직: `app/services/chatbot/rag.py`
 - 프롬프트 빌더: `app/services/chatbot/prompt_builder.py`
-- LangChain 구성: `langchain-openai`, `langchain-chroma`, `langchain-core`
-
-최근 정리 내용:
-
-- 인사/감사/짧은 질문은 섹션 제목 없이 자연스럽게 응답합니다.
-- 일반 시술 질문은 강사처럼 핵심 설명과 체크 포인트를 나눠서 안내합니다.
-- RAG 검색은 질문 토큰 정규화, 조사 제거, 벡터 검색과 어휘 중첩 점수 병합, 지시문 형태 문서 필터를 함께 사용합니다.
-- 예를 들어 `염색 전 주의사항` 질문은 가발 자료보다 패치 테스트, 알레르기, 두피 상태 관련 문서를 우선 참조합니다.
-- 사용자 질문, 클라이언트 측 대화 기록, 검색된 문서 내용은 모두 신뢰하지 않는 입력으로 취급합니다.
-- 시스템 프롬프트 공개나 내부 규칙 무시 요청은 차단하고, 디자이너 이름/역할 변경 요청은 현재 세션 정보를 기준으로만 응답합니다.
-- 검색 문서나 이전 대화에 지시문 형태 문장이 섞여 있으면 프롬프트 구성 전에 제외하거나 마스킹합니다.
-- 응답 생성은 `langchain_openai` 기반 `openai_responses` 가 담당하고, `langchain_chroma` 기반 `chatbot_rag` 는 로컬 근거 검색에 사용됩니다. OpenAI 호출 실패 시에는 안내용 fallback 응답으로 전환합니다.
-
-위 Chroma 저장소와 manifest 파일은 로컬 생성물이므로 Git에서는 무시합니다.
 
 ---
 
-## 🌐 주요 접속 경로
+## 주요 접속 경로
 
-로컬 개발 환경 기준: `http://localhost:8000`
+로컬 기준: `http://localhost:8000`
 
-### 1. 고객 서비스
+### 고객 화면
 
-- 서비스 시작/로그인: `/customer/`
-- 최신 헤어 트렌드 페이지: `/customer/trend/`
-- 스타일 취향 설문: `/customer/survey/`
-- 페이스 촬영: `/customer/camera/`
-- AI 분석 결과 및 추천: `/customer/recommendations/`
+- 시작/로그인: `/customer/`
+- 설문: `/customer/survey/`
+- 촬영: `/customer/camera/`
+- 추천 결과: `/customer/recommendations/`
+- 최신 트렌드: `/customer/trend/`
 
-### 2. 파트너 센터
+### 파트너/디자이너 화면
 
 - 파트너 로그인: `/partner/`
 - 디자이너 선택: `/partner/designer-select/`
-- 통합 관리자 대시보드: `/partner/dashboard/`
-- 디자이너 대시보드: `/partner/staff/`
+- 파트너 대시보드: `/partner/dashboard/`
+- 디자이너 화면: `/partner/staff/`
 
 ---
 
-## ⚙️ 환경 설정
+## 주요 환경 변수 그룹
 
-### 스케줄러
+### 데이터베이스 / 캐시
+
+- `DATABASE_URL`
+- `LOCAL_DATABASE_URL`
+- `SUPABASE_USE_REMOTE_DB`
+- `SUPABASE_DB_URL`
+- `REDIS_URL`
+- `REDIS_USE_FOR_SESSIONS`
+
+### 추천 파이프라인
+
+- `RUNPOD_API_KEY`
+- `RUNPOD_ENDPOINT_ID`
+- `MIRRAI_AI_PROVIDER` — `runpod` (기본값) 또는 `local`
+- `MIRRAI_LOCAL_MOCK_RESULTS`
+- `MIRRAI_PERSIST_CAPTURE_IMAGES` — `True`로 설정 시 분석 이미지를 로컬/Supabase에 저장합니다. 파이프라인 정상 동작에 필요합니다.
+
+### 트렌드 스케줄러
 
 - `ENABLE_TREND_SCHEDULER`
 - `TREND_SCHEDULER_TIMEZONE`
-- `TREND_SCHEDULER_WEEKLY_DAY`
-- `TREND_SCHEDULER_WEEKLY_HOUR`
-- `TREND_SCHEDULER_WEEKLY_MINUTE`
 - `TREND_SCHEDULER_STEPS`
+- `GEMINI_API_KEY`
 
-### 최신 트렌드 카드
+### 최신 트렌드 피드
 
 - `TREND_LATEST_REMOTE_ENABLED`
 - `TREND_LATEST_RUNPOD_TIMEOUT`
@@ -248,87 +296,85 @@ crawl -> refine -> llm_refine -> vectorize -> rebuild_ncs -> rebuild_styles
 ### 챗봇
 
 - `MIRRAI_MODEL_CHATBOT_PROVIDER`
-- `MIRRAI_MODEL_CHATBOT_URL`
 - `MIRRAI_MODEL_CHATBOT_API_KEY`
-- `OPENAI_API_KEY` (fallback)
 - `MIRRAI_MODEL_CHATBOT_OPENAI_MODEL`
-- `MIRRAI_MODEL_CHATBOT_FALLBACK_OPENAI_MODEL`
-- `MIRRAI_MODEL_CHATBOT_TIMEOUT`
-- `MIRRAI_MODEL_CHATBOT_MAX_OUTPUT_TOKENS`
-- `MIRRAI_MODEL_CHATBOT_INCLUDE_SYSTEM_PROMPT`
-- `MIRRAI_MODEL_CHATBOT_LOCAL_TOP_K`
-- `MIRRAI_MODEL_CHATBOT_LOCAL_CHUNK_SIZE`
-- `MIRRAI_MODEL_CHATBOT_LOCAL_CHUNK_OVERLAP`
-- `MIRRAI_MODEL_CHATBOT_LOCAL_EMBED_DIM`
 
 ---
 
-## ☁️ DevOps & 클라우드 아키텍처
+## DevOps / 인프라 구조
 
-본 프로젝트는 운영 관점에서 AWS 기반 구성을 염두에 두고 있습니다.
+- 오케스트레이션: AWS Elastic Beanstalk
+- 이미지 저장소: Amazon ECR
+- 정적/파일 저장: Supabase Storage 및 로컬 스토리지
+- 데이터베이스: Supabase Postgres 또는 로컬 SQLite
+- 캐시: Redis
+- 인프라 코드: Terraform
 
-### 인프라 구성 요소
+운영 시 권장 사항:
 
-- **Orchestration**: AWS Elastic Beanstalk
-- **Container Registry**: Amazon ECR
-- **Storage**: Amazon S3
-- **Database**: Supabase (Cloud PostgreSQL) + 로컬 SQLite
-- **Infrastructure as Code**: Terraform
-
-### 보안 가이드
-
-- 민감한 값은 `.env` 및 외부 시크릿 저장소를 통해 관리
-- 정적 파일은 WhiteNoise 기반 서빙
-- 로컬 생성물과 런타임 산출물은 `.gitignore`, `.dockerignore` 로 분리
-- 챗봇은 프롬프트 유출과 지침 무시 요청을 보안 이벤트로 취급하고 차단하며, 역할/이름 변경 요청은 세션 정보 기준으로만 응답
-- 사용자 입력, 클라이언트 대화 로그, RAG 검색 결과는 모두 비신뢰 입력으로 다루고 프롬프트에 넣기 전 필터링
-- ChromaDB 저장소는 Supabase가 아니라 로컬 경로 `data/rag/stores/` 아래에 영속 저장
+- `.env`는 버전 관리에 포함하지 않습니다.
+- 공유 환경에서는 Redis를 붙여 세션/캐시를 안정적으로 운영하는 것을 권장합니다.
+- 운영 웹 이미지는 `requirements-deploy.txt`, 트렌드 작업 컨테이너는 `requirements-trends.txt`, 로컬 개발은 `requirements.txt`를 기준으로 사용합니다.
 
 ---
 
-## 🔁 CI/CD 파이프라인
+## CI/CD
 
-기본 흐름:
+GitHub Actions는 `.github/workflows/deploy.yml` 기준으로 `main` 브랜치 푸시 시 배포를 수행합니다.
 
-1. `main` 브랜치 push
-2. Docker 이미지 빌드
-3. ECR 업로드
-4. 배포 설정 갱신
-5. Elastic Beanstalk 반영
+배포 흐름:
 
----
+1. Docker 이미지 빌드
+2. Amazon ECR 푸시
+3. `Dockerrun.aws.json`에 이미지 URI 반영
+4. Elastic Beanstalk 애플리케이션 버전 생성
+5. Elastic Beanstalk 환경 업데이트
 
-## 🧭 헤더 네비게이션 로직
+트렌드 파이프라인 의존성이 필요한 이미지를 별도로 만들 때:
 
-세션 상태에 따라 헤더와 진입 흐름이 달라집니다.
-
-- 로그아웃 상태에서 분석 시작 시 파트너 로그인 흐름으로 이동 가능
-- 관리자 세션 활성화 후 디자이너 선택 페이지로 진입 가능
-- 디자이너 세션에서는 디자이너 대시보드 우선
-- 고객/파트너 세션은 목적에 따라 분리 유지
-
-최신 트렌드 페이지(`/customer/trend/`)는 고객/매장 관리자/디자이너 세션 모두 접근 가능합니다.
+```bash
+docker build --build-arg INSTALL_TRENDS_DEPS=1 -t mirrai .
+```
 
 ---
 
-## 🧰 기술 스택
+## 테스트 명령
 
-- **Framework**: Django 5.x, DRF
-- **Frontend**: Vanilla JS, Responsive CSS, Chart.js, MediaPipe
-- **Database**: Supabase (PostgreSQL), SQLite (Local), ChromaDB
-- **Infra**: AWS Elastic Beanstalk, ECR, S3, GitHub Actions, Terraform
+집중 테스트:
+
+```bash
+python manage.py test app.tests.test_recommendation_diagnostics --verbosity 2
+python manage.py test app.tests.test_storage_service --verbosity 2
+```
+
+전체 점검:
+
+```bash
+python manage.py check
+python manage.py test
+```
 
 ---
 
-## 🧹 저장소 정리 기준
+## 운영 메모
 
-아래 항목들은 로컬 전용 산출물로 취급합니다.
+- 현재 추천 결과 페이지는 최신 배치를 기준으로만 결과를 열어주도록 강화되었습니다.
+- 샘플 이미지 fallback과 실제 생성 이미지의 구분이 더 명확해졌습니다.
+- README와 `.env.example`은 최근 변경된 로컬/배포 설정 흐름에 맞춰 다시 정리되었습니다.
 
-- `.env`
-- `backend/`
-- `__pycache__/`
-- 로컬 SQLite 파일
-- `data/rag/`
-- 로컬 로그 및 생성 스토리지
+### 파이프라인 연결 문제 (트러블슈팅)
 
-즉, 로컬 Chroma 저장소, raw trend 캐시, manifest, 임시 실행 산출물은 Git에 올라가지 않고, 실제 소스와 문서는 계속 관리 대상입니다.
+**증상**: 추천 이미지가 생성되지 않거나 로딩 화면에서 멈춥니다.
+
+**원인 및 해결**:
+
+1. **Supabase 키 오류** — `SUPABASE_SECRET_KEY`(publishable key)는 스토리지 권한이 없습니다.  
+   → `SUPABASE_SERVICE_ROLE_KEY`에 service_role 키를 설정하세요.
+
+2. **이미지 저장 실패** — Supabase 버킷이 없거나 업로드 실패 시 `analysis_image_url`이 비어 헤어스타일 파이프라인이 스킵됩니다.  
+   → `MIRRAI_PERSIST_CAPTURE_IMAGES=True` + Supabase service_role 키 설정으로 해결됩니다.  
+   → Supabase 실패 시 로컬 저장(`storage/analysis-inputs/`)으로 자동 폴백됩니다.
+
+3. **로딩 스피너 미작동** — `base.css` 캐시로 인해 `@keyframes spin`이 없는 구버전이 로드될 수 있습니다.  
+   → CSS 버전 파라미터 업데이트 또는 강제 새로고침(Ctrl+Shift+R)으로 해결됩니다.
+

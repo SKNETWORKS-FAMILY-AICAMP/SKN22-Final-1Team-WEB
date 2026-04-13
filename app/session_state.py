@@ -57,6 +57,13 @@ def clear_customer_session(*, request: HttpRequest) -> None:
     request.session.modified = True
 
 
+def has_customer_session(*, request: HttpRequest) -> bool:
+    return bool(
+        request.session.get(CUSTOMER_ID_SESSION_KEY)
+        or request.session.get(CUSTOMER_LEGACY_ID_SESSION_KEY)
+    )
+
+
 def get_session_customer(*, request: HttpRequest) -> Client | None:
     legacy_client_id = request.session.get(CUSTOMER_LEGACY_ID_SESSION_KEY)
     if legacy_client_id:
@@ -100,6 +107,13 @@ def clear_admin_session(*, request: HttpRequest) -> None:
     request.session.pop(ADMIN_NAME_SESSION_KEY, None)
     request.session.pop(OWNER_DASHBOARD_ALLOWED_SESSION_KEY, None)
     request.session.modified = True
+
+
+def has_admin_session(*, request: HttpRequest) -> bool:
+    return bool(
+        request.session.get(ADMIN_ID_SESSION_KEY)
+        or request.session.get(ADMIN_LEGACY_ID_SESSION_KEY)
+    )
 
 
 def get_session_admin(*, request: HttpRequest) -> AdminAccount | None:
@@ -147,6 +161,13 @@ def clear_designer_session(*, request: HttpRequest) -> None:
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
+
+
+def has_designer_session(*, request: HttpRequest) -> bool:
+    return bool(
+        request.session.get(DESIGNER_ID_SESSION_KEY)
+        or request.session.get(DESIGNER_LEGACY_ID_SESSION_KEY)
+    )
 
 
 def get_session_designer(*, request: HttpRequest) -> Designer | None:

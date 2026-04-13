@@ -11,7 +11,9 @@ media/
 staticfiles/
 server_log.txt
 backend/
-data/rag/
+data/rag/*
+!data/rag/stores/
+!data/rag/stores/**
 app/tests/
 docs/
 front_feedback/

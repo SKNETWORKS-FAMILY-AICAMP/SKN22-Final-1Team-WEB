@@ -124,6 +124,10 @@ LEGACY_CAPTURE_ONLY_FIELDS = (
     "updated_at_ts",
 )
 
+LEGACY_ANALYSIS_CAPTURE_FIELDS = tuple(
+    dict.fromkeys((*LEGACY_ANALYSIS_ONLY_FIELDS, *LEGACY_CAPTURE_ONLY_FIELDS))
+)
+
 
 def _normalize_phone(value: str | None) -> str:
     return "".join(char for char in str(value or "") if char.isdigit())
@@ -292,7 +296,10 @@ def get_client_by_legacy_id(*, legacy_client_id: str | None) -> Client | None:
         return None
 
     if _has_columns("client", LEGACY_CLIENT_MODEL_COLUMNS):
-        legacy_client = LegacyClient.objects.filter(client_id=legacy_client_id).first()
+        try:
+            legacy_client = LegacyClient.objects.filter(client_id=legacy_client_id).first()
+        except DataError:
+            return None
         if legacy_client is not None:
             return _client_from_legacy_row(legacy_client)
     return None
@@ -340,16 +347,41 @@ def _next_backend_ref_id(model, field_name: str) -> int:
     return int(latest or 0) + 1
 
 
-def _admin_from_legacy_row(row: LegacyShop | None):
+def _cache_lookup(cache: dict[str, object] | None, *, backend_id=None, legacy_id=None):
+    if cache is None:
+        return None
+    if backend_id not in (None, "", 0):
+        cached = cache.get(f"backend:{backend_id}")
+        if cached is not None:
+            return cached
+    if legacy_id not in (None, ""):
+        return cache.get(f"legacy:{legacy_id}")
+    return None
+
+
+def _cache_store(cache: dict[str, object] | None, value, *, backend_id=None, legacy_id=None):
+    if cache is None or value is None:
+        return value
+    if backend_id not in (None, "", 0):
+        cache[f"backend:{backend_id}"] = value
+    if legacy_id not in (None, ""):
+        cache[f"legacy:{legacy_id}"] = value
+    return value
+
+
+def _admin_from_legacy_row(row: LegacyShop | None, *, admin_cache: dict[str, object] | None = None):
     if row is None:
         return None
+    cached = _cache_lookup(admin_cache, backend_id=row.backend_admin_id, legacy_id=row.shop_id)
+    if cached is not None:
+        return cached
     runtime_id = int(row.backend_admin_id or 0)
     if runtime_id <= 0:
         runtime_id = _next_backend_ref_id(LegacyShop, "backend_admin_id")
         row.backend_admin_id = runtime_id
         row.save(update_fields=["backend_admin_id"])
     phone = _normalize_phone(row.phone or row.owner_phone or row.login_id)
-    return SimpleNamespace(
+    admin = SimpleNamespace(
         id=runtime_id,
         legacy_admin_id=row.shop_id,
         name=row.name or row.shop_name,
@@ -365,18 +397,35 @@ def _admin_from_legacy_row(row: LegacyShop | None):
         created_at=_coerce_datetime(row.created_at) or row.consented_at,
         backend_admin_id=runtime_id,
     )
+    return _cache_store(admin_cache, admin, backend_id=runtime_id, legacy_id=row.shop_id)
 
 
-def _designer_from_legacy_row(row: LegacyDesigner | None):
+def _designer_from_legacy_row(
+    row: LegacyDesigner | None,
+    *,
+    admin_cache: dict[str, object] | None = None,
+    designer_cache: dict[str, object] | None = None,
+):
     if row is None:
         return None
+    cached = _cache_lookup(designer_cache, backend_id=row.backend_designer_id, legacy_id=row.designer_id)
+    if cached is not None:
+        return cached
     runtime_id = int(row.backend_designer_id or 0)
     if runtime_id <= 0:
         runtime_id = _next_backend_ref_id(LegacyDesigner, "backend_designer_id")
         row.backend_designer_id = runtime_id
         row.save(update_fields=["backend_designer_id"])
-    admin = get_admin_by_legacy_id(legacy_admin_id=row.shop_id)
-    return SimpleNamespace(
+    admin = _cache_lookup(admin_cache, backend_id=row.backend_shop_ref_id, legacy_id=row.shop_id)
+    if admin is None:
+        admin = get_admin_by_legacy_id(legacy_admin_id=row.shop_id)
+        admin = _cache_store(
+            admin_cache,
+            admin,
+            backend_id=getattr(admin, "id", None),
+            legacy_id=getattr(admin, "legacy_admin_id", None),
+        )
+    designer = SimpleNamespace(
         id=runtime_id,
         legacy_designer_id=row.designer_id,
         shop=admin,
@@ -388,9 +437,15 @@ def _designer_from_legacy_row(row: LegacyDesigner | None):
         created_at=_coerce_datetime(row.created_at),
         backend_designer_id=runtime_id,
     )
+    return _cache_store(designer_cache, designer, backend_id=runtime_id, legacy_id=row.designer_id)
 
 
-def _client_from_legacy_row(row: LegacyClient | None):
+def _client_from_legacy_row(
+    row: LegacyClient | None,
+    *,
+    admin_cache: dict[str, object] | None = None,
+    designer_cache: dict[str, object] | None = None,
+):
     if row is None:
         return None
     runtime_id = int(row.backend_client_id or 0)
@@ -398,10 +453,26 @@ def _client_from_legacy_row(row: LegacyClient | None):
         runtime_id = _next_backend_ref_id(LegacyClient, "backend_client_id")
         row.backend_client_id = runtime_id
         row.save(update_fields=["backend_client_id"])
-    admin = get_admin_by_legacy_id(legacy_admin_id=row.shop_id)
+    admin = _cache_lookup(admin_cache, backend_id=row.backend_shop_ref_id, legacy_id=row.shop_id)
+    if admin is None:
+        admin = get_admin_by_legacy_id(legacy_admin_id=row.shop_id)
+        admin = _cache_store(
+            admin_cache,
+            admin,
+            backend_id=getattr(admin, "id", None),
+            legacy_id=getattr(admin, "legacy_admin_id", None),
+        )
     designer = None
     if row.backend_designer_ref_id:
-        designer = get_designer_by_identifier(identifier=row.backend_designer_ref_id)
+        designer = _cache_lookup(designer_cache, backend_id=row.backend_designer_ref_id)
+        if designer is None:
+            designer = get_designer_by_identifier(identifier=row.backend_designer_ref_id)
+            designer = _cache_store(
+                designer_cache,
+                designer,
+                backend_id=getattr(designer, "id", None),
+                legacy_id=getattr(designer, "legacy_designer_id", None),
+            )
     return SimpleNamespace(
         id=runtime_id,
         legacy_client_id=row.client_id,
@@ -432,7 +503,17 @@ def get_designers_for_admin(*, admin: AdminAccount) -> list[Designer]:
             queryset = queryset.filter(backend_shop_ref_id=admin.id)
             
         rows = list(queryset.order_by("backend_designer_id", "designer_id"))
-        return [designer for designer in (_designer_from_legacy_row(row) for row in rows) if designer is not None]
+        admin_cache = {f"backend:{admin.id}": admin}
+        if legacy_id:
+            admin_cache[f"legacy:{legacy_id}"] = admin
+        return [
+            designer
+            for designer in (
+                _designer_from_legacy_row(row, admin_cache=admin_cache)
+                for row in rows
+            )
+            if designer is not None
+        ]
     return []
 
 
@@ -442,7 +523,10 @@ def get_designer_by_legacy_id(*, legacy_designer_id: str | None) -> Designer | N
         return None
 
     if _has_columns("designer", LEGACY_DESIGNER_MODEL_COLUMNS):
-        legacy_designer = LegacyDesigner.objects.filter(designer_id=legacy_designer_id).first()
+        try:
+            legacy_designer = LegacyDesigner.objects.filter(designer_id=legacy_designer_id).first()
+        except DataError:
+            return None
         if legacy_designer is not None:
             return _designer_from_legacy_row(legacy_designer)
     return None
@@ -799,17 +883,22 @@ def get_latest_legacy_analysis(*, client: Client):
     )
     if not row:
         return None
-    return SimpleNamespace(
-        id=row.backend_analysis_id or row.analysis_id,
-        client=client,
-        client_id=client.id,
-        face_shape=row.face_type,
-        golden_ratio_score=row.golden_ratio_score,
-        image_url=row.analysis_image_url or row.processed_path or row.original_image_url,
-        status=row.status or "DONE",
-        landmark_snapshot=_parse_jsonish(row.analysis_landmark_snapshot if row.analysis_landmark_snapshot is not None else row.landmark_data, fallback={}),
-        created_at=_coerce_datetime(row.created_at) or row.updated_at_ts,
+    return _build_legacy_analysis_namespace(row=row, client=client)
+
+
+def get_latest_legacy_analysis_capture_bundle(*, client: Client) -> tuple[SimpleNamespace | None, SimpleNamespace | None]:
+    if not _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
+        return None, None
+
+    row = (
+        LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client))
+        .only(*LEGACY_ANALYSIS_CAPTURE_FIELDS)
+        .order_by("-updated_at_ts", "-analysis_id")
+        .first()
     )
+    if not row:
+        return None, None
+    return _build_legacy_analysis_namespace(row=row, client=client), _build_legacy_capture_namespace(row=row, client=client)
 
 
 def get_legacy_analysis_history(*, client: Client, limit: int = 20) -> list[SimpleNamespace]:
@@ -821,24 +910,7 @@ def get_legacy_analysis_history(*, client: Client, limit: int = 20) -> list[Simp
         .only(*LEGACY_ANALYSIS_ONLY_FIELDS)
         .order_by("-updated_at_ts", "-analysis_id")[: int(limit)]
     )
-    history: list[SimpleNamespace] = []
-    for row in rows:
-        history.append(
-            SimpleNamespace(
-                id=row.backend_analysis_id or row.analysis_id,
-                client=client,
-                client_id=client.id,
-                face_shape=row.face_type,
-                golden_ratio_score=row.golden_ratio_score,
-                image_url=row.analysis_image_url or row.processed_path or row.original_image_url,
-                landmark_snapshot=_parse_jsonish(
-                    row.analysis_landmark_snapshot if row.analysis_landmark_snapshot is not None else row.landmark_data,
-                    fallback={},
-                ),
-                created_at=_coerce_datetime(row.created_at) or row.updated_at_ts,
-            )
-        )
-    return history
+    return [_build_legacy_analysis_namespace(row=row, client=client) for row in rows]
 
 
 def get_latest_legacy_capture(*, client: Client):
@@ -854,6 +926,20 @@ def get_latest_legacy_capture(*, client: Client):
     if not row:
         return None
     return _build_legacy_capture_namespace(row=row, client=client)
+
+
+def get_legacy_analysis_capture_history(*, client: Client, limit: int = 20) -> tuple[list[SimpleNamespace], list[SimpleNamespace]]:
+    if not _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
+        return [], []
+
+    rows = list(
+        LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client))
+        .only(*LEGACY_ANALYSIS_CAPTURE_FIELDS)
+        .order_by("-updated_at_ts", "-analysis_id")[: int(limit)]
+    )
+    analysis_history = [_build_legacy_analysis_namespace(row=row, client=client) for row in rows]
+    capture_history = [_build_legacy_capture_namespace(row=row, client=client) for row in rows]
+    return analysis_history, capture_history
 
 
 def _build_legacy_capture_namespace(*, row: LegacyClientAnalysis, client: Client) -> SimpleNamespace:
@@ -915,12 +1001,14 @@ def get_legacy_capture_history(*, client: Client, limit: int = 20) -> list[Simpl
 
 
 def get_legacy_analysis_count(*, client: Client) -> int:
-    if not _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
-        return 0
-    return int(LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client)).count())
+    return get_legacy_analysis_capture_count(client=client)
 
 
 def get_legacy_capture_count(*, client: Client) -> int:
+    return get_legacy_analysis_capture_count(client=client)
+
+
+def get_legacy_analysis_capture_count(*, client: Client) -> int:
     if not _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
         return 0
     return int(LegacyClientAnalysis.objects.filter(_legacy_client_q(client=client)).count())
@@ -1235,6 +1323,23 @@ def _build_legacy_age_profile(row: dict) -> dict | None:
         except (TypeError, ValueError):
             birth_year_estimate = None
     return build_age_profile(age=age_input, birth_year_estimate=birth_year_estimate, reference_date=timezone.localdate())
+
+
+def _build_legacy_analysis_namespace(*, row: LegacyClientAnalysis, client: Client) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=row.backend_analysis_id or row.analysis_id,
+        client=client,
+        client_id=client.id,
+        face_shape=row.face_type,
+        golden_ratio_score=row.golden_ratio_score,
+        image_url=row.analysis_image_url or row.processed_path or row.original_image_url,
+        status=row.status or "DONE",
+        landmark_snapshot=_parse_jsonish(
+            row.analysis_landmark_snapshot if row.analysis_landmark_snapshot is not None else row.landmark_data,
+            fallback={},
+        ),
+        created_at=_coerce_datetime(row.created_at) or row.updated_at_ts,
+    )
 
 
 

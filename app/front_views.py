@@ -27,6 +27,13 @@ from app.services.model_team_bridge import (
     update_designer_active_state,
     upsert_client_record,
 )
+from app.services.runtime_cache import (
+    build_partner_cache_key,
+    cache_timeout,
+    get_cached_payload,
+    invalidate_partner_scope_cache,
+    set_cached_payload,
+)
 from app.session_state import (
     allow_owner_dashboard,
     can_access_owner_dashboard,
@@ -516,6 +523,7 @@ def designer_signup_page(request):
             phone=phone,
             pin_hash=make_password(pin),
         )
+        invalidate_partner_scope_cache(admin=admin)
         return redirect(f"{reverse('partner_index')}?notice=designer_created")
 
     return render(request, "admin/designer_signup.html", {"active_shop": admin})
@@ -566,6 +574,7 @@ def designer_delete_page(request):
                 status=400,
             )
         update_designer_active_state(designer=designer, is_active=False)
+        invalidate_partner_scope_cache(admin=admin)
         return redirect(f"{reverse('partner_designer_management')}?notice=designer_deleted")
 
     return render(
@@ -850,6 +859,11 @@ def partner_designer_list(request):
             status=403,
         )
 
+    cache_key = build_partner_cache_key("partner-designers", admin=admin)
+    cached_payload = get_cached_payload(cache_key)
+    if cached_payload is not None:
+        return JsonResponse(cached_payload, safe=False)
+
     designers = [
         {
             "id": designer.id,
@@ -860,6 +874,11 @@ def partner_designer_list(request):
         }
         for designer in get_designers_for_admin(admin=admin)
     ]
+    set_cached_payload(
+        cache_key,
+        designers,
+        timeout=cache_timeout("PARTNER_LOOKUP_CACHE_SECONDS", 45),
+    )
     return JsonResponse(designers, safe=False)
 
 

@@ -17,6 +17,7 @@ class LatestTrendItemSerializer(serializers.Serializer):
     image_url = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     article_url = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     source = serializers.CharField(required=False, allow_blank=True)
+    source_name = serializers.CharField(required=False, allow_blank=True)
     published_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     crawled_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     category = serializers.CharField(required=False, allow_blank=True)

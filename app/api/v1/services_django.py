@@ -11,6 +11,13 @@ from django.db import connection, transaction
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
+from app.api.v1.recommendation_runtime import (
+    RecommendationWaitPolicy,
+    build_runtime_state,
+    prepare_recommendation_assets,
+    runtime_requires_wait_for_recommendations,
+    wait_for_runtime_state,
+)
 from app.api.v1.recommendation_logic import (
     RETRY_SCORING_WEIGHTS,
     STYLE_CATALOG,
@@ -100,6 +107,12 @@ RETRY_RECOMMENDATION_POLICY = {
     "face_total_weight": 30,
     "selection_bias": "preference_dominant",
 }
+
+CURRENT_RECOMMENDATION_WAIT_POLICY = RecommendationWaitPolicy(
+    timeout_seconds=45.0,
+    interval_seconds=3.0,
+)
+FAILED_RECOMMENDATION_INPUT_STATUSES = {"FAILED", "NEEDS_RETAKE", "ERROR"}
 
 
 def _seed_trend_styles(limit: int = 5) -> list[dict]:
@@ -197,6 +210,24 @@ def get_latest_capture(client: "Client"):
     if legacy_capture is not None:
         return legacy_capture
     return None
+
+
+def _load_current_recommendation_runtime(client: "Client"):
+    return build_runtime_state(
+        latest_capture_attempt=get_latest_capture_attempt(client),
+        latest_survey=get_latest_survey(client),
+        latest_capture=get_latest_capture(client),
+        latest_analysis=get_latest_analysis(client),
+        legacy_items=(get_legacy_former_recommendation_items(client=client) or []),
+    )
+
+
+def _prepare_current_legacy_assets(*, latest_analysis, legacy_items: list[dict]):
+    return prepare_recommendation_assets(
+        items=legacy_items,
+        latest_analysis=latest_analysis,
+        persist_reference=persist_simulation_image_reference,
+    )
 
 
 def _legacy_survey_writable() -> bool:
@@ -1159,6 +1190,8 @@ def _build_simulation_contract_meta(
         display_gate_status = "partial_ready"
     elif sample_reference_count == item_count and item_count > 0:
         display_gate_status = "sample_only"
+    elif simulation_status_reason == "recommendations_processing":
+        display_gate_status = "processing"
     elif simulation_status_reason in {"capture_retry_required", "capture_data_not_ready", "analysis_input_incomplete"}:
         display_gate_status = "awaiting_capture"
     elif simulation_status_reason == "survey_or_capture_required":
@@ -1449,8 +1482,14 @@ def _ensure_current_batch(
     if not latest_capture or not latest_analysis:
         return None, [], "needs_capture"
 
-    if legacy_items:
-        return str(legacy_items[0].get("batch_id") or ""), legacy_items, None
+    current_assets = _prepare_current_legacy_assets(
+        latest_analysis=latest_analysis,
+        legacy_items=legacy_items,
+    )
+    if current_assets.is_ready:
+        return current_assets.batch_id, current_assets.items, None
+    if current_assets.has_pending_assets:
+        return current_assets.batch_id, current_assets.items, "processing"
 
     survey_context = latest_survey or build_default_survey_context(client.id)
     batch_id, _ = persist_generated_batch(
@@ -1460,7 +1499,15 @@ def _ensure_current_batch(
         analysis=latest_analysis,
     )
     refreshed_items = get_legacy_former_recommendation_items(client=client) or []
-    return batch_id, refreshed_items, None
+    refreshed_assets = _prepare_current_legacy_assets(
+        latest_analysis=latest_analysis,
+        legacy_items=refreshed_items,
+    )
+    if refreshed_assets.is_ready:
+        return batch_id, refreshed_assets.items, None
+    if refreshed_assets.has_pending_assets:
+        return batch_id, refreshed_assets.items, "processing"
+    return batch_id, refreshed_assets.items, None
 
 
 def _build_local_mock_recommendations(*, client: "Client", latest_survey, latest_analysis: "FaceAnalysis | None") -> dict:
@@ -1903,6 +1950,24 @@ def _build_legacy_current_recommendations_payload(
     }
 
 
+def _build_processing_current_recommendations_payload(*, message: str, items: list[dict] | None = None) -> dict:
+    return {
+        "status": "processing",
+        "source": "current_recommendations",
+        "message": message,
+        "items": list(items or []),
+    }
+
+
+def _has_failed_recommendation_inputs(*, latest_capture_attempt, latest_capture, latest_analysis) -> bool:
+    statuses = {
+        str(getattr(latest_capture_attempt, "status", "") or "").strip().upper(),
+        str(getattr(latest_capture, "status", "") or "").strip().upper(),
+        str(getattr(latest_analysis, "status", "") or "").strip().upper(),
+    }
+    return bool(statuses & FAILED_RECOMMENDATION_INPUT_STATUSES)
+
+
 def _build_recommendation_diagnostic_snapshot(
     *,
     client: "Client",
@@ -1922,6 +1987,23 @@ def _build_recommendation_diagnostic_snapshot(
 
     active_consultation = _has_active_consultation_state(client=client)
     local_mock_enabled = bool(settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS)
+    runtime_state = build_runtime_state(
+        latest_capture_attempt=latest_capture_attempt,
+        latest_survey=latest_survey,
+        latest_capture=latest_capture,
+        latest_analysis=latest_analysis,
+        legacy_items=legacy_items,
+    )
+    current_assets = _prepare_current_legacy_assets(
+        latest_analysis=latest_analysis,
+        legacy_items=legacy_items,
+    )
+    processing_pending = runtime_requires_wait_for_recommendations(runtime_state)
+    failed_inputs = _has_failed_recommendation_inputs(
+        latest_capture_attempt=latest_capture_attempt,
+        latest_capture=latest_capture,
+        latest_analysis=latest_analysis,
+    )
     blockers: list[str] = []
 
     if latest_capture is None and latest_capture_attempt is not None and latest_capture_attempt.status in {"NEEDS_RETAKE", "FAILED"}:
@@ -1948,21 +2030,33 @@ def _build_recommendation_diagnostic_snapshot(
             "next_actions": ["survey", "capture"],
             "blockers": blockers,
         }
+    elif failed_inputs:
+        blockers.append("capture_failed")
+        predicted_response = {
+            "status": "needs_capture",
+            "source": "current_recommendations",
+            "decision": "failed_latest_capture_or_analysis",
+            "message": "The latest capture did not finish successfully, so new recommendation images cannot be generated yet.",
+            "next_action": "capture",
+            "next_actions": ["capture"],
+            "blockers": blockers,
+        }
+    elif processing_pending:
+        blockers.append("processing_inputs")
+        predicted_response = {
+            "status": "processing",
+            "source": "current_recommendations",
+            "decision": "await_processing_inputs",
+            "message": "Capture analysis is still running. Current recommendations are waiting for fresh input data.",
+            "next_actions": [],
+            "blockers": blockers,
+        }
     elif not latest_capture or not latest_analysis:
         if not latest_capture:
             blockers.append("missing_capture")
         if not latest_analysis:
             blockers.append("missing_analysis")
-        if legacy_items:
-            predicted_response = {
-                "status": "ready",
-                "source": "current_recommendations",
-                "decision": "reuse_legacy_recommendations",
-                "message": "Legacy model-team recommendation data is available for reuse.",
-                "next_actions": ["retry_recommendations", "consultation"] if active_consultation else ["consultation"],
-                "blockers": blockers,
-            }
-        elif local_mock_enabled and latest_capture:
+        if local_mock_enabled and latest_capture:
             predicted_response = {
                 "status": "ready",
                 "source": "local_mock",
@@ -1981,13 +2075,23 @@ def _build_recommendation_diagnostic_snapshot(
                 "next_actions": ["capture"],
                 "blockers": blockers,
             }
-    elif legacy_items:
+    elif current_assets.is_ready:
         predicted_response = {
             "status": "ready",
             "source": "current_recommendations",
-            "decision": "reuse_legacy_recommendations",
-            "message": "Existing model-team recommendation data is being reused.",
+            "decision": "reuse_ready_current_batch",
+            "message": "Existing model-team recommendation data for the latest analysis is being reused.",
             "next_actions": ["retry_recommendations", "consultation"] if active_consultation else ["consultation"],
+            "blockers": blockers,
+        }
+    elif current_assets.has_pending_assets:
+        blockers.append("simulation_assets_pending")
+        predicted_response = {
+            "status": "processing",
+            "source": "current_recommendations",
+            "decision": "await_primary_simulations",
+            "message": "The recommendation batch exists, but the primary simulation images are still being prepared.",
+            "next_actions": [],
             "blockers": blockers,
         }
     else:
@@ -2055,18 +2159,14 @@ def _build_recommendation_diagnostic_snapshot(
 
 
 def build_recommendation_diagnostic_snapshot(client: "Client") -> dict:
-    latest_capture_attempt = get_latest_capture_attempt(client)
-    latest_survey = get_latest_survey(client)
-    latest_capture = get_latest_capture(client)
-    latest_analysis = get_latest_analysis(client)
-    legacy_items = get_legacy_former_recommendation_items(client=client) or []
+    runtime_state = _load_current_recommendation_runtime(client)
     return _build_recommendation_diagnostic_snapshot(
         client=client,
-        latest_capture_attempt=latest_capture_attempt,
-        latest_survey=latest_survey,
-        latest_capture=latest_capture,
-        latest_analysis=latest_analysis,
-        legacy_items=legacy_items,
+        latest_capture_attempt=runtime_state.latest_capture_attempt,
+        latest_survey=runtime_state.latest_survey,
+        latest_capture=runtime_state.latest_capture,
+        latest_analysis=runtime_state.latest_analysis,
+        legacy_items=runtime_state.legacy_items,
     )
 
 
@@ -2091,6 +2191,8 @@ def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapsho
             if "retake" in str(payload.get("message") or "").lower()
             else "capture_data_not_ready"
         )
+    elif payload.get("status") == "processing" and not normalized_items:
+        default_reason = "recommendations_processing"
     elif payload.get("status") == "empty":
         default_reason = "recommendations_not_ready"
 
@@ -2132,11 +2234,20 @@ def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapsho
 
 
 def get_current_recommendations(client: "Client") -> dict:
-    latest_capture_attempt = get_latest_capture_attempt(client)
-    latest_survey = get_latest_survey(client)
-    latest_capture = get_latest_capture(client)
-    latest_analysis = get_latest_analysis(client)
-    legacy_items = get_legacy_former_recommendation_items(client=client) or []
+    def load_runtime_state():
+        return _load_current_recommendation_runtime(client)
+
+    runtime_state, wait_timed_out = wait_for_runtime_state(
+        load_state=load_runtime_state,
+        should_wait=runtime_requires_wait_for_recommendations,
+        clock=time,
+        wait_policy=CURRENT_RECOMMENDATION_WAIT_POLICY,
+    )
+    latest_capture_attempt = runtime_state.latest_capture_attempt
+    latest_survey = runtime_state.latest_survey
+    latest_capture = runtime_state.latest_capture
+    latest_analysis = runtime_state.latest_analysis
+    legacy_items = runtime_state.legacy_items
     snapshot = _build_recommendation_diagnostic_snapshot(
         client=client,
         latest_capture_attempt=latest_capture_attempt,
@@ -2176,19 +2287,36 @@ def get_current_recommendations(client: "Client") -> dict:
             snapshot=snapshot,
         )
 
+    if _has_failed_recommendation_inputs(
+        latest_capture_attempt=latest_capture_attempt,
+        latest_capture=latest_capture,
+        latest_analysis=latest_analysis,
+    ):
+        return _finalize_recommendation_payload(
+            client=client,
+            payload={
+                "status": "needs_capture",
+                "source": "current_recommendations",
+                "message": "The latest capture failed, so recommendation image generation could not start. Please retake the photo.",
+                "next_action": "capture",
+                "items": [],
+            },
+            snapshot=snapshot,
+        )
+
+    if runtime_requires_wait_for_recommendations(runtime_state):
+        message = "Capture analysis is still running. Recommendation images will appear automatically when the latest processing finishes."
+        if wait_timed_out:
+            message = "Capture analysis is taking longer than usual. Recommendation images are still processing."
+        return _finalize_recommendation_payload(
+            client=client,
+            payload=_build_processing_current_recommendations_payload(
+                message=message,
+            ),
+            snapshot=snapshot,
+        )
+
     if not latest_capture or not latest_analysis:
-        if legacy_items:
-            has_active_consultation = snapshot["active_consultation"]
-            return _finalize_recommendation_payload(
-                client=client,
-                payload=_build_legacy_current_recommendations_payload(
-                    client=client,
-                    legacy_items=legacy_items,
-                    has_active_consultation=has_active_consultation,
-                    message="Legacy model-team recommendation data is being shown while canonical recommendation records are not available.",
-                ),
-                snapshot=snapshot,
-            )
         if settings.DEBUG and settings.MIRRAI_LOCAL_MOCK_RESULTS and latest_capture:
             return _finalize_recommendation_payload(
                 client=client,
@@ -2211,15 +2339,42 @@ def get_current_recommendations(client: "Client") -> dict:
             snapshot=snapshot,
         )
 
-    if legacy_items:
+    current_assets = _prepare_current_legacy_assets(
+        latest_analysis=latest_analysis,
+        legacy_items=legacy_items,
+    )
+    if current_assets.has_pending_assets:
+        refreshed_runtime_state = load_runtime_state()
+        refreshed_assets = _prepare_current_legacy_assets(
+            latest_analysis=refreshed_runtime_state.latest_analysis,
+            legacy_items=refreshed_runtime_state.legacy_items,
+        )
+        if refreshed_assets.item_count:
+            runtime_state = refreshed_runtime_state
+            latest_capture_attempt = runtime_state.latest_capture_attempt
+            latest_survey = runtime_state.latest_survey
+            latest_capture = runtime_state.latest_capture
+            latest_analysis = runtime_state.latest_analysis
+            legacy_items = runtime_state.legacy_items
+            current_assets = refreshed_assets
+            snapshot = _build_recommendation_diagnostic_snapshot(
+                client=client,
+                latest_capture_attempt=latest_capture_attempt,
+                latest_survey=latest_survey,
+                latest_capture=latest_capture,
+                latest_analysis=latest_analysis,
+                legacy_items=legacy_items,
+            )
+
+    if current_assets.is_ready:
         has_active_consultation = snapshot["active_consultation"]
         return _finalize_recommendation_payload(
             client=client,
             payload=_build_legacy_current_recommendations_payload(
                 client=client,
-                legacy_items=legacy_items,
+                legacy_items=current_assets.items,
                 has_active_consultation=has_active_consultation,
-                message="Existing model-team recommendation data is being reused.",
+                message="Existing model-team recommendation data from the latest capture is being reused.",
             ),
             snapshot=snapshot,
         )
@@ -2241,6 +2396,15 @@ def get_current_recommendations(client: "Client") -> dict:
                 "next_action": "capture",
                 "items": [],
             },
+            snapshot=snapshot,
+        )
+    if status_code == "processing":
+        return _finalize_recommendation_payload(
+            client=client,
+            payload=_build_processing_current_recommendations_payload(
+                message="Recommendation images are still being generated. This usually takes about 1 to 2 minutes.",
+                items=rows,
+            ),
             snapshot=snapshot,
         )
 
@@ -3116,6 +3280,18 @@ def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
     client_id = client.id
     logger.info("[HAIRSTYLE PIPELINE] client_id=%s started.", client_id)
     try:
+        latest_capture = get_latest_capture(client)
+        if _has_failed_recommendation_inputs(
+            latest_capture_attempt=get_latest_capture_attempt(client),
+            latest_capture=latest_capture,
+            latest_analysis=get_latest_analysis(client),
+        ):
+            logger.info(
+                "[HAIRSTYLE PIPELINE] client_id=%s skipped because the latest capture or analysis is failed.",
+                client_id,
+            )
+            return
+
         # 카메라 파이프라인이 아직 실행 중일 수 있으므로 analysis_image_url이 채워질 때까지 대기
         analysis = None
         waited = 0
@@ -3139,8 +3315,8 @@ def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
 
         image_url = resolve_storage_reference(analysis.image_url) if analysis.image_url else None
         if not image_url:
-            logger.warning(
-                "[HAIRSTYLE PIPELINE] client_id=%s no image URL for analysis (analysis_image_url=%s) after %ss, skipping.",
+            logger.info(
+                "[HAIRSTYLE PIPELINE] client_id=%s analysis image is not ready yet (analysis_image_url=%s) after %ss, skipping.",
                 client_id,
                 repr(analysis.image_url),
                 waited,
@@ -3168,7 +3344,7 @@ def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
             {k: v for k, v in survey_data.items() if v},
         )
 
-        capture_record = get_latest_capture(client)
+        capture_record = latest_capture or get_latest_capture(client)
         items = generate_recommendation_batch(
             client_id=client_id,
             survey_data=survey_data,

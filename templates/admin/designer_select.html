@@ -304,7 +304,9 @@
           updateStatus("인증 성공!", "success");
           const urlParams = new URLSearchParams(window.location.search);
           const nextUrl = urlParams.get('next') || data.redirect || "{% url 'partner_staff_dashboard' %}";
-          setTimeout(() => { window.location.href = nextUrl; }, 600);
+          window.requestAnimationFrame(() => {
+            window.location.replace(nextUrl);
+          });
         } else {
           handleFail(data.message);
         }

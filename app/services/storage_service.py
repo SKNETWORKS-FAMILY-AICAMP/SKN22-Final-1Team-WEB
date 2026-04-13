@@ -6,6 +6,7 @@ import mimetypes
 import uuid
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote
 
 from django.conf import settings
 from storage3.types import CreateOrUpdateBucketOptions
@@ -15,10 +16,55 @@ from app.services.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
+STYLE_REFERENCE_PREFIXES = ("styles/", "/media/styles/")
+
 
 def _guess_mime(filename: str, default: str) -> str:
     guessed, _ = mimetypes.guess_type(filename)
     return guessed or default
+
+
+def _is_style_reference(reference: str | None) -> bool:
+    text = str(reference or "").strip()
+    return text.startswith(STYLE_REFERENCE_PREFIXES)
+
+
+def _escape_svg_text(value: str) -> str:
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _style_placeholder_reference(reference: str | None) -> str:
+    label = Path(str(reference or "style")).stem.replace("-", " ").replace("_", " ").strip() or "Style"
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 600">'
+        '<defs>'
+        '<linearGradient id="g" x1="0" x2="1" y1="0" y2="1">'
+        '<stop offset="0%" stop-color="#f7f7f7" />'
+        '<stop offset="100%" stop-color="#ececec" />'
+        "</linearGradient>"
+        "</defs>"
+        '<rect width="480" height="600" rx="28" fill="url(#g)" />'
+        '<circle cx="240" cy="220" r="92" fill="#111111" opacity="0.08" />'
+        '<path d="M160 348c24-44 69-66 136-66s112 22 136 66v72H160z" fill="#111111" opacity="0.06" />'
+        '<text x="240" y="458" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111111">Style Preview</text>'
+        f'<text x="240" y="492" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#555555">{_escape_svg_text(label)}</text>'
+        "</svg>"
+    )
+    return "data:image/svg+xml;charset=UTF-8," + quote(svg)
+
+
+def _style_placeholder_if_missing(reference: str | None) -> str | None:
+    normalized_reference = str(reference or "").strip()
+    if not _is_style_reference(normalized_reference):
+        return None
+    if normalized_reference.startswith("/media/") and _resolve_local_asset_path(normalized_reference) is not None:
+        return None
+    return _style_placeholder_reference(normalized_reference)
 
 
 def _decode_data_image_reference(reference: str) -> tuple[bytes, str, str] | None:
@@ -73,14 +119,23 @@ def _store_generated_asset_in_supabase(*, asset_bytes: bytes, extension: str, su
     if client is None:
         return None
 
-    ensure_supabase_bucket()
+    try:
+        ensure_supabase_bucket()
+    except Exception as exc:
+        logger.warning("[storage] Supabase 버킷 준비 실패, 로컬 저장으로 전환합니다: %s", exc)
+        return None
+
     key = f"{subdir}/{uuid.uuid4()}{extension}"
     bucket = client.storage.from_(settings.SUPABASE_BUCKET)
-    bucket.upload(
-        key,
-        asset_bytes,
-        file_options={"content-type": mime_type},
-    )
+    try:
+        bucket.upload(
+            key,
+            asset_bytes,
+            file_options={"content-type": mime_type},
+        )
+    except Exception as exc:
+        logger.warning("[storage] Supabase 업로드 실패 (key=%s): %s", key, exc)
+        return None
     return key
 
 
@@ -283,6 +338,10 @@ def resolve_storage_reference(reference: str | None) -> str | None:
     if not reference:
         return reference
 
+    style_placeholder = _style_placeholder_if_missing(reference)
+    if style_placeholder and str(reference).strip().startswith("/media/"):
+        return style_placeholder
+
     if reference.startswith(("http://", "https://", "/")):
         return reference
 
@@ -300,14 +359,25 @@ def resolve_storage_reference(reference: str | None) -> str | None:
     try:
         signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
     except Exception as exc:
+        if style_placeholder:
+            return style_placeholder
         logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
         return None
-    return _extract_signed_url(signed) or None
+    resolved = _extract_signed_url(signed) or None
+    if resolved:
+        return resolved
+    if style_placeholder:
+        return style_placeholder
+    return None
 
 
 def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str | None, str]:
     if not reference:
         return reference, "missing_reference"
+
+    style_placeholder = _style_placeholder_if_missing(reference)
+    if style_placeholder and str(reference).strip().startswith("/media/"):
+        return style_placeholder, "style_placeholder"
 
     if reference.startswith(("http://", "https://", "/")):
         return reference, "already_resolved"
@@ -326,12 +396,16 @@ def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str |
     try:
         signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
     except Exception as exc:
+        if style_placeholder:
+            return style_placeholder, "style_placeholder"
         logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
         return None, "signed_url_failed"
 
     resolved = _extract_signed_url(signed)
     if resolved:
         return resolved, "signed_url"
+    if style_placeholder:
+        return style_placeholder, "style_placeholder"
     return None, "signed_url_unresolved"
 
 

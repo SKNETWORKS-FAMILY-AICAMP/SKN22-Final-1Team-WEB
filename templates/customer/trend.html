@@ -93,6 +93,15 @@
     overflow: hidden;
   }
 
+  .trend-feed-source {
+    margin: 0 0 -6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
   .trend-feed-keywords {
     display: flex;
     flex-wrap: wrap;
@@ -196,6 +205,16 @@
       "</svg>"
     );
 
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[char]));
+    }
+
     function renderEmpty(message) {
       loading.remove();
       sliderShell.style.display = "block";
@@ -228,17 +247,22 @@
           const imageUrl = item.image_url || placeholderSvg;
           const articleUrl = item.article_url || "#";
           const title = item.title_ko || item.title || "제목 없음";
+          const sourceName = item.source_name || item.source || "";
           const keywords = Array.isArray(item.keywords) ? item.keywords.slice(0, 2) : [];
+          const sourceMarkup = sourceName
+            ? `<p class="trend-feed-source">${escapeHtml(sourceName)}</p>`
+            : "";
           const keywordMarkup = keywords.length
-            ? `<div class="trend-feed-keywords">${keywords.map((keyword) => `<span class="trend-feed-keyword">${keyword}</span>`).join("")}</div>`
+            ? `<div class="trend-feed-keywords">${keywords.map((keyword) => `<span class="trend-feed-keyword">${escapeHtml(keyword)}</span>`).join("")}</div>`
             : "";
 
           return `
             <a href="${articleUrl}" target="_blank" rel="noopener noreferrer" class="panel trend-feed-card" style="padding: 20px;">
               <div class="trend-feed-media">
-                <img src="${imageUrl}" alt="${title}" loading="lazy" onerror="this.src='${placeholderSvg}'">
+                <img src="${imageUrl}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.src='${placeholderSvg}'">
               </div>
-              <h4 class="trend-feed-title">${title}</h4>
+              ${sourceMarkup}
+              <h4 class="trend-feed-title">${escapeHtml(title)}</h4>
               ${keywordMarkup}
             </a>
           `;

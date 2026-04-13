@@ -12,6 +12,13 @@ services:
     expose:
       - 5432
 
+  redis:
+    image: redis:7-alpine
+    expose:
+      - 6379
+    ports:
+      - "6379:6379"
+
   web:
     build: .
     command: >
@@ -26,12 +33,18 @@ services:
       - DEBUG=True
       - SECRET_KEY=django-insecure-key-from-compose
       - DATABASE_URL=postgres://mirrai_user:mirrai_pass@db:5432/mirrai_db
+      - LOCAL_DATABASE_URL=postgres://mirrai_user:mirrai_pass@db:5432/mirrai_db
+      - REDIS_URL=redis://redis:6379/1
     depends_on:
       - db
+      - redis
 
   scheduler:
-    build: .
-    command: python manage.py run_scheduler_daemon
+    build:
+      context: .
+      args:
+        INSTALL_TRENDS_DEPS: 1
+    command: python manage.py run_trend_scheduler
     volumes:
       - .:/app
       - storage_data:/app/storage
@@ -39,8 +52,11 @@ services:
       - DEBUG=True
       - SECRET_KEY=django-insecure-key-from-compose
       - DATABASE_URL=postgres://mirrai_user:mirrai_pass@db:5432/mirrai_db
+      - LOCAL_DATABASE_URL=postgres://mirrai_user:mirrai_pass@db:5432/mirrai_db
+      - REDIS_URL=redis://redis:6379/1
     depends_on:
       - db
+      - redis
 
 volumes:
   postgres_data:

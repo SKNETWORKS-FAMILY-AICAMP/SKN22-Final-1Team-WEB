@@ -45,7 +45,9 @@ local_settings.py
 
 # Local runtime data
 *.sqlite3
+!data/rag/stores/**/*.sqlite3
 *.db
+!data/rag/stores/**/*.db
 mirrai.db
 storage/
 media/
@@ -56,7 +58,9 @@ PDF/
 backend/
 
 # Generated local RAG assets
-data/rag/
+data/rag/*
+!data/rag/stores/
+!data/rag/stores/**
 
 # Security and keys
 *.pem

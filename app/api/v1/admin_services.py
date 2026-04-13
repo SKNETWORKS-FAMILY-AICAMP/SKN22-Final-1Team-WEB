@@ -22,10 +22,12 @@ from app.api.v1.services_django import (
     get_latest_survey,
     serialize_recommendation_row,
 )
-from app.models_model_team import LegacyClient, LegacyClientResult
+from app.models_model_team import LegacyClient, LegacyClientResult, LegacyDesigner
 from app.services.age_profile import build_client_age_profile
 from app.services.ai_facade import get_ai_health
 from app.services.model_team_bridge import (
+    _client_from_legacy_row,
+    _designer_from_legacy_row,
     admin_exists_by_business_number,
     admin_exists_by_phone,
     create_admin_record,
@@ -37,6 +39,9 @@ from app.services.model_team_bridge import (
     get_legacy_active_consultation_items,
     get_legacy_admin_id,
     get_legacy_activity_client_map_by_day,
+    get_legacy_analysis_capture_count,
+    get_legacy_analysis_capture_history,
+    get_latest_legacy_analysis_capture_bundle,
     get_legacy_analysis_history,
     get_legacy_analysis_count,
     get_legacy_capture_history,
@@ -52,6 +57,13 @@ from app.services.model_team_bridge import (
     get_style_record,
     sync_model_team_runtime_state,
     upsert_client_record,
+)
+from app.services.runtime_cache import (
+    build_partner_cache_key,
+    cache_timeout,
+    get_cached_payload,
+    invalidate_partner_client_cache,
+    set_cached_payload,
 )
 from app.services.storage_service import build_storage_snapshot, resolve_storage_reference
 
@@ -70,6 +82,45 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _partner_lookup_cache_key(
+    name: str,
+    *,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+    client: "Client | None" = None,
+    **extras,
+) -> str:
+    normalized_extras = {key: value for key, value in extras.items() if value not in (None, "", [], {}, ())}
+    return build_partner_cache_key(
+        name,
+        admin=admin,
+        designer=designer,
+        client=client,
+        extras=normalized_extras,
+    )
+
+
+def _partner_cache_get(key: str):
+    return get_cached_payload(key)
+
+
+def _partner_cache_set(key: str, payload, *, timeout_setting: str, default_timeout: int):
+    return set_cached_payload(
+        key,
+        payload,
+        timeout=cache_timeout(timeout_setting, default_timeout),
+    )
+
+
+def _invalidate_partner_client_payloads(
+    *,
+    client: "Client | None" = None,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> None:
+    invalidate_partner_client_cache(client=client, admin=admin, designer=designer)
 
 
 def _required_field_message(label: str) -> str:
@@ -437,13 +488,21 @@ def _reanalysis_block_message(reason: str | None) -> str | None:
 def get_client_designer_diagnosis(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     client_ref_id = getattr(client, "id", client)
     legacy_client_ref_id = get_legacy_client_id(client=client)
-    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
-    if scoped_client_ids and client_ref_id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
+    _ensure_client_in_scope(client=client, admin=admin, designer=designer)
+
+    cache_key = _partner_lookup_cache_key(
+        "partner-client-diagnosis",
+        admin=admin,
+        designer=designer,
+        client=client,
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
 
     card, storage_ready = _fetch_designer_diagnosis_card(client=client)
     has_active_consultation = bool(get_legacy_active_consultation_items(admin=admin, designer=designer, client=client))
-    return {
+    payload = {
         "status": "ready",
         "client_id": client_ref_id,
         "legacy_client_id": legacy_client_ref_id,
@@ -453,14 +512,18 @@ def get_client_designer_diagnosis(*, client: "Client", admin: "AdminAccount | No
             diagnosis_storage_ready=storage_ready,
         ),
     }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_LOOKUP_CACHE_SECONDS",
+        default_timeout=45,
+    )
 
 
 def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict | None, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     client_ref_id = getattr(client, "id", client)
     legacy_client_ref_id = get_legacy_client_id(client=client)
-    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
-    if scoped_client_ids and client_ref_id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
+    _ensure_client_in_scope(client=client, admin=admin, designer=designer)
 
     normalized_state = _normalize_designer_diagnosis_payload(diagnosis_state)
     has_active_consultation = bool(get_legacy_active_consultation_items(admin=admin, designer=designer, client=client))
@@ -479,6 +542,7 @@ def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict 
     if not _has_designer_diagnosis_content(normalized_state):
         if card is not None:
             card.delete()
+        _invalidate_partner_client_payloads(client=client, admin=admin, designer=designer)
         return {
             "status": "success",
             "client_id": client_ref_id,
@@ -513,6 +577,7 @@ def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict 
         card.special_memo = normalized_state["special_memo"]
         card.save()
 
+    _invalidate_partner_client_payloads(client=client, admin=admin, designer=designer)
     return {
         "status": "success",
         "client_id": client_ref_id,
@@ -761,7 +826,86 @@ def _client_age_fields(client: "Client") -> dict:
     }
 
 
-def _scoped_client_records(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None, query: str = "") -> list["Client"]:
+def _serialize_client_summary(client: "Client") -> dict:
+    return {
+        "client_id": client.id,
+        "legacy_client_id": get_legacy_client_id(client=client),
+        "name": client.name,
+        "gender": client.gender,
+        "phone": client.phone,
+        "shop_id": client.shop_id,
+        "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
+        "designer": _serialize_designer_profile(client.designer),
+        **_client_age_fields(client),
+        "created_at": client.created_at,
+    }
+
+
+def _prime_scope_caches(
+    *,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    admin_cache: dict[str, object] = {}
+    designer_cache: dict[str, object] = {}
+
+    if admin is not None:
+        admin_cache[f"backend:{admin.id}"] = admin
+        legacy_admin_id = get_legacy_admin_id(admin=admin)
+        if legacy_admin_id:
+            admin_cache[f"legacy:{legacy_admin_id}"] = admin
+
+    if designer is not None:
+        designer_cache[f"backend:{designer.id}"] = designer
+        legacy_designer_id = get_legacy_designer_id(designer=designer)
+        if legacy_designer_id:
+            designer_cache[f"legacy:{legacy_designer_id}"] = designer
+        if getattr(designer, "shop", None) is not None:
+            admin_cache[f"backend:{designer.shop.id}"] = designer.shop
+            legacy_admin_id = get_legacy_admin_id(admin=designer.shop)
+            if legacy_admin_id:
+                admin_cache[f"legacy:{legacy_admin_id}"] = designer.shop
+
+    return admin_cache, designer_cache
+
+
+def _client_is_in_scope(
+    *,
+    client: "Client",
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> bool:
+    if designer is not None:
+        return getattr(client, "designer_id", None) == designer.id
+    if admin is not None:
+        return getattr(client, "shop_id", None) == admin.id
+    return True
+
+
+def _ensure_client_in_scope(
+    *,
+    client: "Client",
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> None:
+    if _client_is_in_scope(client=client, admin=admin, designer=designer):
+        return
+
+    client_id = getattr(client, "id", None)
+    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
+    if client_id is not None and client_id in scoped_client_ids:
+        return
+
+    raise ValueError("Client is outside the current admin scope.")
+
+
+def _scoped_client_records(
+    *,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+    query: str = "",
+    limit: int | None = None,
+) -> list["Client"]:
     if designer is not None:
         rows = LegacyClient.objects.filter(backend_designer_ref_id=designer.id)
     elif admin is not None:
@@ -776,15 +920,46 @@ def _scoped_client_records(*, admin: "AdminAccount | None" = None, designer: "De
             | Q(phone__icontains=query)
         )
 
+    rows = rows.order_by("name", "client_name", "client_id")
+    if limit is not None:
+        rows = rows[: max(1, int(limit))]
+
+    rows = list(rows)
+    admin_cache, designer_cache = _prime_scope_caches(admin=admin, designer=designer)
+    designer_ids = sorted(
+        {
+            int(row.backend_designer_ref_id)
+            for row in rows
+            if row.backend_designer_ref_id
+        }
+    )
+    if designer_ids:
+        for designer_row in LegacyDesigner.objects.filter(
+            backend_designer_id__in=designer_ids,
+            is_active=True,
+        ):
+            _designer_from_legacy_row(
+                designer_row,
+                admin_cache=admin_cache,
+                designer_cache=designer_cache,
+            )
+
     records: list["Client"] = []
-    for row in rows.order_by("name", "client_name", "client_id"):
-        client = get_client_by_identifier(identifier=row.backend_client_id or row.client_id)
+    for row in rows:
+        client = _client_from_legacy_row(
+            row,
+            admin_cache=admin_cache,
+            designer_cache=designer_cache,
+        )
         if client is not None:
             records.append(client)
     return records
 
 
 def _scoped_client_ids(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> set[int]:
+    scoped_ids = get_scoped_client_ids(admin=admin, designer=designer)
+    if scoped_ids is not None:
+        return set(scoped_ids)
     return {client.id for client in _scoped_client_records(admin=admin, designer=designer)}
 
 
@@ -1055,15 +1230,10 @@ def _get_client_history_payload(
         "notes",
         lambda: _fetch_note_rows(client=client, limit=limit),
     )
-    capture_history = _measure_step(
+    analysis_history, capture_history = _measure_step(
         timings_ms,
-        "capture_history",
-        lambda: get_legacy_capture_history(client=client, limit=limit),
-    )
-    analysis_history = _measure_step(
-        timings_ms,
-        "analysis_history",
-        lambda: get_legacy_analysis_history(client=client, limit=limit),
+        "analysis_capture_history",
+        lambda: get_legacy_analysis_capture_history(client=client, limit=limit),
     )
     style_selection_history = _measure_step(
         timings_ms,
@@ -1181,6 +1351,15 @@ def _selection_matches_payload(*, survey_snapshot: dict | None, age_profile: dic
 
 
 def get_admin_dashboard_summary(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    cache_key = _partner_lookup_cache_key(
+        "partner-dashboard-summary",
+        admin=admin,
+        designer=designer,
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
     styles_by_id = ensure_catalog_styles()
     legacy_selection_items = get_legacy_confirmed_selection_items(
@@ -1218,7 +1397,7 @@ def get_admin_dashboard_summary(*, admin: "AdminAccount | None" = None, designer
         }
     )
 
-    return {
+    payload = {
         "status": "ready",
         "ai_engine": _ai_health(),
         "today_metrics": {
@@ -1230,11 +1409,32 @@ def get_admin_dashboard_summary(*, admin: "AdminAccount | None" = None, designer
         "top_styles_today": top_styles,
         "active_clients_preview": active_preview,
     }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_DASHBOARD_CACHE_SECONDS",
+        default_timeout=30,
+    )
 
 
 def get_active_client_sessions(*, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    cache_key = _partner_lookup_cache_key(
+        "partner-active-client-sessions",
+        admin=admin,
+        designer=designer,
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     legacy_items = get_legacy_active_consultation_items(admin=admin, designer=designer) or []
-    return {"status": "ready", "items": [_serialize_consultation_like(item) for item in legacy_items]}
+    payload = {"status": "ready", "items": [_serialize_consultation_like(item) for item in legacy_items]}
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_DASHBOARD_CACHE_SECONDS",
+        default_timeout=30,
+    )
 
 
 def _build_active_consultation_client_map(items: list[dict] | None) -> dict[str, dict]:
@@ -1251,13 +1451,23 @@ def _build_active_consultation_client_map(items: list[dict] | None) -> dict[str,
 
 
 def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
-    clients = _scoped_client_records(admin=admin, designer=designer, query=query)
+    cache_key = _partner_lookup_cache_key(
+        "partner-clients",
+        admin=admin,
+        designer=designer,
+        query=(query or "").strip().lower(),
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
+    clients = _scoped_client_records(admin=admin, designer=designer, query=query, limit=100)
     legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer) or []
     legacy_active_by_client = _build_active_consultation_client_map(legacy_active_items)
     legacy_visit_summary_by_client = get_legacy_client_visit_summary_map(admin=admin, designer=designer)
 
     items = []
-    for client in clients[:100]:
+    for client in clients:
         legacy_client_id = str(get_legacy_client_id(client=client) or "").strip()
         backend_client_id = str(client.id or "").strip()
         legacy_active = (
@@ -1296,7 +1506,13 @@ def get_all_clients(*, query: str = "", admin: "AdminAccount | None" = None, des
                 "can_write_designer_diagnosis": bool(legacy_active and legacy_active.get("is_active")),
             }
         )
-    return {"status": "ready", "items": items}
+    payload = {"status": "ready", "items": items}
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_LIST_CACHE_SECONDS",
+        default_timeout=60,
+    )
 
 
 def assign_client_to_designer(
@@ -1335,6 +1551,7 @@ def assign_client_to_designer(
         )
         client.assigned_at = assigned_at
 
+    _invalidate_partner_client_payloads(client=client, admin=admin, designer=designer)
     return {
         "status": "success",
         "client_id": client.id,
@@ -1355,13 +1572,22 @@ def get_client_detail(
     include_history: bool = False,
     history_limit: int = 20,
 ) -> dict:
-    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
-    if scoped_client_ids and client.id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
+    _ensure_client_in_scope(client=client, admin=admin, designer=designer)
+
+    cache_key = _partner_lookup_cache_key(
+        "partner-client-detail",
+        admin=admin,
+        designer=designer,
+        client=client,
+        include_history=include_history,
+        history_limit=int(history_limit),
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
 
     latest_survey = get_latest_survey(client)
-    latest_analysis = get_latest_analysis(client)
-    latest_capture = get_latest_capture(client)
+    latest_analysis, latest_capture = get_latest_legacy_analysis_capture_bundle(client=client)
     legacy_items = get_legacy_active_consultation_items(admin=admin, designer=designer, client=client) or []
     legacy_active_consultation = legacy_items[0] if legacy_items else None
     latest_consultation = None
@@ -1405,6 +1631,7 @@ def get_client_detail(
             limit=history_limit,
         )
     else:
+        analysis_capture_count = get_legacy_analysis_capture_count(client=client)
         history_payload = {
             "capture_history": ([_serialize_capture(latest_capture)] if latest_capture else []),
             "analysis_history": ([_serialize_analysis(latest_analysis)] if latest_analysis else []),
@@ -1417,27 +1644,16 @@ def get_client_detail(
                 "history_url": f"/api/v1/customers/{client.id}/history/",
                 "limit": int(history_limit),
                 "counts": {
-                    "captures": get_legacy_capture_count(client=client),
-                    "analyses": get_legacy_analysis_count(client=client),
+                    "captures": analysis_capture_count,
+                    "analyses": analysis_capture_count,
                     "notes": _count_note_rows(client=client),
                 },
             },
         }
 
-    return {
+    payload = {
         "status": "ready",
-        "client": {
-            "client_id": client.id,
-            "legacy_client_id": get_legacy_client_id(client=client),
-            "name": client.name,
-            "gender": client.gender,
-            "phone": client.phone,
-            "shop_id": client.shop_id,
-            "shop_name": client.shop.store_name if client.shop_id and client.shop else None,
-            "designer": _serialize_designer_profile(client.designer),
-            **_client_age_fields(client),
-            "created_at": client.created_at,
-        },
+        "client": _serialize_client_summary(client),
         "latest_survey": _serialize_survey(latest_survey),
         "latest_analysis": _serialize_analysis(latest_analysis),
         "latest_capture": _serialize_capture(latest_capture) if latest_capture else None,
@@ -1491,19 +1707,79 @@ def get_client_detail(
         "notes": history_payload["notes"],
         "history": history_payload["history"],
     }
+    timeout_setting = "PARTNER_HISTORY_CACHE_SECONDS" if include_history else "PARTNER_DETAIL_CACHE_SECONDS"
+    default_timeout = 30 if include_history else 45
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting=timeout_setting,
+        default_timeout=default_timeout,
+    )
+
+
+def get_client_history_detail(
+    *,
+    client: "Client",
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+    history_limit: int = 20,
+) -> dict:
+    _ensure_client_in_scope(client=client, admin=admin, designer=designer)
+
+    cache_key = _partner_lookup_cache_key(
+        "partner-client-history",
+        admin=admin,
+        designer=designer,
+        client=client,
+        history_limit=int(history_limit),
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
+    history_payload = _get_client_history_payload(
+        client=client,
+        admin=admin,
+        designer=designer,
+        limit=history_limit,
+    )
+    payload = {
+        "status": "ready",
+        "client": _serialize_client_summary(client),
+        "history": history_payload["history"],
+        "analysis_history": history_payload["analysis_history"],
+        "capture_history": history_payload["capture_history"],
+        "style_selection_history": history_payload["style_selection_history"],
+        "chosen_recommendation_history": history_payload["chosen_recommendation_history"],
+        "notes": history_payload["notes"],
+    }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_HISTORY_CACHE_SECONDS",
+        default_timeout=30,
+    )
 
 
 def get_client_recommendation_report(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
-    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
-    if scoped_client_ids and client.id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
+    _ensure_client_in_scope(client=client, admin=admin, designer=designer)
+
+    cache_key = _partner_lookup_cache_key(
+        "partner-client-recommendations",
+        admin=admin,
+        designer=designer,
+        client=client,
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
 
     latest_analysis = get_latest_analysis(client)
     latest_survey = get_latest_survey(client)
     legacy_rows = get_legacy_former_recommendation_items(client=client) or []
     legacy_final_selected = next((row for row in legacy_rows if row.get("is_chosen")), None)
 
-    return {
+    payload = {
         "status": "ready",
         "client": {
             "client_id": client.id,
@@ -1520,6 +1796,12 @@ def get_client_recommendation_report(*, client: "Client", admin: "AdminAccount |
             "items": [_serialize_recommendation(row) for row in legacy_rows],
         },
     }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_LOOKUP_CACHE_SECONDS",
+        default_timeout=45,
+    )
 
 
 def create_client_note(*, client: "Client", consultation_id: int, content: str, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
@@ -1560,6 +1842,7 @@ def create_client_note(*, client: "Client", consultation_id: int, content: str, 
         is_read=True,
     )
     sync_model_team_runtime_state(client=client)
+    _invalidate_partner_client_payloads(client=client, admin=admin, designer=designer)
     return {
         "status": "success",
         "note_id": note_id,
@@ -1573,17 +1856,31 @@ def create_client_note(*, client: "Client", consultation_id: int, content: str, 
 def get_client_customer_note(*, client: "Client", admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     client_ref_id = getattr(client, "id", client)
     legacy_client_ref_id = get_legacy_client_id(client=client)
-    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
-    if scoped_client_ids and client_ref_id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
+    _ensure_client_in_scope(client=client, admin=admin, designer=designer)
+
+    cache_key = _partner_lookup_cache_key(
+        "partner-client-note",
+        admin=admin,
+        designer=designer,
+        client=client,
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
 
     note, storage_ready = _fetch_customer_profile_note(client=client)
-    return {
+    payload = {
         "status": "ready",
         "client_id": client_ref_id,
         "legacy_client_id": legacy_client_ref_id,
         "customer_note": _serialize_customer_profile_note(note, storage_ready=storage_ready),
     }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_LOOKUP_CACHE_SECONDS",
+        default_timeout=45,
+    )
 
 
 def upsert_client_customer_note(
@@ -1595,9 +1892,7 @@ def upsert_client_customer_note(
 ) -> dict:
     client_ref_id = getattr(client, "id", client)
     legacy_client_ref_id = get_legacy_client_id(client=client)
-    scoped_client_ids = _scoped_client_ids(admin=admin, designer=designer)
-    if scoped_client_ids and client_ref_id not in scoped_client_ids:
-        raise ValueError("Client is outside the current admin scope.")
+    _ensure_client_in_scope(client=client, admin=admin, designer=designer)
 
     normalized_content = str(content or "").strip()
     from app.models_django import ClientProfileNote
@@ -1618,6 +1913,7 @@ def upsert_client_customer_note(
     if not normalized_content:
         if note is not None:
             note.delete()
+        _invalidate_partner_client_payloads(client=client, admin=admin, designer=designer)
         return {
             "status": "success",
             "client_id": client_ref_id,
@@ -1642,6 +1938,7 @@ def upsert_client_customer_note(
         note.content = normalized_content
         note.save()
 
+    _invalidate_partner_client_payloads(client=client, admin=admin, designer=designer)
     return {
         "status": "success",
         "client_id": client_ref_id,
@@ -1684,6 +1981,11 @@ def close_consultation_session(*, consultation_id: int, admin: "AdminAccount | N
         closed_at=consultation["closed_at"],
     )
     sync_model_team_runtime_state(client=consultation["client"])
+    _invalidate_partner_client_payloads(
+        client=consultation["client"],
+        admin=admin,
+        designer=designer,
+    )
     return {
         "status": "success",
         "consultation_id": consultation["id"],
@@ -1735,6 +2037,22 @@ def _build_style_report_snapshot(*, style_id: int, days: int, admin: "AdminAccou
 
 def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     filters = filters or {}
+    normalized_filters = {
+        str(key): value
+        for key, value in sorted(filters.items())
+        if value not in (None, "", [], {}, ())
+    }
+    cache_key = _partner_lookup_cache_key(
+        "partner-trend-report",
+        admin=admin,
+        designer=designer,
+        days=int(days),
+        filters=normalized_filters,
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     cutoff = timezone.now() - timezone.timedelta(days=days)
     legacy_items = get_legacy_confirmed_selection_items(
         since=cutoff,
@@ -1813,7 +2131,7 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         designer is not None,
     )
     legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer)
-    return {
+    payload = {
         "status": "ready",
         "days": days,
         "filters": filters,
@@ -1839,9 +2157,26 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
             else "No trend selections were found for the requested period."
         ),
     }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_REPORT_CACHE_SECONDS",
+        default_timeout=90,
+    )
 
 
 def get_style_report(*, style_id: int, days: int = 7, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+    cache_key = _partner_lookup_cache_key(
+        "partner-style-report",
+        admin=admin,
+        designer=designer,
+        style_id=int(style_id),
+        days=int(days),
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     style_data = _style_snapshot(style_id)
     cutoff = timezone.now() - timezone.timedelta(days=days)
     legacy_items = get_legacy_confirmed_selection_items(
@@ -1886,7 +2221,7 @@ def get_style_report(*, style_id: int, days: int = 7, admin: "AdminAccount | Non
         admin is not None,
         designer is not None,
     )
-    return {
+    payload = {
         "status": "ready",
         "style": {
             **style_data,
@@ -1896,5 +2231,11 @@ def get_style_report(*, style_id: int, days: int = 7, admin: "AdminAccount | Non
         "related_styles": related,
         "report_snapshot": report_snapshot,
     }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_REPORT_CACHE_SECONDS",
+        default_timeout=90,
+    )
 
 

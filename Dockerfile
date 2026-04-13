@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-trends.txt ./
+COPY requirements.txt requirements-deploy.txt requirements-trends.txt ./
 
 # Production image installs only runtime dependencies by default.
 # If trend-pipeline image is needed, build with:
@@ -21,12 +21,14 @@ ARG INSTALL_TRENDS_DEPS=0
 RUN if [ "$INSTALL_TRENDS_DEPS" = "1" ]; then \
       pip install --no-cache-dir -r requirements-trends.txt; \
     else \
-      pip install --no-cache-dir -r requirements.txt; \
+      pip install --no-cache-dir -r requirements-deploy.txt; \
     fi
 
 COPY . .
 
-RUN chmod +x /app/docker-entrypoint.sh
+# Normalize shell scripts copied from Windows checkouts so the container can
+# execute them reliably in Linux environments.
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
 RUN mkdir -p storage/captures storage/processed storage/synthetic
 
 EXPOSE 8000

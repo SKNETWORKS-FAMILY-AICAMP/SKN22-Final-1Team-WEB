@@ -19,7 +19,14 @@
     <link rel="apple-touch-icon" href="{% static 'branding/favicon_hair.png' %}" />
     -->
 
-    <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}?v=20260409-10" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    />
+    <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}?v=20260410-01" />
+
     {% block extra_head %}{% endblock %}
   </head>
   <body data-has-session="{% if request.session.customer_id or request.session.admin_id or request.session.designer_id %}true{% else %}false{% endif %}">
@@ -154,6 +161,30 @@
 
     <script>
       window.addEventListener('DOMContentLoaded', function () {
+        const partnerPrefetchLinks = document.querySelectorAll('[data-prefetch-page="partner-dashboard"]');
+        if (partnerPrefetchLinks.length > 0) {
+          let prefetched = false;
+          const prefetchPartnerPage = function (href) {
+            if (prefetched || !href || !document.head) {
+              return;
+            }
+            prefetched = true;
+            const prefetchLink = document.createElement('link');
+            prefetchLink.rel = 'prefetch';
+            prefetchLink.as = 'document';
+            prefetchLink.href = href;
+            document.head.appendChild(prefetchLink);
+          };
+
+          partnerPrefetchLinks.forEach(function (linkEl) {
+            const triggerPrefetch = function () {
+              prefetchPartnerPage(linkEl.href);
+            };
+            linkEl.addEventListener('pointerenter', triggerPrefetch, { once: true });
+            linkEl.addEventListener('focus', triggerPrefetch, { once: true });
+          });
+        }
+
         const designerLogoutLink = document.querySelector('[data-designer-logout="true"]');
         if (!designerLogoutLink) {
           return;
@@ -170,16 +201,24 @@
           designerLogoutLink.style.pointerEvents = 'none';
 
           try {
-            await fetch(designerLogoutLink.href, {
+            const response = await fetch(designerLogoutLink.href, {
               method: 'GET',
               credentials: 'same-origin',
               headers: {
                 'X-Requested-With': 'XMLHttpRequest'
               }
             });
-            window.location.href = designerLogoutLink.dataset.afterLogout;
+
+            let redirectUrl = designerLogoutLink.dataset.afterLogout;
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const payload = await response.json();
+              redirectUrl = payload.redirect || redirectUrl;
+            }
+
+            window.location.replace(redirectUrl || designerLogoutLink.href);
           } catch (error) {
-            window.location.href = designerLogoutLink.href;
+            window.location.replace(designerLogoutLink.href);
           }
         });
       });

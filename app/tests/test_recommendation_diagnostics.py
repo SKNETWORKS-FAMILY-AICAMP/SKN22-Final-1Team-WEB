@@ -187,6 +187,42 @@ class RecommendationDiagnosticSnapshotTests(SimpleTestCase):
 
         self.assertEqual(payload["status"], "processing")
 
+    def test_get_current_recommendations_requires_retake_when_latest_capture_failed(self):
+        client = SimpleNamespace(id=14, legacy_client_id="legacy-14", name="Retake", phone="01000001414")
+        failed_capture = SimpleNamespace(id=61, analysis_id=61, status="FAILED", face_count=0, created_at=None, updated_at=None)
+        failed_analysis = SimpleNamespace(
+            id=61,
+            analysis_id=61,
+            status="FAILED",
+            face_shape=None,
+            golden_ratio_score=None,
+            image_url=None,
+            created_at=None,
+        )
+        sample_only_items = [
+            {
+                "analysis_id": 61,
+                "batch_id": "batch-old",
+                "simulation_image_url": None,
+                "synthetic_image_url": None,
+                "sample_image_url": "/media/styles/204.jpg",
+                "source": "generated",
+                "style_id": 204,
+                "style_name": "Fallback Bob",
+                "style_description": "sample only",
+                "keywords": ["bob"],
+                "match_score": 71.0,
+                "rank": 1,
+                "reasoning_snapshot": {"source": "local"},
+            }
+        ]
+
+        with patch.object(services_django, "get_latest_capture_attempt", return_value=failed_capture), patch.object(services_django, "get_latest_survey", return_value=None), patch.object(services_django, "get_latest_capture", return_value=failed_capture), patch.object(services_django, "get_latest_analysis", return_value=failed_analysis), patch.object(services_django, "get_legacy_former_recommendation_items", return_value=sample_only_items), patch.object(services_django, "_has_active_consultation_state", return_value=False), patch.object(services_django, "get_ai_runtime_config_snapshot", return_value={"resolved_provider": "runpod"}):
+            payload = services_django.get_current_recommendations(client)
+
+        self.assertEqual(payload["status"], "needs_capture")
+        self.assertEqual(payload["items"], [])
+
 
 
 class RecommendationDiagnosticCommandTests(SimpleTestCase):

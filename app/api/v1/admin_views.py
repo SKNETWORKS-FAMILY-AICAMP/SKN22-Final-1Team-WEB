@@ -38,6 +38,7 @@ from app.api.v1.admin_services import (
     get_admin_trend_report,
     get_all_clients,
     get_client_detail,
+    get_client_history_detail,
     get_client_recommendation_report,
     upsert_client_designer_diagnosis,
     get_style_report,
@@ -374,26 +375,14 @@ class AdminClientHistoryView(AdminProtectedAPIView):
         client = _get_client_or_404(request.query_params.get("client_id"))
         history_limit = _history_limit_from_request(request)
         try:
-            payload = get_client_detail(
+            payload = get_client_history_detail(
                 client=client,
                 admin=request.user,
-                include_history=True,
                 history_limit=history_limit,
             )
         except ValueError as exc:
             return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
-        return Response(
-            {
-                "status": payload["status"],
-                "client": payload["client"],
-                "history": payload["history"],
-                "analysis_history": payload["analysis_history"],
-                "capture_history": payload["capture_history"],
-                "style_selection_history": payload["style_selection_history"],
-                "chosen_recommendation_history": payload["chosen_recommendation_history"],
-                "notes": payload["notes"],
-            }
-        )
+        return Response(payload)
 
 
 class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
@@ -439,11 +428,10 @@ class LegacyAdminClientHistoryView(CompatEnvelopeAPIView):
         client = _get_client_or_404(pk)
         history_limit = _history_limit_from_request(request)
         try:
-            payload = get_client_detail(
+            payload = get_client_history_detail(
                 client=client,
                 admin=admin,
                 designer=designer,
-                include_history=True,
                 history_limit=history_limit,
             )
         except ValueError as exc:

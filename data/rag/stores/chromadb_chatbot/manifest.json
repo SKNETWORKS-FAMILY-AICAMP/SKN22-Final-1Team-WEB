@@ -1,0 +1,11 @@
+{
+  "dataset_path": "C:\\Users\\Playdata\\Documents\\SKN22-Final-1Team-WEB\\app\\data\\chatbot\\designer_support_dataset_v5_final_revised_optimized.json",
+  "dataset_mtime_ns": 1775433866868556300,
+  "dataset_size": 1389776,
+  "collection_name": "designer_support_docs",
+  "chunk_size": 900,
+  "chunk_overlap": 180,
+  "embedding_dim": 192,
+  "embedding_version": "hashed-token-v2",
+  "text_cleanup_version": "chatbot-rag-cleanup-v2"
+}
