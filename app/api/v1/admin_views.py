@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from django.http import Http404
 import logging
+import re
 
 from django.utils import timezone
 from rest_framework import status
@@ -806,6 +807,70 @@ class AdminAiHealthView(CompatEnvelopeAPIView):
                 "chatbot_backend": get_chatbot_backend_status(),
             }
         )
+
+
+class DesignerPinChangeView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Change current designer's PIN",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        from django.contrib.auth.hashers import make_password
+        import uuid
+        
+        # 1. 관리자 및 디자이너 세션 정보 획득
+        admin = get_session_admin(request=request)
+        designer = get_session_designer(request=request)
+        
+        # 관리자 세션이 없더라도, 디자이너 세션이 있다면 해당 디자이너가 소속된 샵을 신뢰함
+        if not admin and designer:
+            admin = designer.shop
+            
+        if not admin:
+            return detail_response("매장 관리자 로그인이 필요합니다.", status_code=status.HTTP_401_UNAUTHORIZED)
+            
+        if not designer:
+            return detail_response("디자이너 세션이 유효하지 않습니다. 다시 로그인해 주세요.", status_code=status.HTTP_401_UNAUTHORIZED)
+
+        # 2. 새로운 PIN 데이터 획득
+        new_pin = (request.data.get("new_pin") or request.POST.get("new_pin") or "").strip()
+        if not re.fullmatch(r"\d{4}", new_pin):
+            return detail_response("보안키는 4자리 숫자로 입력해 주세요.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from app.models_django import Designer
+            import uuid
+            designer_obj = None
+            
+            # 세션에서 가져온 ID(문자열)를 UUID로 안전하게 변환하여 조회 시도
+            try:
+                d_uuid = uuid.UUID(str(designer.id))
+                designer_obj = Designer.objects.get(id=d_uuid)
+            except (ValueError, Designer.DoesNotExist):
+                # UUID 조회 실패 시 backend_designer_id로 2차 조회 (정수형 지원)
+                try:
+                    designer_obj = Designer.objects.get(backend_designer_id=designer.id)
+                except (Designer.DoesNotExist, ValueError):
+                    return detail_response("디자이너 정보를 찾을 수 없습니다.", status_code=status.HTTP_404_NOT_FOUND)
+            
+            # 3. 보안키 동일 여부 체크
+            from django.contrib.auth.hashers import check_password
+            if check_password(new_pin, designer_obj.pin_hash):
+                return detail_response("현재 사용 중인 보안키와 동일합니다. 다른 번호를 입력해 주세요.", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # 4. 보안키 해싱 및 저장
+            designer_obj.pin_hash = make_password(new_pin)
+            designer_obj.save()
+            
+            # 5. 성공 응답
+            return Response({
+                "status": "success", 
+                "message": "디자이너 보안키가 성공적으로 변경되었습니다."
+            })
+        except Exception as e:
+            logger.error(f"[designer_pin_change_failed] designer_id={designer.id} error={str(e)}")
+            return detail_response("보안키 변경 중 서버 오류가 발생했습니다.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class DesignerListView(CompatEnvelopeAPIView):

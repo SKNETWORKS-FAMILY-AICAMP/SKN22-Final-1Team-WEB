@@ -42,7 +42,7 @@ def _update_session_if_changed(request: HttpRequest, updates: dict) -> None:
 
 
 def set_customer_session(*, request: HttpRequest, client: Client) -> None:
-    request.session[CUSTOMER_ID_SESSION_KEY] = client.id
+    request.session[CUSTOMER_ID_SESSION_KEY] = str(client.id)
     request.session[CUSTOMER_LEGACY_ID_SESSION_KEY] = get_legacy_client_id(client=client)
     request.session[CUSTOMER_NAME_SESSION_KEY] = client.name
     request.session.modified = True
@@ -89,7 +89,7 @@ def get_session_customer(*, request: HttpRequest) -> Client | None:
 
 
 def set_admin_session(*, request: HttpRequest, admin: AdminAccount) -> None:
-    request.session[ADMIN_ID_SESSION_KEY] = admin.id
+    request.session[ADMIN_ID_SESSION_KEY] = str(admin.id)
     request.session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=admin)
     request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
     request.session[ADMIN_NAME_SESSION_KEY] = admin.name
@@ -143,7 +143,7 @@ def get_session_admin(*, request: HttpRequest) -> AdminAccount | None:
 
 
 def set_designer_session(*, request: HttpRequest, designer: Designer) -> None:
-    request.session[DESIGNER_ID_SESSION_KEY] = designer.id
+    request.session[DESIGNER_ID_SESSION_KEY] = str(designer.id)
     request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
     request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False

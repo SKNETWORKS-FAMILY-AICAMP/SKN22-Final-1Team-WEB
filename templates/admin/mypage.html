@@ -1,0 +1,347 @@
+{% extends "layouts/base_site.html" %}
+{% load static %}
+
+{% block page_title %}MirrAI | 내 페이지{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* Keypad Modal Styles */
+  .keypad-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+  }
+  .keypad-overlay.is-active {
+    opacity: 1;
+    visibility: visible;
+  }
+  .keypad-container {
+    width: 320px;
+    background: var(--bg-dark);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 32px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  }
+  .keypad-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+  .keypad-subtitle {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 24px;
+  }
+  .keypad-display {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .keypad-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
+  }
+  .keypad-dot.is-filled {
+    background: var(--accent-neon);
+    box-shadow: 0 0 10px var(--accent-neon);
+  }
+  .keypad-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .keypad-btn {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
+    font-size: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+  }
+  .keypad-btn:active {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(0.92);
+  }
+  .keypad-btn.btn-empty {
+    background: transparent;
+    border: none;
+    cursor: default;
+  }
+  .keypad-btn.btn-back {
+    font-size: 14px;
+    color: var(--status-red);
+  }
+  .keypad-close {
+    margin-top: 24px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.4);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+</style>
+{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>내 페이지</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">관리자 정보 확인 및 보안 설정을 관리합니다.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="customer-layout" style="display: block;">
+  <div class="panel" style="max-width: 600px; margin: 0 auto; padding: 48px !important; border-radius: 24px !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;">
+    
+    <div style="margin-bottom: 40px;">
+      <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 24px; color: var(--text-primary); border-bottom: 1.5px solid var(--line); padding-bottom: 12px;">기본 정보</h3>
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-secondary); font-size: 14px;">매장명</span>
+          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.store_name }}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-secondary); font-size: 14px;">관리자명</span>
+          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.name }}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-secondary); font-size: 14px;">연락처</span>
+          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.phone }}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-secondary); font-size: 14px;">사업자번호</span>
+          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.business_number }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1.5px solid var(--line); padding-bottom: 12px;">
+        <h3 style="font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0;">보안 설정</h3>
+        <button id="openKeypadBtn" class="btn btn-dark" style="height: 36px; padding: 0 16px; font-size: 13px; font-weight: 600;">보안키 변경</button>
+      </div>
+      
+      <div style="padding: 24px; background: var(--bg-light); border-radius: 16px; display: flex; align-items: center; gap: 16px;">
+        <div style="width: 48px; height: 48px; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px;">🔑</div>
+        <div>
+          <p style="margin: 0; font-size: 15px; font-weight: 600; color: var(--text-primary);">관리자 보안키 (PIN)</p>
+          <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--text-secondary);">매장 내 민감한 정보 접근 시 사용되는 4자리 보안키입니다.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Keypad Modal -->
+<div id="keypadOverlay" class="keypad-overlay">
+  <div class="keypad-container">
+    <div id="keypadStepTitle" class="keypad-title">보안키 확인</div>
+    <div id="keypadStepSub" class="keypad-subtitle">현재 보안키 4자리를 입력해 주세요.</div>
+    
+    <div class="keypad-display">
+      <div class="keypad-dot"></div>
+      <div class="keypad-dot"></div>
+      <div class="keypad-dot"></div>
+      <div class="keypad-dot"></div>
+    </div>
+
+    <div class="keypad-grid">
+      <button class="keypad-btn" data-val="1">1</button>
+      <button class="keypad-btn" data-val="2">2</button>
+      <button class="keypad-btn" data-val="3">3</button>
+      <button class="keypad-btn" data-val="4">4</button>
+      <button class="keypad-btn" data-val="5">5</button>
+      <button class="keypad-btn" data-val="6">6</button>
+      <button class="keypad-btn" data-val="7">7</button>
+      <button class="keypad-btn" data-val="8">8</button>
+      <button class="keypad-btn" data-val="9">9</button>
+      <div class="keypad-btn btn-empty"></div>
+      <button class="keypad-btn" data-val="0">0</button>
+      <button class="keypad-btn btn-back" id="keypadBack">삭제</button>
+    </div>
+
+    <button id="closeKeypadBtn" class="keypad-close">닫기</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  (function() {
+    'use strict';
+
+    const currentPin = "{{ active_shop.admin_pin|default:'' }}";
+    console.log("[MyPage] Loaded admin PIN:", currentPin);
+    const overlay = document.getElementById('keypadOverlay');
+    const openBtn = document.getElementById('openKeypadBtn');
+    const closeBtn = document.getElementById('closeKeypadBtn');
+    const dots = document.querySelectorAll('.keypad-dot');
+    const titleEl = document.getElementById('keypadStepTitle');
+    const subEl = document.getElementById('keypadStepSub');
+    const statusAlert = document.getElementById('statusAlert');
+
+    let state = 'VERIFY_CURRENT'; // VERIFY_CURRENT -> ENTER_NEW -> CONFIRM_NEW
+    let inputBuffer = '';
+    let newPinBuffer = '';
+
+    // 초기 방문 체크 (0000인 경우)
+    window.addEventListener('load', () => {
+      if (currentPin === '0000') {
+        if (confirm('관리자 보안키가 0000으로 설정 되어 있습니다. 보안키를 변경하시겠습니까?')) {
+          openKeypad();
+        }
+      }
+    });
+
+    function openKeypad() {
+      resetKeypad();
+      overlay.classList.add('is-active');
+    }
+
+    function closeKeypad() {
+      overlay.classList.remove('is-active');
+    }
+
+    function resetKeypad() {
+      state = 'VERIFY_CURRENT';
+      inputBuffer = '';
+      newPinBuffer = '';
+      updateUI();
+    }
+
+    function updateUI() {
+      // Update Title & Subtitle based on state
+      if (state === 'VERIFY_CURRENT') {
+        titleEl.textContent = '현재 보안키 확인';
+        subEl.textContent = '현재 사용 중인 보안키 4자리를 입력하세요.';
+      } else if (state === 'ENTER_NEW') {
+        titleEl.textContent = '새 보안키 설정';
+        subEl.textContent = '변경할 새로운 보안키 4자리를 입력하세요.';
+      } else if (state === 'CONFIRM_NEW') {
+        titleEl.textContent = '보안키 재확인';
+        subEl.textContent = '확인을 위해 새 보안키를 다시 입력하세요.';
+      }
+
+      // Update dots
+      dots.forEach((dot, idx) => {
+        dot.classList.toggle('is-filled', idx < inputBuffer.length);
+      });
+    }
+
+    function handleInput(val) {
+      if (inputBuffer.length >= 4) return;
+      inputBuffer += val;
+      updateUI();
+
+      if (inputBuffer.length === 4) {
+        setTimeout(processStep, 300);
+      }
+    }
+
+    function handleBack() {
+      if (inputBuffer.length > 0) {
+        inputBuffer = inputBuffer.slice(0, -1);
+        updateUI();
+      }
+    }
+
+    async function processStep() {
+      if (state === 'VERIFY_CURRENT') {
+        if (inputBuffer === currentPin) {
+          state = 'ENTER_NEW';
+          inputBuffer = '';
+          updateUI();
+        } else {
+          alert('현재 보안키가 일치하지 않습니다.');
+          inputBuffer = '';
+          updateUI();
+        }
+      } else if (state === 'ENTER_NEW') {
+        newPinBuffer = inputBuffer;
+        state = 'CONFIRM_NEW';
+        inputBuffer = '';
+        updateUI();
+      } else if (state === 'CONFIRM_NEW') {
+        if (inputBuffer === newPinBuffer) {
+          await finalizeChange(newPinBuffer);
+        } else {
+          alert('새 보안키가 일치하지 않습니다. 처음부터 다시 시도해 주세요.');
+          resetKeypad();
+        }
+      }
+    }
+
+    async function finalizeChange(pin) {
+      try {
+        const formData = new URLSearchParams();
+        formData.append('admin_pin', pin);
+
+        const response = await fetch(window.location.pathname, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': '{{ csrf_token }}'
+          },
+          body: formData.toString()
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          alert(data.message || '보안키가 성공적으로 변경되었습니다.');
+          closeKeypad();
+          // 보안키 변경 후 최신 상태 유지를 위해 필요한 경우에만 새로고침 (선택 사항)
+          // window.location.reload();
+        } else {
+          // 서버에서 전달한 에러 메시지 표시
+          const errorMsg = data.message || '현재 사용 중인 보안키와 동일합니다. 다른 번호를 입력해 주세요.';
+          alert(errorMsg);
+          
+          // 모달을 닫지 않고 새 보안키 입력 단계로 초기화
+          state = 'ENTER_NEW';
+          inputBuffer = '';
+          updateUI();
+        }
+      } catch (err) {
+        console.error("PIN change error:", err);
+        alert('서버 처리 중 오류가 발생했습니다.');
+        resetKeypad();
+      }
+    }
+
+    // Events
+    openBtn.addEventListener('click', openKeypad);
+    closeBtn.addEventListener('click', closeKeypad);
+    document.querySelectorAll('.keypad-btn[data-val]').forEach(btn => {
+      btn.addEventListener('click', () => handleInput(btn.dataset.val));
+    });
+    document.getElementById('keypadBack').addEventListener('click', handleBack);
+
+  })();
+</script>
+{% endblock %}

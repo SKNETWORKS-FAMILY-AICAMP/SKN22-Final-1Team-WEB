@@ -589,6 +589,68 @@ def designer_delete_page(request):
 
 
 @never_cache
+def admin_mypage_page(request):
+    if _has_standalone_customer_session(request=request):
+        return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
+    
+    admin = get_session_admin(request=request)
+    if admin is None:
+        return redirect("partner_index")
+
+    if request.method == "POST":
+        new_pin = (request.POST.get("admin_pin") or "").strip()
+        if not re.fullmatch(r"\d{4}", new_pin):
+            return render(
+                request,
+                "admin/mypage.html",
+                {
+                    "active_shop": admin,
+                    "form_error": "PIN 번호는 4자리 숫자로 입력해 주세요.",
+                },
+                status=400,
+            )
+        
+        # 실제 모델 객체 가져오기 (세션의 SimpleNamespace는 저장 기능이 없음)
+        from app.models_django import AdminAccount
+        try:
+            # backend_admin_id 필드를 사용하여 기존 정수형 ID로 조회
+            admin_obj = AdminAccount.objects.get(backend_admin_id=admin.id)
+            
+            # 기존 보안키와 동일한지 체크
+            if admin_obj.admin_pin == new_pin:
+                return render(
+                    request,
+                    "admin/mypage.html",
+                    {
+                        "active_shop": admin,
+                        "form_error": "현재 사용 중인 보안키와 동일합니다. 다른 번호를 입력해 주세요.",
+                    },
+                    status=400,
+                )
+
+            admin_obj.admin_pin = new_pin
+            admin_obj.save()
+
+            # 레거시 테이블 동기화 (이미 shop 테이블에 저장했으므로 추가 동기화 시 에러 방지 처리)
+            try:
+                from app.services.model_team_bridge import sync_model_team_admin_state
+                sync_model_team_admin_state(admin=admin_obj)
+            except Exception:
+                # 동기화 중 에러가 나더라도 메인 저장은 성공했으므로 무시
+                pass
+
+            # 세션 정보 갱신
+            set_admin_session(request=request, admin=admin_obj)
+            return JsonResponse(
+                {"status": "success", "message": "보안키가 성공적으로 변경되었습니다."}
+            )
+        except AdminAccount.DoesNotExist:
+            return JsonResponse({"status": "error", "message": "관리자 정보를 찾을 수 없습니다."}, status=404)
+
+    return render(request, "admin/mypage.html", {"active_shop": admin})
+
+
+@never_cache
 def admin_dashboard_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -696,18 +758,30 @@ def partner_verify(request):
                 {"status": "error", "message": "먼저 매장 관리자 로그인을 진행해 주세요."},
                 status=401,
             )
+        
         if not re.fullmatch(r"\d{4}", pin):
             return JsonResponse(
                 {"status": "error", "message": "PIN 번호 4자리를 입력해 주세요."},
                 status=400,
             )
 
-        designer = get_designer_for_admin(admin=admin, designer_id=designer_id)
-        if designer is None:
+        from app.models_django import Designer
+        import uuid
+        designer = None
+        
+        # UUID 또는 정수형 ID(backend_designer_id) 모두 지원하는 조회 로직
+        try:
+            try:
+                d_uuid = uuid.UUID(str(designer_id))
+                designer = Designer.objects.get(id=d_uuid)
+            except (ValueError, Designer.DoesNotExist):
+                designer = Designer.objects.get(backend_designer_id=designer_id)
+        except (Designer.DoesNotExist, ValueError):
             return JsonResponse(
                 {"status": "error", "message": "선택한 디자이너 정보를 찾을 수 없습니다."},
                 status=404,
             )
+
         if not check_password(pin, designer.pin_hash):
             return JsonResponse(
                 {"status": "error", "message": "PIN 번호를 다시 확인해 주세요."},

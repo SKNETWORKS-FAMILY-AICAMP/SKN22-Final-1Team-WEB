@@ -1727,19 +1727,26 @@
 
         updateStatus(
           options.source === "auto"
-            ? "조건이 맞아 자동으로 사진을 촬영했습니다. 결과를 확인해 주세요."
+            ? "조건이 맞아 자동으로 사진을 촬영했습니다. 결과를 분석합니다..."
             : "사진을 촬영했습니다. 결과를 확인해 주세요.",
           "success"
         );
         updateAutoHint("촬영 결과를 확인한 뒤 업로드를 진행해 주세요.", "ready");
+
+        // 자동 촬영인 경우 즉시 '촬영 완료' 버튼 클릭 트리거
+        if (options.source === "auto" && confirmBtn) {
+          console.log("[AutoCapture] Triggering confirm button click...");
+          confirmBtn.click();
+        }
       },
       "image/jpeg",
       0.95
     );
   }
 
-  function handleRetake() {
-    if (capturedBlob && !confirm("이 사진을 버리고 다시 촬영하시겠습니까?")) {
+  function handleRetake(force = false) {
+    const shouldConfirm = force !== true;
+    if (shouldConfirm && capturedBlob && !confirm("이 사진을 버리고 다시 촬영하시겠습니까?")) {
       return;
     }
 
@@ -1821,8 +1828,8 @@
       if (uploadStatus === "needs_retake" || nextAction === "capture") {
         updateStatus(data.message || "사진을 다시 촬영해주세요.", "error");
         updateAutoHint("사진을 다시 맞춘 뒤 재촬영해 주세요.", "error");
-        confirmBtn.disabled = false;
-        retakeBtn.disabled = false;
+        // 재촬영이 필요한 경우 자동으로 카메라를 다시 켬
+        handleRetake(true);
         return;
       }
 
