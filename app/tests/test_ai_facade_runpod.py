@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
-from app.services.ai_facade import _AI_HEALTH_CACHE, generate_recommendation_batch, get_ai_health
+from app.services.ai_facade import _AI_HEALTH_CACHE, _post_runpod, generate_recommendation_batch, get_ai_health
 
 
 class RunPodFacadeTests(SimpleTestCase):
@@ -123,3 +123,59 @@ class RunPodFacadeTests(SimpleTestCase):
         self.assertTrue(items)
         self.assertEqual(items[0]["simulation_image_url"], "data:image/png;base64,ZmFrZS1pbWFnZQ==")
         self.assertEqual(items[0]["reasoning_snapshot"]["runpod"]["provider"], "runpod")
+
+    @patch("app.services.ai_facade.requests.get")
+    @patch("app.services.ai_facade.requests.post")
+    def test_post_runpod_polls_status_until_output_is_ready(self, mock_post, mock_get):
+        initial_response = Mock()
+        initial_response.json.return_value = {
+            "id": "job-123",
+            "status": "IN_PROGRESS",
+        }
+        initial_response.raise_for_status.return_value = None
+        mock_post.return_value = initial_response
+
+        status_response = Mock()
+        status_response.json.return_value = {
+            "id": "job-123",
+            "status": "COMPLETED",
+            "output_url": "https://example.com/output/job-123",
+        }
+        status_response.raise_for_status.return_value = None
+
+        output_response = Mock()
+        output_response.json.return_value = {
+            "output": {
+                "results": [
+                    {
+                        "rank": 0,
+                        "image_base64": "ZmFrZS1pbWFnZQ==",
+                    }
+                ],
+                "recommendations": [
+                    {
+                        "rank": 0,
+                        "style_name": "Soft Down Perm",
+                    }
+                ],
+            }
+        }
+        output_response.raise_for_status.return_value = None
+        mock_get.side_effect = [status_response, output_response]
+
+        with patch.dict(
+            "os.environ",
+            {
+                "RUNPOD_API_KEY": "test-key",
+                "RUNPOD_ENDPOINT_ID": "test-endpoint",
+                "RUNPOD_BASE_URL": "https://api.runpod.ai/v2",
+                "RUNPOD_POLL_INTERVAL_SECONDS": "0.01",
+            },
+            clear=False,
+        ):
+            payload = _post_runpod({"action": "simulate"})
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["results"][0]["rank"], 0)
+        self.assertEqual(payload["recommendations"][0]["style_name"], "Soft Down Perm")
+        self.assertEqual(mock_get.call_count, 2)

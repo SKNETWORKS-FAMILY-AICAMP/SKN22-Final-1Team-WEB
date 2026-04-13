@@ -53,6 +53,8 @@ class StyleProfile:
     scalp_tags: tuple[str, ...]
     color_tags: tuple[str, ...]
     budget_tags: tuple[str, ...]
+    gender_branches: tuple[str, ...] = ("female", "male")
+    style_axes: tuple[str, ...] = ()
 
 
 STYLE_CATALOG: tuple[StyleProfile, ...] = (
@@ -69,6 +71,8 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         scalp_tags=("straight", "waved"),
         color_tags=("black", "brown", "ash"),
         budget_tags=("mid", "high"),
+        gender_branches=("female",),
+        style_axes=("silhouette:straight_line", "bang_preference:no_bangs", "change_intensity:medium"),
     ),
     StyleProfile(
         style_id=202,
@@ -83,6 +87,8 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         scalp_tags=("straight", "damaged"),
         color_tags=("black", "brown"),
         budget_tags=("low", "mid"),
+        gender_branches=("female",),
+        style_axes=("silhouette:straight_line", "bang_preference:light_bangs", "change_intensity:soft"),
     ),
     StyleProfile(
         style_id=203,
@@ -97,6 +103,8 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         scalp_tags=("waved", "curly", "damaged"),
         color_tags=("brown", "ash", "bleach"),
         budget_tags=("mid", "high"),
+        gender_branches=("female",),
+        style_axes=("silhouette:layered", "bang_preference:light_bangs", "change_intensity:medium"),
     ),
     StyleProfile(
         style_id=204,
@@ -111,6 +119,8 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         scalp_tags=("straight",),
         color_tags=("black", "brown", "ash"),
         budget_tags=("mid", "high"),
+        gender_branches=("female",),
+        style_axes=("silhouette:straight_line", "bang_preference:no_bangs", "change_intensity:medium"),
     ),
     StyleProfile(
         style_id=205,
@@ -125,6 +135,8 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         scalp_tags=("waved", "curly"),
         color_tags=("brown", "ash"),
         budget_tags=("high",),
+        gender_branches=("female",),
+        style_axes=("silhouette:voluminous", "bang_preference:light_bangs", "change_intensity:medium"),
     ),
     StyleProfile(
         style_id=206,
@@ -139,6 +151,8 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         scalp_tags=("waved", "curly"),
         color_tags=("brown", "ash", "bleach"),
         budget_tags=("high",),
+        gender_branches=("female",),
+        style_axes=("silhouette:layered", "bang_preference:no_bangs", "change_intensity:bold"),
     ),
     StyleProfile(
         style_id=207,
@@ -153,6 +167,120 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         scalp_tags=("straight", "damaged"),
         color_tags=("black", "brown"),
         budget_tags=("low", "mid"),
+        gender_branches=("female",),
+        style_axes=("silhouette:voluminous", "bang_preference:light_bangs", "change_intensity:soft"),
+    ),
+    StyleProfile(
+        style_id=301,
+        fallback_name="Clean Crop Two-Block",
+        fallback_description="A crisp short crop keeps the side line tidy while avoiding a rounded bob silhouette.",
+        fallback_sample_image_url="styles/301.jpg",
+        keywords=("crop", "two-block", "clean"),
+        face_shapes=("round", "oval", "square"),
+        ratio_modes=("cover", "balanced"),
+        length_tags=("short",),
+        vibe_tags=("natural", "chic"),
+        scalp_tags=("straight", "waved"),
+        color_tags=("black", "brown"),
+        budget_tags=("low", "mid"),
+        gender_branches=("male",),
+        style_axes=("two_block:strong", "front_styling:up", "parting:non_parted"),
+    ),
+    StyleProfile(
+        style_id=302,
+        fallback_name="Soft Down Perm",
+        fallback_description="Soft front weight and controlled curl create a masculine down style without widening the cheek line.",
+        fallback_sample_image_url="styles/302.jpg",
+        keywords=("down perm", "soft", "male"),
+        face_shapes=("round", "square", "oval"),
+        ratio_modes=("cover", "balanced"),
+        length_tags=("short", "medium"),
+        vibe_tags=("natural", "chic"),
+        scalp_tags=("waved", "curly"),
+        color_tags=("black", "brown", "ash"),
+        budget_tags=("mid", "high"),
+        gender_branches=("male",),
+        style_axes=("two_block:soft", "front_styling:down", "parting:non_parted"),
+    ),
+    StyleProfile(
+        style_id=303,
+        fallback_name="Classic Side Part",
+        fallback_description="A clean parted line suits strong facial balance while keeping the outline masculine and controlled.",
+        fallback_sample_image_url="styles/303.jpg",
+        keywords=("side part", "classic", "male"),
+        face_shapes=("oval", "long", "square"),
+        ratio_modes=("balanced", "expose"),
+        length_tags=("short", "medium"),
+        vibe_tags=("chic", "elegant"),
+        scalp_tags=("straight", "waved"),
+        color_tags=("black", "brown", "ash"),
+        budget_tags=("mid", "high"),
+        gender_branches=("male",),
+        style_axes=("two_block:none", "front_styling:up", "parting:parted"),
+    ),
+    StyleProfile(
+        style_id=304,
+        fallback_name="Textured Short Crop",
+        fallback_description="Short texture on top adds shape without drifting into a feminine rounded line.",
+        fallback_sample_image_url="styles/304.jpg",
+        keywords=("textured crop", "short", "masculine"),
+        face_shapes=("round", "square", "triangle"),
+        ratio_modes=("cover", "balanced"),
+        length_tags=("short",),
+        vibe_tags=("natural", "chic"),
+        scalp_tags=("straight", "damaged"),
+        color_tags=("black", "brown"),
+        budget_tags=("low", "mid"),
+        gender_branches=("male",),
+        style_axes=("two_block:none", "front_styling:down", "parting:non_parted"),
+    ),
+    StyleProfile(
+        style_id=305,
+        fallback_name="Natural Curl Two-Block",
+        fallback_description="Natural curl texture is kept compact on the side so the result reads as a male two-block, not a bob.",
+        fallback_sample_image_url="styles/305.jpg",
+        keywords=("curly", "two-block", "natural"),
+        face_shapes=("square", "oval", "round"),
+        ratio_modes=("cover", "balanced"),
+        length_tags=("short", "medium"),
+        vibe_tags=("natural", "chic"),
+        scalp_tags=("curly", "waved"),
+        color_tags=("black", "brown", "ash"),
+        budget_tags=("mid", "high"),
+        gender_branches=("male",),
+        style_axes=("two_block:soft", "front_styling:down", "parting:non_parted"),
+    ),
+    StyleProfile(
+        style_id=306,
+        fallback_name="Tapered Slick Part",
+        fallback_description="A tapered part line keeps the forehead open and works best when the facial ratio already reads balanced.",
+        fallback_sample_image_url="styles/306.jpg",
+        keywords=("taper", "slick part", "sharp"),
+        face_shapes=("oval", "long", "triangle"),
+        ratio_modes=("expose", "balanced"),
+        length_tags=("short", "medium"),
+        vibe_tags=("chic", "elegant"),
+        scalp_tags=("straight",),
+        color_tags=("black", "brown", "ash"),
+        budget_tags=("mid", "high"),
+        gender_branches=("male",),
+        style_axes=("two_block:none", "front_styling:up", "parting:parted"),
+    ),
+    StyleProfile(
+        style_id=307,
+        fallback_name="Medium Flow Layer",
+        fallback_description="A controlled medium flow keeps length through the top while staying clearly in the male salon range.",
+        fallback_sample_image_url="styles/307.jpg",
+        keywords=("flow", "medium", "layer"),
+        face_shapes=("oval", "triangle", "long"),
+        ratio_modes=("balanced", "expose"),
+        length_tags=("medium", "long"),
+        vibe_tags=("natural", "chic"),
+        scalp_tags=("straight", "waved"),
+        color_tags=("black", "brown", "ash"),
+        budget_tags=("high",),
+        gender_branches=("male",),
+        style_axes=("two_block:none", "front_styling:flexible", "parting:either"),
     ),
 )
 
@@ -221,6 +349,8 @@ def canonical_color(value: str | None) -> str:
 
 def canonical_budget(value: str | None) -> str:
     value = _normalize_text(value)
+    if value in {"low", "mid", "high"}:
+        return value
     if _contains_any(value, ("3만원이하", "3만이하", "below3")):
         return "low"
     if _contains_any(value, ("3만5만", "3만에서5만", "5만원이하", "from3to5")):
@@ -245,6 +375,46 @@ def canonical_face_shape(value: str | None) -> str:
     if _contains_any(value, ("역삼각", "triangle", "heart")):
         return "triangle"
     return "unknown"
+
+
+def canonical_gender_branch(value: str | None) -> str:
+    normalized = _normalize_text(value)
+    if normalized in {"m", "male", "man", "남", "남성"}:
+        return "male"
+    if normalized in {"f", "female", "woman", "여", "여성"}:
+        return "female"
+    return "female"
+
+
+def _field_value(source, key: str, default=None):
+    if isinstance(source, dict):
+        return source.get(key, default)
+    return getattr(source, key, default)
+
+
+def _survey_profile_dict(survey) -> dict:
+    value = _field_value(survey, "survey_profile")
+    return value if isinstance(value, dict) else {}
+
+
+def _survey_gender_branch(survey) -> str:
+    survey_profile = _survey_profile_dict(survey)
+    return canonical_gender_branch(
+        survey_profile.get("gender_branch")
+        or _field_value(survey, "gender_branch")
+    )
+
+
+def _survey_style_signal_tags(survey) -> set[str]:
+    survey_profile = _survey_profile_dict(survey)
+    style_axes = survey_profile.get("style_axes")
+    if not isinstance(style_axes, dict):
+        return set()
+    return {
+        f"{key}:{value}"
+        for key, value in style_axes.items()
+        if str(key).strip() and str(value).strip()
+    }
 
 
 def build_preference_vector(
@@ -299,27 +469,36 @@ def score_recommendations(
 ) -> list[dict]:
     styles_by_id = styles_by_id or {}
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
-    face_shape = canonical_face_shape(getattr(analysis, "face_shape", None))
-    ratio_score = getattr(analysis, "golden_ratio_score", None)
+    face_shape = canonical_face_shape(_field_value(analysis, "face_shape"))
+    ratio_score = _field_value(analysis, "golden_ratio_score")
     ratio_mode = infer_ratio_mode(ratio_score)
 
-    length_tag = canonical_length(getattr(survey, "target_length", None))
-    vibe_tag = canonical_vibe(getattr(survey, "target_vibe", None))
-    scalp_tag = canonical_scalp(getattr(survey, "scalp_type", None))
-    color_tag = canonical_color(getattr(survey, "hair_colour", None))
-    budget_tag = canonical_budget(getattr(survey, "budget_range", None))
+    length_tag = canonical_length(_field_value(survey, "target_length"))
+    vibe_tag = canonical_vibe(_field_value(survey, "target_vibe"))
+    scalp_tag = canonical_scalp(_field_value(survey, "scalp_type"))
+    color_tag = canonical_color(_field_value(survey, "hair_colour"))
+    budget_tag = canonical_budget(_field_value(survey, "budget_range"))
+    gender_branch = _survey_gender_branch(survey)
+    style_signal_tags = _survey_style_signal_tags(survey)
 
     results: list[dict] = []
 
-    for profile in STYLE_CATALOG:
+    candidate_profiles = [
+        profile
+        for profile in STYLE_CATALOG
+        if gender_branch in profile.gender_branches
+    ] or list(STYLE_CATALOG)
+
+    for profile in candidate_profiles:
         face_score = _score_face(face_shape, profile, scoring_weights=scoring_weights)
         ratio_component = _score_ratio(ratio_mode, profile, scoring_weights=scoring_weights)
-        preference_score, match_labels = _score_preference(
+        preference_score, match_labels, matched_style_axes = _score_preference(
             length_tag=length_tag,
             vibe_tag=vibe_tag,
             scalp_tag=scalp_tag,
             color_tag=color_tag,
             budget_tag=budget_tag,
+            style_signal_tags=style_signal_tags,
             profile=profile,
             scoring_weights=scoring_weights,
         )
@@ -343,7 +522,7 @@ def score_recommendations(
             ratio_score=ratio_score,
         )
 
-        client_key = getattr(survey, "client_id", getattr(survey, "client", "0"))
+        client_key = _field_value(survey, "client_id", _field_value(survey, "client", "0"))
         results.append(
             {
                 "source": "generated",
@@ -376,6 +555,8 @@ def score_recommendations(
                     "penalty": round(penalty, 1),
                     "total_score": total,
                     "matched_labels": match_labels,
+                    "gender_branch": gender_branch,
+                    "matched_style_axes": matched_style_axes,
                     "style_keywords": list(profile.keywords),
                     "scoring_profile": scoring_weights.profile,
                     "scoring_weights": scoring_weights.as_dict(),
@@ -442,9 +623,10 @@ def _score_preference(
     scalp_tag: str,
     color_tag: str,
     budget_tag: str,
+    style_signal_tags: set[str],
     profile: StyleProfile,
     scoring_weights: ScoringWeights,
-) -> tuple[float, list[str]]:
+) -> tuple[float, list[str], list[str]]:
     score = 0.0
     labels: list[str] = []
     weight_scale = scoring_weights.preference_weight / PREFERENCE_WEIGHT
@@ -465,7 +647,12 @@ def _score_preference(
         score += 4.0 * weight_scale
         labels.append("budget")
 
-    return min(scoring_weights.preference_weight, round(score, 1)), labels
+    matched_style_axes = sorted(tag for tag in style_signal_tags if tag in profile.style_axes)
+    if matched_style_axes:
+        score += min(4.0, len(matched_style_axes) * 2.0) * weight_scale
+        labels.append("styling")
+
+    return min(scoring_weights.preference_weight, round(score, 1)), labels, matched_style_axes
 
 
 def _score_penalty(*, length_tag: str, vibe_tag: str, profile: StyleProfile, preference_score: float) -> float:
@@ -477,4 +664,3 @@ def _score_penalty(*, length_tag: str, vibe_tag: str, profile: StyleProfile, pre
     if preference_score < 10.0:
         penalty += 2.0
     return penalty
-

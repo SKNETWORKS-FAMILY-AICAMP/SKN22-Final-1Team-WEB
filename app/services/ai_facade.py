@@ -12,6 +12,7 @@ from app.api.v1.recommendation_logic import (
     DEFAULT_SCORING_WEIGHTS,
     ScoringWeights,
     canonical_budget,
+    canonical_gender_branch,
     canonical_length,
     canonical_scalp,
     canonical_vibe,
@@ -123,13 +124,78 @@ def get_ai_runtime_config_snapshot() -> dict:
 
 def _extract_runpod_output(payload: dict) -> dict | None:
     if not isinstance(payload, dict):
-        return None
+        return {"output": payload} if payload is not None else None
     output = payload.get("output")
     if isinstance(output, dict):
         return output
+    if output is not None:
+        return {
+            "output": output,
+            "status": payload.get("status"),
+            "id": payload.get("id"),
+            "delayTime": payload.get("delayTime"),
+            "executionTime": payload.get("executionTime"),
+        }
     if any(key in payload for key in ("results", "recommendations", "cuda", "status")):
         return payload
     return None
+
+
+def _runpod_poll_interval_seconds() -> float:
+    return max(0.2, float(os.environ.get("RUNPOD_POLL_INTERVAL_SECONDS", "1.0")))
+
+
+def _fetch_runpod_output_url(output_url: str, *, timeout_seconds: int) -> dict | None:
+    response = requests.get(output_url, timeout=min(max(timeout_seconds, 3), 120))
+    response.raise_for_status()
+    return _extract_runpod_output(response.json())
+
+
+def _poll_runpod_job_until_complete(*, job_id: str, timeout_seconds: int) -> dict | None:
+    deadline = time.monotonic() + max(3, timeout_seconds)
+    status_url = f"{_runpod_base_url()}/{_runpod_endpoint_id()}/status/{job_id}"
+    headers = {"Authorization": f"Bearer {_runpod_api_key()}"}
+
+    while time.monotonic() < deadline:
+        response = requests.get(status_url, headers=headers, timeout=min(max(timeout_seconds, 3), 60))
+        response.raise_for_status()
+        payload = response.json()
+        status = str((payload or {}).get("status") or "").upper()
+
+        if status == "COMPLETED":
+            output_url = str((payload or {}).get("output_url") or "").strip()
+            if output_url:
+                return _fetch_runpod_output_url(output_url, timeout_seconds=timeout_seconds)
+            return _extract_runpod_output(payload)
+        if status in {"FAILED", "CANCELLED", "TIMED_OUT"}:
+            logger.warning(
+                "[runpod_poll_failed] job_id=%s status=%s keys=%s error=%s",
+                job_id,
+                status,
+                sorted(payload.keys()) if isinstance(payload, dict) else None,
+                (payload or {}).get("error") if isinstance(payload, dict) else None,
+            )
+            return _extract_runpod_output(payload)
+
+        time.sleep(_runpod_poll_interval_seconds())
+
+    logger.warning("[runpod_poll_timeout] job_id=%s timeout_seconds=%s", job_id, timeout_seconds)
+    return None
+
+
+def _resolve_runpod_sync_payload(payload: dict, *, timeout_seconds: int) -> dict | None:
+    if not isinstance(payload, dict):
+        return _extract_runpod_output(payload)
+
+    status = str(payload.get("status") or "").upper()
+    job_id = str(payload.get("id") or "").strip()
+    output_url = str(payload.get("output_url") or "").strip()
+
+    if status in {"IN_QUEUE", "IN_PROGRESS"} and job_id:
+        return _poll_runpod_job_until_complete(job_id=job_id, timeout_seconds=timeout_seconds)
+    if status == "COMPLETED" and output_url:
+        return _fetch_runpod_output_url(output_url, timeout_seconds=timeout_seconds)
+    return _extract_runpod_output(payload)
 
 
 def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, int] | None = None) -> dict | None:
@@ -149,7 +215,17 @@ def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, 
             timeout=timeout or (5, 120),
         )
         response.raise_for_status()
-        return _extract_runpod_output(response.json())
+        payload = response.json()
+        timeout_seconds = int((timeout or (5, 120))[1])
+        resolved = _resolve_runpod_sync_payload(payload, timeout_seconds=timeout_seconds) if sync else _extract_runpod_output(payload)
+        if resolved is None:
+            logger.warning(
+                "[runpod_response_unrecognized] route=%s status=%s keys=%s",
+                route,
+                (payload or {}).get("status") if isinstance(payload, dict) else None,
+                sorted(payload.keys()) if isinstance(payload, dict) else None,
+            )
+        return resolved
     except (requests.RequestException, ValueError) as exc:
         logger.warning("Falling back after RunPod call failure: %s", exc)
         return None
@@ -571,6 +647,124 @@ def _build_preference_payload(survey_data: dict | None) -> dict:
     return payload
 
 
+def _survey_profile_dict(survey_data: dict | None) -> dict:
+    survey_data = survey_data or {}
+    value = survey_data.get("survey_profile")
+    return value if isinstance(value, dict) else {}
+
+
+def _survey_gender_branch(survey_data: dict | None) -> str:
+    survey_profile = _survey_profile_dict(survey_data)
+    return canonical_gender_branch(survey_profile.get("gender_branch"))
+
+
+def _survey_style_axes(survey_data: dict | None) -> dict:
+    survey_profile = _survey_profile_dict(survey_data)
+    value = survey_profile.get("style_axes")
+    return value if isinstance(value, dict) else {}
+
+
+def _unique_prompt_parts(parts: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for part in parts:
+        text = str(part or "").strip()
+        if not text:
+            continue
+        if text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return unique
+
+
+def _build_male_hairstyle_text(survey_data: dict | None) -> str:
+    survey_data = survey_data or {}
+    style_axes = _survey_style_axes(survey_data)
+    length = canonical_length(survey_data.get("target_length"))
+    mood = canonical_vibe(survey_data.get("target_vibe"))
+    hair_type = canonical_scalp(survey_data.get("scalp_type"))
+
+    parts = ["male haircut", "masculine salon style"]
+    length_phrase = {
+        "short": "short crop",
+        "medium": "medium two-block",
+        "long": "medium flow",
+        "bob": "short crop",
+    }.get(length)
+    if length_phrase:
+        parts.append(length_phrase)
+
+    two_block = str(style_axes.get("two_block") or "").strip()
+    if two_block == "strong":
+        parts.append("defined two-block")
+    elif two_block == "soft":
+        parts.append("soft two-block")
+    elif two_block == "none":
+        parts.append("connected side line")
+
+    front_styling = str(style_axes.get("front_styling") or "").strip()
+    if front_styling == "up":
+        parts.append("up styling")
+    elif front_styling == "down":
+        parts.append("down styling")
+    elif front_styling == "flexible":
+        parts.append("flexible front styling")
+
+    parting = str(style_axes.get("parting") or "").strip()
+    if parting == "parted":
+        parts.append("parted fringe")
+    elif parting == "non_parted":
+        parts.append("non-parted fringe")
+    elif parting == "either":
+        parts.append("natural parting")
+
+    if hair_type == "straight":
+        parts.append("clean straight texture")
+    elif hair_type == "waved":
+        parts.append("soft volume")
+    elif hair_type == "curly":
+        parts.append("curly texture")
+
+    mood_phrase = {
+        "natural": "natural mood",
+        "chic": "clean chic mood",
+        "elegant": "refined mood",
+        "cute": "soft youthful mood",
+    }.get(mood)
+    if mood_phrase:
+        parts.append(mood_phrase)
+
+    return ", ".join(_unique_prompt_parts(parts)) or "male haircut"
+
+
+def _build_female_hairstyle_text(survey_data: dict | None) -> str:
+    survey_data = survey_data or {}
+    style_axes = _survey_style_axes(survey_data)
+    parts = [
+        str(survey_data.get("target_length") or "").strip(),
+        str(survey_data.get("target_vibe") or "").strip(),
+    ]
+
+    silhouette = str(style_axes.get("silhouette") or "").strip()
+    if silhouette == "layered":
+        parts.append("layered silhouette")
+    elif silhouette == "voluminous":
+        parts.append("volume silhouette")
+    elif silhouette == "straight_line":
+        parts.append("clean line silhouette")
+
+    bang_preference = str(style_axes.get("bang_preference") or "").strip()
+    if bang_preference == "no_bangs":
+        parts.append("no bangs")
+    elif bang_preference == "light_bangs":
+        parts.append("light bangs")
+    elif bang_preference == "statement_bangs":
+        parts.append("statement bangs")
+
+    return " ".join(part for part in _unique_prompt_parts(parts) if part) or "natural"
+
+
 def _build_runpod_preference_payload(survey_data: dict | None) -> dict:
     survey_data = survey_data or {}
     length = canonical_length(survey_data.get("target_length"))
@@ -595,29 +789,103 @@ def _build_runpod_preference_payload(survey_data: dict | None) -> dict:
         payload["hair_type"] = {"waved": "wavy"}.get(hair_type, hair_type)
     if budget != "unknown":
         payload["budget"] = {"mid": "medium"}.get(budget, budget)
+    gender_branch = _survey_gender_branch(survey_data)
+    if gender_branch:
+        payload["gender_branch"] = gender_branch
     return payload
 
 
 def _build_preference_text(survey_data: dict | None) -> str | None:
     survey_data = survey_data or {}
-    parts = [
-        str(survey_data.get("target_length") or "").strip(),
-        str(survey_data.get("target_vibe") or "").strip(),
-        str(survey_data.get("scalp_type") or "").strip(),
-        str(survey_data.get("hair_colour") or "").strip(),
-        str(survey_data.get("budget_range") or "").strip(),
-    ]
+    gender_branch = _survey_gender_branch(survey_data)
+    style_axes = _survey_style_axes(survey_data)
+
+    if gender_branch == "male":
+        parts = [
+            "gender=male",
+            f"length={canonical_length(survey_data.get('target_length'))}",
+            f"mood={canonical_vibe(survey_data.get('target_vibe'))}",
+            f"texture={canonical_scalp(survey_data.get('scalp_type'))}",
+            f"color={str(survey_data.get('hair_colour') or '').strip()}",
+            f"budget={canonical_budget(survey_data.get('budget_range'))}",
+            f"two_block={style_axes.get('two_block') or 'soft'}",
+            f"front={style_axes.get('front_styling') or 'flexible'}",
+            f"parting={style_axes.get('parting') or 'either'}",
+            "male salon vocabulary only",
+        ]
+    else:
+        parts = [
+            str(survey_data.get("target_length") or "").strip(),
+            str(survey_data.get("target_vibe") or "").strip(),
+            str(survey_data.get("scalp_type") or "").strip(),
+            str(survey_data.get("hair_colour") or "").strip(),
+            str(survey_data.get("budget_range") or "").strip(),
+        ]
     text = ", ".join(part for part in parts if part)
     return text or None
 
 
 def _build_hairstyle_text(survey_data: dict | None) -> str:
+    if _survey_gender_branch(survey_data) == "male":
+        return _build_male_hairstyle_text(survey_data)
+    return _build_female_hairstyle_text(survey_data)
+
+
+def build_recommendation_debug_payload(
+    *,
+    survey_data: dict | None,
+    analysis_data: dict | None,
+    scoring_weights: ScoringWeights | None = None,
+    recommendation_stage: str | None = None,
+) -> dict:
     survey_data = survey_data or {}
-    parts = [
-        str(survey_data.get("target_length") or "").strip(),
-        str(survey_data.get("target_vibe") or "").strip(),
-    ]
-    return " ".join(part for part in parts if part) or "natural"
+    analysis_data = analysis_data or {}
+    scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
+
+    color_text = str(survey_data.get("hair_colour") or "").strip() or None
+    preference_payload = _build_runpod_preference_payload(survey_data)
+    preference_text = _build_preference_text(survey_data)
+    resolved_stage = str(recommendation_stage or "initial").strip() or "initial"
+    runtime_snapshot = get_ai_runtime_config_snapshot()
+
+    return {
+        "recommendation_stage": resolved_stage,
+        "ai_runtime": {
+            "configured_provider": runtime_snapshot.get("configured_provider"),
+            "resolved_provider": runtime_snapshot.get("resolved_provider"),
+        },
+        "survey_data": {
+            "target_length": survey_data.get("target_length"),
+            "target_vibe": survey_data.get("target_vibe"),
+            "scalp_type": survey_data.get("scalp_type"),
+            "hair_colour": survey_data.get("hair_colour"),
+            "budget_range": survey_data.get("budget_range"),
+            "question_answers": dict(survey_data.get("question_answers") or {}),
+            "survey_profile": dict(survey_data.get("survey_profile") or {}),
+        },
+        "analysis_summary": {
+            "face_shape": analysis_data.get("face_shape"),
+            "golden_ratio_score": analysis_data.get("golden_ratio_score"),
+        },
+        "runpod_payload": {
+            "hairstyle_text": _build_hairstyle_text(survey_data),
+            "color_text": color_text,
+            "top_k": 5,
+            "return_base64": True,
+        },
+        "direct_runpod_payload": {
+            "preference": preference_payload or None,
+            "preference_text": preference_text,
+        },
+        "match_score_basis": {
+            "formula": "face_score + ratio_score + preference_score - penalty",
+            "weights": scoring_weights.as_dict(),
+            "description": (
+                "카드의 xx% 매칭은 얼굴형 적합도, 얼굴 비율 점수, 취향 일치도를 더하고 "
+                "불일치 패널티를 뺀 로컬 점수입니다."
+            ),
+        },
+    }
 
 
 def _build_runpod_image_payload(analysis_data: dict) -> dict | None:
@@ -807,6 +1075,8 @@ def _augment_items_with_runpod(
 
     hairstyle_text = _build_hairstyle_text(survey_data)
     color_text = str((survey_data or {}).get("hair_colour") or "").strip()
+    preference = _build_runpod_preference_payload(survey_data)
+    preference_text = _build_preference_text(survey_data)
 
     runpod_payload = {
         **image_payload,
@@ -816,11 +1086,16 @@ def _augment_items_with_runpod(
     }
     if color_text:
         runpod_payload["color_text"] = color_text
+    if preference:
+        runpod_payload["preference"] = preference
+    if preference_text:
+        runpod_payload["preference_text"] = preference_text
 
     logger.info(
-        "[runpod_augment] hairstyle_text=%s color_text=%s top_k=%s",
+        "[runpod_augment] hairstyle_text=%s color_text=%s preference_text=%s top_k=%s",
         hairstyle_text,
         color_text or None,
+        preference_text,
         runpod_payload["top_k"],
     )
 

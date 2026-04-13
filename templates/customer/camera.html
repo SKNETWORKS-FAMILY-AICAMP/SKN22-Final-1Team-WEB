@@ -5,17 +5,110 @@
 {% block extra_head %}
 <style>
   .camera-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 520px) minmax(300px, 340px);
-    justify-content: center;
-    gap: 24px;
-    align-items: start;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
   }
 
-  .camera-side-panel {
-    position: sticky;
-    top: 20px;
-    align-self: start;
+  .camera-guidance-popup {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 80;
+    width: min(540px, calc(100% - 24px));
+    padding: 14px 16px 15px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 255, 157, 0.18);
+    background: rgba(7, 12, 10, 0.78);
+    color: #f8fafc;
+    box-shadow: 0 22px 40px rgba(3, 8, 6, 0.22);
+    backdrop-filter: blur(18px);
+    pointer-events: none;
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .camera-guidance-popup[data-tone="ready"] {
+    border-color: rgba(255, 214, 107, 0.28);
+    background: rgba(42, 33, 8, 0.84);
+    box-shadow: 0 22px 42px rgba(38, 28, 5, 0.24);
+  }
+
+  .camera-guidance-popup[data-tone="error"] {
+    border-color: rgba(255, 122, 122, 0.28);
+    background: rgba(43, 12, 12, 0.84);
+    box-shadow: 0 22px 42px rgba(46, 12, 12, 0.22);
+  }
+
+  .camera-guidance-popup[data-tone="manual"] {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(19, 19, 19, 0.8);
+  }
+
+  .camera-guidance-popup[data-tone="loading"] {
+    border-color: rgba(148, 163, 184, 0.24);
+    background: rgba(15, 21, 28, 0.82);
+  }
+
+  .camera-guidance-chip {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.76);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .camera-guidance-title {
+    margin: 0;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.45;
+    word-break: keep-all;
+  }
+
+  .camera-guidance-body {
+    margin: 6px 0 0;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.55;
+    word-break: keep-all;
+  }
+
+  .camera-guidance-actions {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    pointer-events: auto;
+  }
+
+  .camera-guidance-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 104px;
+    height: 40px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.96);
+    color: #111827;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  }
+
+  .camera-guidance-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .camera-main-panel {
@@ -40,10 +133,6 @@
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-  }
-
-  .camera-side-stack {
-    gap: 24px;
   }
 
   .camera-auto-hint {
@@ -126,105 +215,11 @@
     }
   }
 
-  .camera-condition-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 12px;
-  }
-
-  .camera-condition-summary {
-    flex-shrink: 0;
-    padding: 7px 10px;
-    border-radius: 999px;
-    background: rgba(19, 227, 147, 0.1);
-    color: #0b1f17;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.03em;
-  }
-
-  .camera-checklist {
-    display: grid;
-    gap: 10px;
-    margin-top: 12px;
-  }
-
-  .camera-checklist-item {
-    display: grid;
-    grid-template-columns: 30px minmax(0, 1fr);
-    gap: 10px;
-    align-items: start;
-    padding: 10px 11px 11px;
-    border-radius: 14px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-  }
-
-  .camera-checklist-item[data-state="valid"] {
-    border-color: rgba(19, 227, 147, 0.26);
-    box-shadow: 0 16px 36px rgba(19, 227, 147, 0.08);
-    transform: translateY(-1px);
-  }
-
-  .camera-checklist-item[data-state="invalid"] {
-    border-color: rgba(248, 113, 113, 0.22);
-  }
-
-  .camera-checklist-step {
-    width: 30px;
-    height: 30px;
-    border-radius: 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(148, 163, 184, 0.12);
-    color: #475569;
-    font-size: 14px;
-    font-weight: 900;
-    letter-spacing: 0;
-    transition: background-color 0.2s ease, color 0.2s ease;
-  }
-
-  .camera-checklist-item[data-state="valid"] .camera-checklist-step {
-    background: rgba(19, 227, 147, 0.14);
-    color: #0b1f17;
-  }
-
-  .camera-checklist-item[data-state="invalid"] .camera-checklist-step {
-    background: rgba(248, 113, 113, 0.12);
-    color: #991b1b;
-  }
-
-  .camera-checklist-title {
-    margin: 0 0 4px;
-    color: var(--bg-dark);
-    font-size: 14px;
-    font-weight: 800;
-    line-height: 1.35;
-  }
-
-  .camera-checklist-copy {
-    margin: 0;
-    color: #51606f;
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .camera-condition-status {
-    margin: 6px 0 0;
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 1.5;
-    color: #64748b;
-  }
-
   @media (max-width: 1024px) and (min-width: 701px) {
-    .camera-layout {
-      grid-template-columns: minmax(0, 1fr) minmax(248px, 284px);
-      gap: 16px;
+    .camera-guidance-popup {
+      top: calc(env(safe-area-inset-top, 0px) + 78px);
+      width: min(500px, calc(100% - 24px));
+      padding: 13px 15px 14px;
     }
 
     .camera-main-panel {
@@ -238,74 +233,22 @@
     .camera-footer {
       padding: 18px 16px 16px;
     }
-
-    .camera-side-stack {
-      gap: 16px;
-    }
-
-    .camera-side-panel {
-      top: 12px;
-    }
-
-    .camera-side-panel .panel {
-      padding: 20px;
-    }
-
-    .camera-condition-header {
-      gap: 10px;
-    }
-
-    .camera-condition-summary {
-      padding: 6px 9px;
-      font-size: 10px;
-    }
-
-    .camera-checklist {
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .camera-checklist-item {
-      grid-template-columns: 28px minmax(0, 1fr);
-      gap: 8px;
-      padding: 9px 10px 10px;
-      border-radius: 12px;
-    }
-
-    .camera-checklist-step {
-      width: 28px;
-      height: 28px;
-      border-radius: 9px;
-      font-size: 13px;
-    }
-
-    .camera-checklist-title {
-      font-size: 13px;
-      margin-bottom: 3px;
-    }
-
-    .camera-checklist-copy {
-      font-size: 11px;
-      line-height: 1.45;
-    }
-
-    .camera-condition-status {
-      margin-top: 5px;
-      font-size: 10px;
-    }
   }
 
   @media (max-width: 700px) {
-    .camera-layout {
-      grid-template-columns: 1fr;
+    .camera-guidance-popup {
+      top: calc(env(safe-area-inset-top, 0px) + 72px);
+      width: calc(100% - 20px);
+      padding: 12px 14px 13px;
+      border-radius: 18px;
     }
 
-    .camera-side-panel {
-      position: static;
+    .camera-guidance-title {
+      font-size: 14px;
     }
 
-    .camera-condition-header {
-      flex-direction: column;
+    .camera-guidance-body {
+      font-size: 11.5px;
     }
   }
 </style>
@@ -319,6 +262,15 @@
 {% endblock %}
 
 {% block content %}
+<div id="cameraGuidancePopup" class="camera-guidance-popup" data-tone="idle" aria-live="polite" aria-atomic="true">
+  <div id="cameraGuidanceChip" class="camera-guidance-chip">실시간 안내</div>
+  <p id="cameraGuidanceTitle" class="camera-guidance-title">카메라를 켜고 얼굴 위치를 맞춰 주세요.</p>
+  <p id="cameraGuidanceBody" class="camera-guidance-body">얼굴이 안정적으로 잡히면 자동 촬영 안내가 바로 표시됩니다.</p>
+  <div id="cameraGuidanceActions" class="camera-guidance-actions" hidden>
+    <button id="cameraGuidanceRetakeBtn" class="camera-guidance-btn" type="button">다시 촬영</button>
+  </div>
+</div>
+
 <div class="camera-layout">
   <div class="panel camera-main-panel">
     <div class="camera-shell">
@@ -365,72 +317,13 @@
         </button>
       </div>
 
-      <div class="button-row is-hidden" id="previewControls" style="display: flex; gap: 12px;">
-        <button id="confirmBtn" class="btn btn-primary" type="button" style="height: 48px;">촬영 완료</button>
-        <button id="retakeBtn" class="btn btn-dark" type="button" style="height: 48px;">다시 촬영</button>
+      <div class="button-row is-hidden" id="previewControls" style="display: none; gap: 12px;" aria-hidden="true">
+        <button id="confirmBtn" class="btn btn-primary" type="button" style="display: none; height: 48px;">촬영 완료</button>
+        <button id="retakeBtn" class="btn btn-dark" type="button" style="display: none; height: 48px;">다시 촬영</button>
       </div>
     </div>
   </div>
-
-  <div class="stack camera-side-panel camera-side-stack">
-    <div class="panel">
-      <div class="camera-condition-header">
-        <div>
-          <h3 class="section-title" style="font-size: 18px; margin-bottom: 6px;">실시간 촬영 체크</h3>
-          <p class="section-copy" style="margin: 0; font-size: 13px; color: #64748b;">촬영 조건이 맞으면 자동 촬영이 시작됩니다.</p>
-        </div>
-        <div id="cameraConditionSummary" class="camera-condition-summary">촬영 준비 중</div>
-      </div>
-
-      <div class="camera-checklist">
-        <div id="conditionFaceItem" class="camera-checklist-item" data-state="pending">
-          <div class="camera-checklist-step" id="conditionFaceIcon">○</div>
-          <div>
-            <p class="camera-checklist-title">한 명의 얼굴 감지</p>
-            <p class="camera-checklist-copy">카메라 안에 한 사람의 얼굴만 선명하게 보이도록 맞춰 주세요.</p>
-            <p id="conditionFaceStatus" class="camera-condition-status">얼굴 위치를 확인할 준비를 하고 있습니다.</p>
-          </div>
-        </div>
-
-        <div id="conditionObstructionItem" class="camera-checklist-item" data-state="pending">
-          <div class="camera-checklist-step" id="conditionObstructionIcon">○</div>
-          <div>
-            <p class="camera-checklist-title">손이나 가림 없음</p>
-            <p class="camera-checklist-copy">손, 휴대폰, 머리카락 같은 가림 요소가 얼굴 가이드 안쪽으로 들어오지 않게 유지해 주세요.</p>
-            <p id="conditionObstructionStatus" class="camera-condition-status">가림 여부를 확인할 준비를 하고 있습니다.</p>
-          </div>
-        </div>
-
-        <div id="conditionCenterItem" class="camera-checklist-item" data-state="pending">
-          <div class="camera-checklist-step" id="conditionCenterIcon">○</div>
-          <div>
-            <p class="camera-checklist-title">가이드 중앙 정렬</p>
-            <p class="camera-checklist-copy">얼굴 중심이 윤곽선 안쪽 중앙에 오도록 천천히 위치를 맞춰 주세요.</p>
-            <p id="conditionCenterStatus" class="camera-condition-status">준비가 끝나면 중앙 정렬을 확인합니다.</p>
-          </div>
-        </div>
-
-        <div id="conditionDistanceItem" class="camera-checklist-item" data-state="pending">
-          <div class="camera-checklist-step" id="conditionDistanceIcon">○</div>
-          <div>
-            <p class="camera-checklist-title">적정 거리 유지</p>
-            <p class="camera-checklist-copy">너무 가깝거나 멀지 않게 얼굴 전체가 자연스럽게 들어오면 좋습니다.</p>
-            <p id="conditionDistanceStatus" class="camera-condition-status">준비가 끝나면 거리 조건을 확인합니다.</p>
-          </div>
-        </div>
-
-        <div id="conditionAngleItem" class="camera-checklist-item" data-state="pending">
-          <div class="camera-checklist-step" id="conditionAngleIcon">○</div>
-          <div>
-            <p class="camera-checklist-title">정면 각도 유지</p>
-            <p class="camera-checklist-copy">고개를 과하게 기울이지 말고 정면을 바라보면 자동 촬영이 더 안정적입니다.</p>
-            <p id="conditionAngleStatus" class="camera-condition-status">준비가 끝나면 정면 각도를 확인합니다.</p>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
+  <div style="margin-top: 18px;">
     <a href="/customer/menu/" class="btn btn-dark" style="width: 100%; border: 1px solid var(--line); background: white; color: var(--bg-dark);">이전 단계로</a>
   </div>
 </div>

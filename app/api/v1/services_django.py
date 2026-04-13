@@ -19,6 +19,7 @@ from app.api.v1.recommendation_runtime import (
     wait_for_runtime_state,
 )
 from app.api.v1.recommendation_logic import (
+    DEFAULT_SCORING_WEIGHTS,
     RETRY_SCORING_WEIGHTS,
     STYLE_CATALOG,
     build_preference_vector,
@@ -34,6 +35,7 @@ from app.services.age_profile import build_client_age_profile, client_matches_ag
 from app.services.capture_validation import infer_capture_reason_code
 from app.services.ai_facade import (
     analyze_face_with_runpod,
+    build_recommendation_debug_payload,
     generate_recommendation_batch,
     get_ai_runtime_config_snapshot,
     simulate_face_analysis,
@@ -257,6 +259,8 @@ def _legacy_survey_namespace(*, survey_id: int, client: "Client", normalized_pay
         hair_colour=normalized_payload.get("hair_colour"),
         budget_range=normalized_payload.get("budget_range"),
         preference_vector=preference_vector,
+        question_answers=dict(normalized_payload.get("question_answers") or {}),
+        survey_profile=dict(normalized_payload.get("survey_profile") or {}),
         created_at=created_at,
     )
 
@@ -375,6 +379,7 @@ def _legacy_recommendation_namespace(
         keywords=list(item.get("keywords") or []),
         sample_image_url=item.get("sample_image_url"),
         simulation_image_url=item.get("simulation_image_url"),
+        survey_snapshot=dict(item.get("survey_snapshot") or {}),
         regeneration_snapshot=item.get("regeneration_snapshot"),
         llm_explanation=item.get("llm_explanation"),
         reasoning_snapshot=dict(item.get("reasoning_snapshot") or {}),
@@ -417,6 +422,8 @@ def _persist_legacy_generated_batch(
         "hair_colour": getattr(survey, "hair_colour", None),
         "budget_range": getattr(survey, "budget_range", None),
         "preference_vector": getattr(survey, "preference_vector", None) or [],
+        "question_answers": dict(getattr(survey, "question_answers", None) or {}),
+        "survey_profile": dict(getattr(survey, "survey_profile", None) or {}),
     }
     analysis_snapshot = {
         "face_shape": getattr(analysis, "face_shape", None),
@@ -502,6 +509,7 @@ def _persist_legacy_generated_batch(
                 created_at=created_at,
                 item={
                     **item,
+                    "survey_snapshot": survey_snapshot,
                     "reasoning_snapshot": reasoning_snapshot,
                     "regeneration_snapshot": regeneration_snapshot,
                     "simulation_image_url": persisted_simulation_image_reference,
@@ -685,71 +693,248 @@ def _normalize_text_value(value: object) -> str:
     return str(value or "").strip()
 
 
-def _survey_payload_from_gender_questions(*, client: "Client", payload: dict) -> dict | None:
-    q1 = _normalize_text_value(payload.get("q1"))
-    q2 = _normalize_text_value(payload.get("q2"))
-    q3 = _normalize_text_value(payload.get("q3"))
-    q4 = _normalize_text_value(payload.get("q4"))
-    q5 = _normalize_text_value(payload.get("q5"))
-    q6 = _normalize_text_value(payload.get("q6"))
+def _normalized_gender_branch(value: object) -> str:
+    normalized = _normalize_text_value(value).lower()
+    if normalized in {"male", "m", "man", "남", "남성"}:
+        return "male"
+    return "female"
 
-    if not any((q1, q2, q3, q4, q5, q6)):
+
+def _question_answers_from_payload(payload: dict) -> dict[str, str]:
+    return {
+        f"q{index}": _normalize_text_value(payload.get(f"q{index}"))
+        for index in range(1, 7)
+    }
+
+
+def _female_survey_profile(*, answers: dict[str, str]) -> dict:
+    q1 = answers.get("q1", "")
+    q2 = answers.get("q2", "")
+    q3 = answers.get("q3", "")
+    q4 = answers.get("q4", "")
+    q5 = answers.get("q5", "")
+    q6 = answers.get("q6", "")
+
+    target_length = {
+        "짧게": "short",
+        "중간 길이": "medium",
+        "길게": "long",
+        "유지": "medium",
+    }.get(q1, "medium")
+    target_vibe = {
+        "내추럴한": "natural",
+        "세련된": "chic",
+        "사랑스러운": "cute",
+        "고급스러운": "elegant",
+    }.get(q5, "natural")
+    scalp_type = {
+        "생머리 느낌": "straight",
+        "끝선 위주 자연스러운 컬": "waved",
+        "전체적으로 웨이브감": "curly",
+    }.get(q4, "waved")
+
+    if q6 == "확실히 이미지 변신하고 싶음":
+        if q5 == "세련된":
+            hair_colour = "ash"
+        elif q5 == "고급스러운":
+            hair_colour = "black"
+        else:
+            hair_colour = "brown"
+    elif q6 == "적당히 변화를 주고 싶음":
+        if q5 == "세련된":
+            hair_colour = "ash"
+        elif q5 == "고급스러운":
+            hair_colour = "black"
+        else:
+            hair_colour = "brown"
+    else:
+        if q5 == "고급스러운":
+            hair_colour = "black"
+        elif q5 == "세련된":
+            hair_colour = "brown"
+        else:
+            hair_colour = "brown"
+
+    budget_score = 0
+    if target_length == "long":
+        budget_score += 1
+    if q2 in {"레이어감 있는 스타일", "볼륨감 있는 스타일"}:
+        budget_score += 1
+    if scalp_type == "waved":
+        budget_score += 1
+    elif scalp_type == "curly":
+        budget_score += 2
+    if q6 == "적당히 변화를 주고 싶음":
+        budget_score += 1
+    elif q6 == "확실히 이미지 변신하고 싶음":
+        budget_score += 2
+    if q5 == "고급스러운":
+        budget_score += 1
+
+    if budget_score <= 1:
+        budget_range = "low"
+    elif budget_score <= 3:
+        budget_range = "mid"
+    else:
+        budget_range = "high"
+
+    return {
+        "gender_branch": "female",
+        "question_answers": answers,
+        "style_axes": {
+            "silhouette": {
+                "일자 느낌": "straight_line",
+                "레이어감 있는 스타일": "layered",
+                "볼륨감 있는 스타일": "voluminous",
+            }.get(q2, "balanced"),
+            "bang_preference": {
+                "앞머리 없이": "no_bangs",
+                "시스루·가벼운 앞머리": "light_bangs",
+                "존재감 있는 앞머리": "statement_bangs",
+            }.get(q3, "balanced"),
+            "change_intensity": {
+                "최대한 무난하게": "soft",
+                "적당히 변화를 주고 싶음": "medium",
+                "확실히 이미지 변신하고 싶음": "bold",
+            }.get(q6, "medium"),
+        },
+        "derived_preferences": {
+            "target_length": target_length,
+            "target_vibe": target_vibe,
+            "scalp_type": scalp_type,
+            "hair_colour": hair_colour,
+            "budget_range": budget_range,
+        },
+    }
+
+
+def _male_survey_profile(*, answers: dict[str, str]) -> dict:
+    q1 = answers.get("q1", "")
+    q2 = answers.get("q2", "")
+    q3 = answers.get("q3", "")
+    q4 = answers.get("q4", "")
+    q5 = answers.get("q5", "")
+    q6 = answers.get("q6", "")
+
+    target_length = {
+        "아주 짧고 깔끔하게": "short",
+        "너무 짧지 않게 자연스럽게": "medium",
+        "길이감 있게 남기고 싶음": "long",
+    }.get(q1)
+    if not target_length:
+        if q2 == "확실한 투블럭" or q3 == "올리는 스타일":
+            target_length = "short"
+        elif q4 == "가르마 스타일 선호" or q3 == "내리는 스타일":
+            target_length = "medium"
+        else:
+            target_length = "medium"
+
+    target_vibe = {
+        "단정한": "natural",
+        "세련된": "chic",
+        "부드러운": "natural",
+        "트렌디한": "chic",
+    }.get(q6, "natural")
+    if q4 == "가르마 스타일 선호" and target_vibe == "natural":
+        target_vibe = "chic"
+
+    scalp_type = {
+        "펌 없이 깔끔하게": "straight",
+        "자연스러운 볼륨 정도": "waved",
+        "컬감이 느껴지는 스타일": "curly",
+    }.get(q5, "straight")
+
+    if q6 == "트렌디한":
+        hair_colour = "ash"
+    elif q6 == "세련된":
+        hair_colour = "brown"
+    elif q6 == "부드러운":
+        hair_colour = "brown"
+    else:
+        hair_colour = "black"
+
+    budget_score = 0
+    if target_length == "long":
+        budget_score += 1
+    if q2 == "확실한 투블럭":
+        budget_score += 1
+    if q4 == "가르마 스타일 선호":
+        budget_score += 1
+    if scalp_type == "waved":
+        budget_score += 1
+    elif scalp_type == "curly":
+        budget_score += 2
+    if q6 in {"세련된", "트렌디한"}:
+        budget_score += 1
+
+    if budget_score <= 1:
+        budget_range = "low"
+    elif budget_score <= 3:
+        budget_range = "mid"
+    else:
+        budget_range = "high"
+
+    return {
+        "gender_branch": "male",
+        "question_answers": answers,
+        "style_axes": {
+            "two_block": {
+                "확실한 투블럭": "strong",
+                "자연스러운 투블럭": "soft",
+                "투블럭 없이 연결감 있게": "none",
+            }.get(q2, "soft"),
+            "front_styling": {
+                "올리는 스타일": "up",
+                "내리는 스타일": "down",
+                "상황에 따라 둘 다 가능": "flexible",
+            }.get(q3, "flexible"),
+            "parting": {
+                "가르마 스타일 선호": "parted",
+                "비가르마 스타일 선호": "non_parted",
+                "상관없음": "either",
+            }.get(q4, "either"),
+        },
+        "derived_preferences": {
+            "target_length": target_length,
+            "target_vibe": target_vibe,
+            "scalp_type": scalp_type,
+            "hair_colour": hair_colour,
+            "budget_range": budget_range,
+        },
+    }
+
+
+def _survey_payload_from_gender_questions(*, client: "Client", payload: dict) -> dict | None:
+    answers = _question_answers_from_payload(payload)
+    if not any(answers.values()):
         return None
 
-    gender = _normalize_text_value(getattr(client, "gender", None)).lower()
-
-    is_male = gender in {"male", "m"}
-
-    if is_male:
-        target_length_map = {
-            "아주 짧고 깔끔하게": "short",
-            "너무 짧지 않게 자연스럽게": "medium",
-            "길이감 있게 남기고 싶음": "long",
-        }
-        target_vibe_map = {
-            "단정한": "chic",
-            "부드러운": "natural",
-            "트렌디한": "chic",
-        }
-        scalp_type_map = {
-            "펌 없이 깔끔하게": "straight",
-            "자연스러운 볼륨 정도": "waved",
-            "컬감이 느껴지는 스타일": "curly",
-        }
-    else:
-        target_length_map = {
-            "짧게": "short",
-            "중간 길이": "medium",
-            "길게": "long",
-            "유지": "medium",
-        }
-        target_vibe_map = {
-            "내추럴한": "natural",
-            "세련된": "chic",
-            "사랑스러운": "cute",
-            "고급스러운": "elegant",
-        }
-        scalp_type_map = {
-            "생머리 느낌": "straight",
-            "끝선 위주 자연스러운 컬": "waved",
-            "전체적으로 웨이브감": "curly",
-        }
-
+    gender_branch = _normalized_gender_branch(getattr(client, "gender", None))
+    survey_profile = (
+        _male_survey_profile(answers=answers)
+        if gender_branch == "male"
+        else _female_survey_profile(answers=answers)
+    )
+    derived_preferences = dict(survey_profile.get("derived_preferences") or {})
     mapped_payload = {
-        "target_length": target_length_map.get(q1, "unknown"),
-        "target_vibe": target_vibe_map.get(q6 if is_male else q5, "unknown"),
-        "scalp_type": scalp_type_map.get(q5 if is_male else q4, "unknown"),
-        "hair_colour": "unknown",
-        "budget_range": "unknown",
+        "target_length": derived_preferences.get("target_length") or "medium",
+        "target_vibe": derived_preferences.get("target_vibe") or "natural",
+        "scalp_type": derived_preferences.get("scalp_type") or "waved",
+        "hair_colour": derived_preferences.get("hair_colour") or "brown",
+        "budget_range": derived_preferences.get("budget_range") or "mid",
+        "question_answers": answers,
+        "survey_profile": survey_profile,
     }
 
     logger.info(
-        "[survey_question_mapping] client_id=%s gender=%s target_length=%s target_vibe=%s scalp_type=%s",
+        "[survey_question_mapping] client_id=%s gender=%s target_length=%s target_vibe=%s scalp_type=%s hair_colour=%s budget_range=%s",
         client.id,
-        gender or "unknown",
+        gender_branch,
         mapped_payload["target_length"],
         mapped_payload["target_vibe"],
         mapped_payload["scalp_type"],
+        mapped_payload["hair_colour"],
+        mapped_payload["budget_range"],
     )
     return mapped_payload
 
@@ -789,7 +974,7 @@ def build_survey_snapshot(client: "Client") -> dict | None:
     survey = get_latest_survey(client)
     if not survey:
         return None
-    return {
+    snapshot = {
         "target_length": survey.target_length,
         "target_vibe": survey.target_vibe,
         "scalp_type": survey.scalp_type,
@@ -799,6 +984,13 @@ def build_survey_snapshot(client: "Client") -> dict | None:
         "age_profile": build_client_age_profile(client),
         "created_at": survey.created_at.isoformat(),
     }
+    question_answers = getattr(survey, "question_answers", None)
+    survey_profile = getattr(survey, "survey_profile", None)
+    if question_answers:
+        snapshot["question_answers"] = dict(question_answers)
+    if survey_profile:
+        snapshot["survey_profile"] = dict(survey_profile)
+    return snapshot
 
 
 def build_recommendation_regeneration_snapshot(
@@ -828,6 +1020,8 @@ def build_recommendation_regeneration_snapshot(
             "budget_range": getattr(survey, "budget_range", None),
             "preference_vector": getattr(survey, "preference_vector", None) or [],
             "age_profile": build_client_age_profile(client),
+            "question_answers": dict(getattr(survey, "question_answers", None) or {}),
+            "survey_profile": dict(getattr(survey, "survey_profile", None) or {}),
         },
         "analysis_data": (
             {
@@ -963,6 +1157,7 @@ def serialize_recommendation_row(row: "FormerRecommendation") -> dict:
         "match_score": row.match_score or 0.0,
         "rank": row.rank,
         "is_chosen": row.is_chosen,
+        "survey_snapshot": dict(getattr(row, "survey_snapshot", None) or {}),
         "image_policy": ("vector_only" if uses_vector_only_policy else "legacy_asset_store"),
         "can_regenerate_simulation": can_regenerate_simulation,
         "regeneration_remaining_count": regeneration_remaining_count,
@@ -1080,6 +1275,46 @@ def _build_legacy_retry_recommendation_meta(*, items: list[dict], has_active_con
             if is_generated else None
         ),
     }
+
+
+def _scoring_weights_for_recommendation_stage(recommendation_stage: str):
+    if str(recommendation_stage or "").strip().lower() == "retry":
+        return RETRY_SCORING_WEIGHTS
+    return DEFAULT_SCORING_WEIGHTS
+
+
+def _build_recommendation_debug_prompt_payload_from_snapshot(
+    *,
+    snapshot: dict,
+    recommendation_stage: str,
+) -> dict:
+    survey_snapshot = snapshot.get("survey") or {}
+    analysis_snapshot = snapshot.get("analysis") or {}
+    return build_recommendation_debug_payload(
+        survey_data=(
+            {
+                "target_length": survey_snapshot.get("target_length"),
+                "target_vibe": survey_snapshot.get("target_vibe"),
+                "scalp_type": survey_snapshot.get("scalp_type"),
+                "hair_colour": survey_snapshot.get("hair_colour"),
+                "budget_range": survey_snapshot.get("budget_range"),
+                "question_answers": dict(survey_snapshot.get("question_answers") or {}),
+                "survey_profile": dict(survey_snapshot.get("survey_profile") or {}),
+            }
+            if survey_snapshot.get("present")
+            else None
+        ),
+        analysis_data=(
+            {
+                "face_shape": analysis_snapshot.get("face_shape"),
+                "golden_ratio_score": analysis_snapshot.get("golden_ratio_score"),
+            }
+            if analysis_snapshot.get("present")
+            else None
+        ),
+        scoring_weights=_scoring_weights_for_recommendation_stage(recommendation_stage),
+        recommendation_stage=recommendation_stage,
+    )
 
 
 def _scoring_weights_for_stage(recommendation_stage: str):
@@ -2105,6 +2340,13 @@ def _build_recommendation_diagnostic_snapshot(
             "would_persist_batch": True,
         }
 
+    result_survey_snapshot = {}
+    for item in legacy_items:
+        candidate = item.get("survey_snapshot")
+        if isinstance(candidate, dict) and candidate:
+            result_survey_snapshot = dict(candidate)
+            break
+
     return {
         "client": {
             "client_id": client.id,
@@ -2114,13 +2356,23 @@ def _build_recommendation_diagnostic_snapshot(
         },
         "ai_runtime": get_ai_runtime_config_snapshot(),
         "survey": {
-            "present": bool(latest_survey),
+            "present": bool(latest_survey or result_survey_snapshot),
             "created_at": (getattr(latest_survey, "created_at", None).isoformat() if getattr(latest_survey, "created_at", None) else None),
-            "target_length": getattr(latest_survey, "target_length", None),
-            "target_vibe": getattr(latest_survey, "target_vibe", None),
-            "scalp_type": getattr(latest_survey, "scalp_type", None),
-            "hair_colour": getattr(latest_survey, "hair_colour", None),
-            "budget_range": getattr(latest_survey, "budget_range", None),
+            "target_length": result_survey_snapshot.get("target_length") or getattr(latest_survey, "target_length", None),
+            "target_vibe": result_survey_snapshot.get("target_vibe") or getattr(latest_survey, "target_vibe", None),
+            "scalp_type": result_survey_snapshot.get("scalp_type") or getattr(latest_survey, "scalp_type", None),
+            "hair_colour": result_survey_snapshot.get("hair_colour") or getattr(latest_survey, "hair_colour", None),
+            "budget_range": result_survey_snapshot.get("budget_range") or getattr(latest_survey, "budget_range", None),
+            "question_answers": dict(
+                result_survey_snapshot.get("question_answers")
+                or getattr(latest_survey, "question_answers", None)
+                or {}
+            ),
+            "survey_profile": dict(
+                result_survey_snapshot.get("survey_profile")
+                or getattr(latest_survey, "survey_profile", None)
+                or {}
+            ),
         },
         "capture_attempt": {
             "present": bool(latest_capture_attempt),
@@ -2179,6 +2431,16 @@ def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapsho
     ]
     if normalized_items or isinstance(items, list):
         payload["items"] = normalized_items
+
+    recommendation_stage = str(
+        payload.get("recommendation_stage")
+        or _legacy_recommendation_stage(normalized_items)
+        or "initial"
+    )
+    payload["debug_prompt_payload"] = payload.get("debug_prompt_payload") or _build_recommendation_debug_prompt_payload_from_snapshot(
+        snapshot=snapshot,
+        recommendation_stage=recommendation_stage,
+    )
 
     capture_snapshot = snapshot.get("capture") or {}
     analysis_snapshot = snapshot.get("analysis") or {}
@@ -2432,6 +2694,27 @@ def get_current_recommendations(client: "Client") -> dict:
     snapshot["legacy_recommendations"]["count"] = len(rows)
     snapshot["legacy_recommendations"]["latest_batch_id"] = batch_id
     snapshot["predicted_response"]["decision"] = "generated_current_batch"
+    latest_row_survey_snapshot = dict(rows[0].get("survey_snapshot") or {}) if rows else {}
+    if latest_row_survey_snapshot:
+        snapshot["survey"] = {
+            **dict(snapshot.get("survey") or {}),
+            "present": True,
+            "target_length": latest_row_survey_snapshot.get("target_length") or (snapshot.get("survey") or {}).get("target_length"),
+            "target_vibe": latest_row_survey_snapshot.get("target_vibe") or (snapshot.get("survey") or {}).get("target_vibe"),
+            "scalp_type": latest_row_survey_snapshot.get("scalp_type") or (snapshot.get("survey") or {}).get("scalp_type"),
+            "hair_colour": latest_row_survey_snapshot.get("hair_colour") or (snapshot.get("survey") or {}).get("hair_colour"),
+            "budget_range": latest_row_survey_snapshot.get("budget_range") or (snapshot.get("survey") or {}).get("budget_range"),
+            "question_answers": dict(
+                latest_row_survey_snapshot.get("question_answers")
+                or (snapshot.get("survey") or {}).get("question_answers")
+                or {}
+            ),
+            "survey_profile": dict(
+                latest_row_survey_snapshot.get("survey_profile")
+                or (snapshot.get("survey") or {}).get("survey_profile")
+                or {}
+            ),
+        }
     has_active_consultation = snapshot["active_consultation"]
     retry_meta = _build_legacy_retry_recommendation_meta(
         items=rows,
@@ -2493,7 +2776,17 @@ def retry_current_recommendations(client: "Client") -> dict:
         recommendation_stage="retry",
     )
     new_items = get_legacy_former_recommendation_items(client=client) or []
-    return {
+    snapshot = _build_recommendation_diagnostic_snapshot(
+        client=client,
+        latest_capture_attempt=get_latest_capture_attempt(client),
+        latest_survey=latest_survey,
+        latest_capture=latest_capture,
+        latest_analysis=latest_analysis,
+        legacy_items=new_items,
+    )
+    return _finalize_recommendation_payload(
+        client=client,
+        payload={
         "status": "ready",
         "client_id": client.id,
         "legacy_client_id": get_legacy_client_id(client=client),
@@ -2504,9 +2797,11 @@ def retry_current_recommendations(client: "Client") -> dict:
         "next_actions": ["consultation"],
         **_build_legacy_retry_recommendation_meta(
             items=new_items,
-            has_active_consultation=False,
+            has_active_consultation=snapshot["active_consultation"],
         ),
-    }
+        },
+        snapshot=snapshot,
+    )
 
 
 def get_trend_recommendations(*, days: int = 30, client: "Client | None" = None) -> dict:
@@ -3367,4 +3662,3 @@ def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
 
     except Exception as exc:
         logger.error("[HAIRSTYLE PIPELINE ERROR] client_id=%s: %s", client_id, exc)
-

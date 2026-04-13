@@ -1220,6 +1220,7 @@ def get_legacy_former_recommendation_items(*, client: Client) -> list[dict]:
                 "match_score": float(detail.final_score or detail.similarity_score or 0.0),
                 "rank": int(detail.rank or 0),
                 "is_chosen": bool(style_id == selected_style_id),
+                "survey_snapshot": _parse_jsonish(result_row.survey_snapshot, fallback={}),
                 "created_at": detail.created_at_ts or _coerce_datetime(result_row.updated_at) or _coerce_datetime(result_row.created_at),
             }
         )

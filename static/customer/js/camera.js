@@ -6,6 +6,7 @@
   "use strict";
 
   const AUTO_CAPTURE_SECONDS = 3;
+  const AUTO_CONFIRM_DELAY_MS = 900;
   const DETECTION_INTERVAL_MS = 140;
   const STABLE_ALIGNMENT_THRESHOLD = 3;
   const MISALIGNMENT_THRESHOLD = 2;
@@ -61,6 +62,12 @@
   const guideNoseLineEl = document.getElementById("cameraGuideNoseLine");
   const shutterFlashEl = document.getElementById("cameraShutterFlash");
   const autoHintEl = document.getElementById("cameraAutoHint");
+  const guidancePopupEl = document.getElementById("cameraGuidancePopup");
+  const guidanceChipEl = document.getElementById("cameraGuidanceChip");
+  const guidanceTitleEl = document.getElementById("cameraGuidanceTitle");
+  const guidanceBodyEl = document.getElementById("cameraGuidanceBody");
+  const guidanceActionsEl = document.getElementById("cameraGuidanceActions");
+  const guidanceRetakeBtn = document.getElementById("cameraGuidanceRetakeBtn");
   const countdownEl = document.getElementById("cameraCountdown");
   const countdownValueEl = document.getElementById("cameraCountdownValue");
   const cameraControls = document.getElementById("cameraControls");
@@ -124,11 +131,18 @@
   let detectorFrameHandle = null;
   let countdownTimer = null;
   let countdownDeadline = 0;
+  let autoConfirmTimer = null;
   let stableAlignmentCount = 0;
   let misalignmentCount = 0;
   let lastVideoTime = -1;
   let lastDetectionAt = 0;
   let lastGuidanceKey = "";
+  let isCaptureReady = false;
+  let uploadInFlight = false;
+  let currentStatusMessage = statusEl ? String(statusEl.textContent || "").trim() : "";
+  let currentStatusType = "idle";
+  let currentHintMessage = autoHintEl ? String(autoHintEl.textContent || "").trim() : "";
+  let currentHintTone = "idle";
   let audioContext = null;
   let analysisCanvas = null;
   let analysisCanvasContext = null;
@@ -483,6 +497,31 @@
     }
   }
 
+  function clearAutoConfirm() {
+    if (autoConfirmTimer) {
+      window.clearTimeout(autoConfirmTimer);
+      autoConfirmTimer = null;
+    }
+  }
+
+  function scheduleAutoConfirm() {
+    if (!capturedBlob || uploadInFlight) {
+      return;
+    }
+
+    clearAutoConfirm();
+    updateStatus("촬영이 완료되었습니다. 잠시 후 자동으로 분석을 시작합니다...", "success");
+    updateAutoHint("다시 촬영이 필요하면 지금 눌러 주세요.", "ready");
+
+    autoConfirmTimer = window.setTimeout(() => {
+      autoConfirmTimer = null;
+      if (!capturedBlob || uploadInFlight) {
+        return;
+      }
+      void handleConfirm({ autoTriggered: true });
+    }, AUTO_CONFIRM_DELAY_MS);
+  }
+
   function scheduleAutoCaptureRecovery(error, message) {
     console.warn("Retrying MediaPipe auto capture setup.", error);
     clearAutoCaptureRetry();
@@ -534,6 +573,7 @@
     switchBtn.addEventListener("click", handleSwitch);
     retakeBtn.addEventListener("click", handleRetake);
     confirmBtn.addEventListener("click", handleConfirm);
+    guidanceRetakeBtn?.addEventListener("click", handleRetake);
 
     window.addEventListener("beforeunload", cleanup);
     window.addEventListener("pagehide", cleanup);
@@ -564,8 +604,11 @@
 
   function updateStatus(message, type = "") {
     if (!statusEl) return;
+    currentStatusMessage = String(message || "").trim();
+    currentStatusType = type || "idle";
     statusEl.textContent = message;
     statusEl.className = "camera-status " + type;
+    renderGuidancePopup();
   }
 
   function updateAutoHint(message, tone = "idle") {
@@ -595,10 +638,100 @@
     };
 
     const style = toneStyles[tone] || toneStyles.idle;
+    currentHintMessage = String(message || "").trim();
+    currentHintTone = tone || "idle";
     autoHintEl.textContent = message;
     autoHintEl.style.borderColor = style.borderColor;
     autoHintEl.style.backgroundColor = style.backgroundColor;
     autoHintEl.style.color = style.color;
+    renderGuidancePopup();
+  }
+
+  function normalizeGuidanceTone(value) {
+    if (value === "success" || value === "ready") {
+      return "ready";
+    }
+    if (value === "error") {
+      return "error";
+    }
+    if (value === "manual") {
+      return "manual";
+    }
+    if (value === "loading") {
+      return "loading";
+    }
+    return "idle";
+  }
+
+  function guidanceLabelForTone(tone) {
+    const labels = {
+      idle: "실시간 안내",
+      ready: "촬영 준비 완료",
+      error: "재촬영 안내",
+      manual: "수동 촬영 안내",
+      loading: "처리 상태"
+    };
+
+    return labels[tone] || labels.idle;
+  }
+
+  function resolveGuidanceTone() {
+    const tones = [
+      normalizeGuidanceTone(currentStatusType),
+      normalizeGuidanceTone(currentHintTone)
+    ];
+
+    if (tones.includes("error")) {
+      return "error";
+    }
+    if (tones.includes("loading")) {
+      return "loading";
+    }
+    if (tones.includes("ready")) {
+      return "ready";
+    }
+    if (tones.includes("manual")) {
+      return "manual";
+    }
+    return "idle";
+  }
+
+  function renderGuidancePopup() {
+    if (!guidancePopupEl) {
+      return;
+    }
+
+    const tone = resolveGuidanceTone();
+    const primaryMessage =
+      currentStatusMessage ||
+      currentHintMessage ||
+      "카메라를 켜고 얼굴 위치를 맞춰 주세요.";
+    const secondaryMessage =
+      currentHintMessage && currentHintMessage !== primaryMessage
+        ? currentHintMessage
+        : "얼굴이 안정적으로 잡히면 자동 촬영 안내가 바로 표시됩니다.";
+
+    guidancePopupEl.dataset.tone = tone;
+
+    if (guidanceChipEl) {
+      guidanceChipEl.textContent = guidanceLabelForTone(tone);
+    }
+
+    if (guidanceTitleEl) {
+      guidanceTitleEl.textContent = primaryMessage;
+    }
+
+    if (guidanceBodyEl) {
+      guidanceBodyEl.textContent = secondaryMessage;
+    }
+
+    if (guidanceActionsEl) {
+      const showRetakeAction = Boolean(capturedBlob && !uploadInFlight);
+      guidanceActionsEl.hidden = !showRetakeAction;
+      if (guidanceRetakeBtn) {
+        guidanceRetakeBtn.disabled = !showRetakeAction;
+      }
+    }
   }
 
   function setGuideState(state) {
@@ -743,7 +876,7 @@
       const config = conditionEls[key];
       const itemState = checklist.items[key];
 
-      if (!config || !itemState) return;
+      if (!config || !itemState || !config.item || !config.status || !config.icon) return;
 
       config.item.dataset.state = itemState.state;
       config.status.textContent = itemState.text;
@@ -1006,7 +1139,10 @@
   function stopStream() {
     stopDetectionLoop();
     clearAutoCaptureRetry();
+    clearAutoConfirm();
     autoCaptureRecoveryAttempts = 0;
+    isCaptureReady = false;
+    uploadInFlight = false;
 
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
@@ -1029,6 +1165,7 @@
   }
 
   function cleanup() {
+    clearAutoConfirm();
     stopStream();
     cleanupPreviewUrl();
   }
@@ -1068,7 +1205,7 @@
 
         updateStatus("얼굴 위치와 촬영 조건을 확인하는 중입니다...", "loading");
         updateAutoHint(
-          "얼굴이 감지되면 오른쪽 체크리스트가 실시간으로 갱신됩니다.",
+          "얼굴이 가이드 안에 안정적으로 들어오면 자동 촬영을 시작합니다.",
           "idle"
         );
         setGuideState("idle");
@@ -1118,6 +1255,7 @@
 
   function startDetectionLoop() {
     stopDetectionLoop({ preserveHint: true });
+    isCaptureReady = false;
 
     if (!autoCaptureSupported) {
       updateChecklist(getManualChecklistState());
@@ -1176,6 +1314,7 @@
   function activateManualMode(message) {
     autoCaptureSupported = false;
     stopDetectionLoop({ preserveHint: true });
+    isCaptureReady = false;
     captureBtn.textContent = "사진 촬영";
     updateChecklist(getManualChecklistState());
     updateStatus(message, "error");
@@ -1399,7 +1538,7 @@
       return {
         messageKey: "no_face",
         message: "얼굴을 가이드 안에 맞춰 주세요.",
-        hint: "얼굴이 감지되면 조건 체크가 켜집니다.",
+        hint: "얼굴이 감지되면 조건 촬영이 시작됩니다",
         type: "",
         tone: "idle",
         guideState: "idle",
@@ -1536,7 +1675,7 @@
       return {
         messageKey: "off_center",
         message: "얼굴을 가이드 중앙에 맞춰 주세요.",
-        hint: "윤곽선 중앙에 얼굴을 맞추면 다음 체크가 켜집니다.",
+        hint: "윤곽선 중앙에 얼굴을 맞춰야합니다.",
         type: "",
         tone: "idle",
         guideState: "idle",
@@ -1598,6 +1737,7 @@
   }
 
   function applyDetectionResult(result) {
+    isCaptureReady = Boolean(result && result.allValid);
     updateChecklist(result.checklist);
 
     if (!result.allValid) {
@@ -1631,7 +1771,7 @@
 
     countdownDeadline = Date.now() + AUTO_CAPTURE_SECONDS * 1000;
     updateStatus("좋아요. 3초 동안 그대로 유지하면 자동으로 촬영됩니다.", "success");
-    updateAutoHint("체크가 모두 켜졌습니다. 움직이지 말고 그대로 유지해 주세요.", "ready");
+    updateAutoHint("움직이지 말고 그대로 유지해 주세요.", "ready");
     setGuideState("ready");
     showCountdown(AUTO_CAPTURE_SECONDS);
 
@@ -1651,7 +1791,7 @@
         countdownTimer = null;
         countdownDeadline = 0;
         hideCountdown();
-        handleCapture({ source: "auto" });
+        void handleCapture({ source: "auto" });
       }
     }, 100);
   }
@@ -1674,9 +1814,12 @@
   }
 
   function handleCapture(options = {}) {
-    if (!isCameraOn || !videoEl || videoEl.readyState < 2 || capturedBlob) return;
+    if (!isCameraOn || !videoEl || videoEl.readyState < 2 || capturedBlob) {
+      return Promise.resolve(false);
+    }
 
     stopDetectionLoop({ preserveHint: true });
+    clearAutoConfirm();
     triggerShutterFlash();
     playShutterSound();
 
@@ -1690,7 +1833,7 @@
     if (!ctx) {
       updateStatus("촬영 이미지를 준비하지 못했습니다. 다시 시도해 주세요.", "error");
       startDetectionLoop();
-      return;
+      return Promise.resolve(false);
     }
 
     ctx.drawImage(
@@ -1705,47 +1848,55 @@
       cropBox.height
     );
 
-    captureCanvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          updateStatus("촬영에 실패했습니다. 다시 시도해 주세요.", "error");
-          startDetectionLoop();
-          return;
-        }
+    return new Promise((resolve) => {
+      captureCanvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            updateStatus("촬영에 실패했습니다. 다시 시도해 주세요.", "error");
+            startDetectionLoop();
+            resolve(false);
+            return;
+          }
 
-        capturedBlob = blob;
-        cleanupPreviewUrl();
-        previewUrl = URL.createObjectURL(blob);
+          capturedBlob = blob;
+          isCaptureReady = false;
+          cleanupPreviewUrl();
+          previewUrl = URL.createObjectURL(blob);
 
-        previewImg.src = previewUrl;
-        previewContainer.classList.remove("is-hidden");
-        previewControls.classList.remove("is-hidden");
+          previewImg.src = previewUrl;
+          previewContainer.classList.remove("is-hidden");
+          previewControls.classList.remove("is-hidden");
 
-        videoEl.classList.add("is-hidden");
-        cameraGuide.classList.add("is-hidden");
-        cameraControls.classList.add("is-hidden");
+          videoEl.classList.add("is-hidden");
+          cameraGuide.classList.add("is-hidden");
+          cameraControls.classList.add("is-hidden");
 
-        updateStatus(
-          options.source === "auto"
-            ? "조건이 맞아 자동으로 사진을 촬영했습니다. 결과를 확인해 주세요."
-            : "사진을 촬영했습니다. 결과를 확인해 주세요.",
-          "success"
-        );
-        updateAutoHint("촬영 결과를 확인한 뒤 업로드를 진행해 주세요.", "ready");
-      },
-      "image/jpeg",
-      0.95
-    );
+          updateStatus(
+            options.source === "auto"
+              ? "조건이 맞아 자동으로 사진을 촬영했습니다. 결과를 확인해 주세요."
+              : "사진을 촬영했습니다. 결과를 확인해 주세요.",
+            "success"
+          );
+          updateAutoHint("촬영 결과를 확인한 뒤 업로드를 진행해 주세요.", "ready");
+          scheduleAutoConfirm();
+          resolve(true);
+        },
+        "image/jpeg",
+        0.95
+      );
+    });
   }
 
   function handleRetake() {
-    if (capturedBlob && !confirm("이 사진을 버리고 다시 촬영하시겠습니까?")) {
+    if (uploadInFlight) {
       return;
     }
 
+    clearAutoConfirm();
     cleanupPreviewUrl();
     previewImg.src = "";
     capturedBlob = null;
+    isCaptureReady = false;
 
     confirmBtn.disabled = false;
     retakeBtn.disabled = false;
@@ -1765,7 +1916,7 @@
 
     updateAutoHint(
       autoCaptureSupported
-        ? "오른쪽 체크리스트를 모두 켜면 자동 촬영됩니다."
+        ? "얼굴 조건이 다시 맞춰지면 자동 촬영이 다시 시작됩니다."
         : "자동 체크를 사용할 수 없어 수동 촬영 모드입니다.",
       autoCaptureSupported ? "idle" : "manual"
     );
@@ -1779,8 +1930,28 @@
     startDetectionLoop();
   }
 
-  async function handleConfirm() {
-    if (!capturedBlob) return;
+  async function handleConfirm(options = {}) {
+    if (uploadInFlight) {
+      return;
+    }
+
+    if (!capturedBlob) {
+      if (isDetectionReady() && isCaptureReady) {
+        const captureSucceeded = await handleCapture({ source: "manual" });
+        if (!captureSucceeded || !capturedBlob) {
+          return;
+        }
+      } else {
+        updateStatus("먼저 사진을 촬영해 주세요.", "error");
+        updateAutoHint(
+          autoCaptureSupported
+            ? "얼굴 조건을 맞춰 자동 촬영을 기다리거나 즉시 촬영 버튼을 눌러 주세요."
+            : "즉시 촬영 버튼으로 사진을 먼저 찍어 주세요.",
+          autoCaptureSupported ? "idle" : "manual"
+        );
+        return;
+      }
+    }
 
     const config = window.MirrAIConfig || {};
     const customerId = config.customerId;
@@ -1792,8 +1963,15 @@
       return;
     }
 
+    clearAutoConfirm();
+    uploadInFlight = true;
     updateStatus("이미지를 서버로 전송하고 분석을 시작합니다...", "loading");
-    updateAutoHint("분석 준비 중입니다. 잠시만 기다려 주세요.", "ready");
+    updateAutoHint(
+      options.autoTriggered
+        ? "촬영이 완료되어 자동으로 분석을 시작하고 있습니다."
+        : "분석 준비 중입니다. 잠시만 기다려 주세요.",
+      "ready"
+    );
     confirmBtn.disabled = true;
     retakeBtn.disabled = true;
 
@@ -1819,6 +1997,7 @@
       const uploadStatus = String(data.status || "").toLowerCase();
 
       if (uploadStatus === "needs_retake" || nextAction === "capture") {
+        uploadInFlight = false;
         updateStatus(data.message || "사진을 다시 촬영해주세요.", "error");
         updateAutoHint("사진을 다시 맞춘 뒤 재촬영해 주세요.", "error");
         confirmBtn.disabled = false;
@@ -1840,6 +2019,7 @@
       }, 800);
     } catch (error) {
       console.error("Upload Error:", error);
+      uploadInFlight = false;
       updateStatus("업로드 중 오류가 발생했습니다. 다시 시도해주세요.", "error");
       updateAutoHint("네트워크 상태를 확인한 뒤 다시 시도해 주세요.", "error");
       confirmBtn.disabled = false;
