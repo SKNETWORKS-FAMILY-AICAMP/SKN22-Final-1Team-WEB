@@ -396,10 +396,11 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
             return error_response
         admin, designer = staff
 
-        client = _get_client_or_404(pk)
-        include_history = _truthy_query_param(request, "include_history")
-        history_limit = _history_limit_from_request(request)
         try:
+            client = _get_client_or_404(pk)
+            include_history = _truthy_query_param(request, "include_history")
+            history_limit = _history_limit_from_request(request)
+            
             payload = get_client_detail(
                 client=client,
                 admin=admin,
@@ -407,10 +408,13 @@ class LegacyAdminClientDetailView(CompatEnvelopeAPIView):
                 include_history=include_history,
                 history_limit=history_limit,
             )
-        except ValueError as exc:
-            return detail_response(str(exc), status_code=status.HTTP_404_NOT_FOUND)
-
-        return Response(_build_legacy_customer_detail_payload(payload))
+            return Response(_build_legacy_customer_detail_payload(payload))
+        except Exception as e:
+            logger.error(f"[legacy_client_detail_failed] pk={pk} error={str(e)}", exc_info=True)
+            return detail_response(
+                f"고객 상세 정보를 불러오는 중 서버 오류가 발생했습니다: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class LegacyAdminClientHistoryView(CompatEnvelopeAPIView):

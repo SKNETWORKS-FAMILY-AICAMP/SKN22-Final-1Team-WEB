@@ -33,8 +33,13 @@
     max-width: 600px;
     min-height: 350px;
     margin: 0 auto;
+<<<<<<< Updated upstream
     padding: 32px !important;
     border-radius: 24px !important;
+=======
+    padding: 32px !important; 
+    borde r-radius: 24px !important;
+>>>>>>> Stashed changes
     background: #fff;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
     opacity: 0; transform: translateY(10px);
@@ -111,6 +116,43 @@
     border-color: var(--bg-dark);
     background: #fcfcfc;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+
+  /* 트렌드 리포트 탭 스타일 */
+  .report-tabs {
+    display: flex;
+    gap: 24px;
+    border-bottom: 1.5px solid var(--line);
+    margin-bottom: 32px;
+    padding-bottom: 2px;
+  }
+  .report-tab-btn {
+    background: none;
+    border: none;
+    padding: 8px 4px 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+  .report-tab-btn:hover {
+    color: var(--bg-dark);
+  }
+  .report-tab-btn.active {
+    color: var(--bg-dark);
+    font-weight: 800;
+  }
+  .report-tab-btn.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: var(--bg-dark);
+    border-radius: 99px;
   }
 
   /* 관리자 PIN 모달 스타일 */
@@ -211,13 +253,22 @@
 
       <!-- 트렌드 리포트 뷰 -->
       <div id="reportViewContainer" style="display: none;">
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
-          <button type="button" id="backToListViewBtn" class="back-btn">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+          <div class="report-tabs">
+            <button type="button" class="report-tab-btn active" data-report-type="styleTop10">매장 스타일 TOP10</button>
+            <button type="button" class="report-tab-btn" data-report-type="dailyVisitors">일별 방문자</button>
+            <button type="button" class="report-tab-btn" data-report-type="ageVisitors">연령별 방문자</button>
+            <button type="button" class="report-tab-btn" data-report-type="designerCustomers">디자이너별 고객수</button>
+          </div>
+          <button type="button" id="backToListViewBtn" class="back-btn" style="margin-bottom: 22px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             대시보드
           </button>
         </div>
-        <div style="height: 400px; display: flex; align-items: center; justify-content: center;">
+        <div id="chartLoadingContainer" style="height: 400px; display: none; align-items: center; justify-content: center; opacity: 0.5;">
+          <div style="width: 24px; height: 24px; border: 3px solid var(--line); border-top-color: var(--bg-dark); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+        </div>
+        <div id="chartCanvasContainer" style="height: 400px;">
           <canvas id="trendChart"></canvas>
         </div>
       </div>
@@ -788,7 +839,200 @@
       };
     }
 
-    // --- 관리자 PIN 모달 로직 ---
+    // --- 트렌드 리포트 탭 전환 로직 ---
+    const reportTabBtns = document.querySelectorAll('.report-tab-btn');
+    reportTabBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const reportType = btn.dataset.reportType;
+        
+        // 탭 활성화 상태 변경
+        reportTabBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // 그래프 데이터 업데이트 (추후 구현)
+        updateTrendChart(reportType);
+      });
+    });
+
+    async function updateTrendChart(type = 'styleTop10') {
+      const ctx = document.getElementById('trendChart');
+      if (!ctx || !window.Chart) return;
+
+      // 차트가 이미 있으면 확실하게 삭제
+      if (window.myChart) {
+        window.myChart.destroy();
+        window.myChart = null;
+      }
+
+      // 파스텔톤 컬러 팔레트 정의
+      const pastelColors = {
+        blue: 'rgba(173, 216, 230, 0.8)',
+        green: 'rgba(180, 238, 180, 0.8)',
+        pink: 'rgba(255, 182, 193, 0.8)',
+        orange: 'rgba(255, 218, 185, 0.8)',
+        purple: 'rgba(221, 160, 221, 0.8)',
+        yellow: 'rgba(255, 250, 205, 0.8)',
+        mint: 'rgba(180, 238, 220, 0.8)',
+        lavender: 'rgba(230, 190, 255, 0.8)',
+        apricot: 'rgba(255, 200, 170, 0.8)',
+        gray: 'rgba(220, 220, 220, 0.8)',
+        border: {
+          blue: 'rgba(135, 206, 235, 1)',
+          green: 'rgba(144, 238, 144, 1)',
+          pink: 'rgba(255, 105, 180, 1)',
+          orange: 'rgba(255, 160, 122, 1)',
+          purple: 'rgba(186, 104, 200, 1)',
+          mint: 'rgba(140, 220, 200, 1)',
+          lavender: 'rgba(200, 160, 240, 1)',
+          apricot: 'rgba(255, 170, 140, 1)',
+          gray: 'rgba(180, 180, 180, 1)'
+        }
+      };
+
+      let chartConfig = {};
+
+      if (type === 'styleTop10') {
+        chartConfig = {
+          type: 'bar',
+          data: {
+            labels: ['레이어드 컷', '허쉬 컷', '발레아쥬', '슬릭 펌', '리프 컷', '단발 C컬', '볼륨 매직', '시스루 뱅', '가일 컷', '히피 펌'],
+            datasets: [{
+              label: '인기 스타일 선정 수',
+              data: [45, 38, 32, 28, 24, 21, 18, 15, 12, 10],
+              backgroundColor: [
+                pastelColors.blue, pastelColors.green, pastelColors.pink, pastelColors.orange, pastelColors.purple,
+                pastelColors.mint, pastelColors.lavender, pastelColors.apricot, pastelColors.yellow, pastelColors.gray
+              ],
+              borderColor: [
+                pastelColors.border.blue, pastelColors.border.green, pastelColors.border.pink, pastelColors.border.orange, pastelColors.border.purple,
+                pastelColors.border.mint, pastelColors.border.lavender, pastelColors.border.apricot, pastelColors.border.blue, pastelColors.border.gray
+              ],
+              borderWidth: 1.5,
+              borderRadius: 6
+            }]
+          }
+        };
+      } else if (type === 'dailyVisitors') {
+        chartConfig = {
+          type: 'bar',
+          data: {
+            labels: ['월', '화', '수', '목', '금', '토', '일'],
+            datasets: [
+              {
+                type: 'line',
+                label: '전체 방문자',
+                data: [25, 35, 30, 20, 45, 60, 50],
+                borderColor: pastelColors.border.blue,
+                backgroundColor: 'transparent',
+                borderWidth: 3,
+                tension: 0.4,
+                fill: false,
+                order: 1
+              },
+              {
+                label: '남자',
+                data: [10, 15, 12, 8, 20, 25, 22],
+                backgroundColor: pastelColors.green,
+                borderRadius: 6,
+                order: 2
+              },
+              {
+                label: '여자',
+                data: [15, 20, 18, 12, 25, 35, 28],
+                backgroundColor: pastelColors.pink,
+                borderRadius: 6,
+                order: 2
+              }
+            ]
+          }
+        };
+      } else if (type === 'ageVisitors') {
+        chartConfig = {
+          type: 'doughnut',
+          data: {
+            labels: ['10대', '20대', '30대', '40대', '50대 이상'],
+            datasets: [{
+              label: '연령대별 방문 비율',
+              data: [15, 42, 35, 20, 10],
+              backgroundColor: [pastelColors.pink, pastelColors.blue, pastelColors.green, pastelColors.orange, pastelColors.purple],
+              borderColor: '#fff',
+              borderWidth: 2
+            }]
+          }
+        };
+      } else if (type === 'designerCustomers') {
+        chartConfig = {
+          type: 'bar',
+          data: {
+            labels: ['김준호', '이미연', '박서진', '최수아', '정민우'],
+            datasets: [
+              {
+                label: '남자 고객',
+                data: [18, 25, 15, 12, 20],
+                backgroundColor: pastelColors.green,
+                borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 6, bottomRight: 6 }
+              },
+              {
+                label: '여자 고객',
+                data: [32, 45, 28, 22, 35],
+                backgroundColor: pastelColors.pink,
+                borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 }
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: { stacked: true },
+              y: { stacked: true, beginAtZero: true }
+            }
+          }
+        };
+      }
+
+      // 공통 옵션 설정
+      const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'bottom',
+            labels: { usePointStyle: true, padding: 20, font: { size: 12, weight: '600' } }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            titleColor: '#000',
+            bodyColor: '#666',
+            borderColor: '#eee',
+            borderWidth: 1,
+            padding: 12,
+            usePointStyle: true,
+            mode: 'index',
+            intersect: false
+          }
+        },
+        scales: chartConfig.type !== 'doughnut' ? {
+          y: { 
+            beginAtZero: true, 
+            grid: { color: 'rgba(0,0,0,0.03)', drawBorder: false },
+            ticks: { color: '#999', font: { size: 11 } }
+          },
+          x: { 
+            grid: { display: false },
+            ticks: { color: '#666', font: { size: 12, weight: '600' } }
+          }
+        } : {}
+      };
+
+      window.myChart = new Chart(ctx, {
+        ...chartConfig,
+        options: commonOptions
+      });
+    }
+
+    function initTrendChart() {
+      updateTrendChart('styleTop10');
+    }
     let currentPin = '';
     let pinTargetType = ''; // 'dashboard' or 'detail'
     let pinTargetId = '';   // customerId
@@ -866,16 +1110,11 @@
     window.verifyAdminBeforeDetail = function(customerId) {
       openAdminPinModal('detail', customerId, '고객 상세 정보 확인을 위해 관리자 비밀번호를 입력해 주세요.');
     };
+function initTrendChart() {
+  updateTrendChart('styleTop5');
+}
 
-    function initTrendChart() {
-      const ctx = document.getElementById('trendChart');
-      if (!ctx || window.myChart || !window.Chart) return;
-      window.myChart = new Chart(ctx, {
-        type: 'line',
-        data: { labels: ['월', '화', '수', '목', '금', '토', '일'], datasets: [{ label: '방문 고객 수', data: [12, 19, 15, 8, 22, 30, 25], borderColor: '#000', tension: 0.4 }] },
-        options: { responsive: true, maintainAspectRatio: false }
-      });
-    }
+// --- 관리자 PIN 모달 로직 ---
 
     document.addEventListener('DOMContentLoaded', () => {
       if (isDashboard) { fetchDashboardDesigners(); fetchCustomers(); }
