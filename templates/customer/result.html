@@ -165,7 +165,7 @@
   <div class="selection-actions">
     <button id="retryBtn" class="btn btn-dark" style="height: 52px; padding: 0 24px; border: 1px solid rgba(255,255,255,0.2);">스타일 재추천</button>
     <button id="directConsultBtn" class="btn btn-dark" style="height: 52px; padding: 0 24px; border: 1px solid rgba(255,255,255,0.2);">추천 없이 바로 상담 요청</button>
-    <button id="saveBtn" class="btn btn-primary" style="height: 52px; padding: 0 40px; background: var(--accent-neon); color: var(--bg-dark); font-weight: 800;" disabled>선택한 스타일로 상담 요청</button>
+    <button id="saveBtn" class="btn btn-primary" style="height: 52px; padding: 0 40px; background: var(--accent-neon); color: var(--bg-dark); font-weight: 800;">선택한 스타일로 상담 요청</button>
   </div>
 </div>
 
@@ -329,11 +329,30 @@
     }
 
     function selectStyle(style) {
-      selectedStyleId = style.style_id;
-      document.querySelectorAll('.style-card').forEach((card) => card.classList.remove('selected'));
-      document.querySelector(`.style-card[data-id="${selectedStyleId}"]`)?.classList.add('selected');
-      selectedInfo.innerHTML = `${style.style_name} <span style="color: var(--accent-neon); margin-left: 8px;">${style.match_score || 0}% Match</span>`;
-      saveBtn.disabled = false;
+      const isDeselecting = selectedStyleId === style.style_id;
+      
+      // Reset all cards first
+      document.querySelectorAll('.style-card').forEach((card) => {
+        card.classList.remove('selected');
+        const btn = card.querySelector('.select-btn');
+        if (btn) btn.textContent = '이 스타일 선택';
+      });
+
+      if (isDeselecting) {
+        // Deselect current
+        selectedStyleId = null;
+        selectedInfo.textContent = '스타일을 선택해 주세요';
+      } else {
+        // Select new
+        selectedStyleId = style.style_id;
+        const selectedCard = document.querySelector(`.style-card[data-id="${selectedStyleId}"]`);
+        if (selectedCard) {
+          selectedCard.classList.add('selected');
+          const btn = selectedCard.querySelector('.select-btn');
+          if (btn) btn.textContent = '선택 해제';
+        }
+        selectedInfo.innerHTML = `${style.style_name} <span style="color: var(--accent-neon); margin-left: 8px;">${style.match_score || 0}% Match</span>`;
+      }
       syncRetryButton();
     }
 
@@ -371,7 +390,6 @@
       }
 
       selectedStyleId = null;
-      saveBtn.disabled = true;
       retryMeta = data;
       selectedInfo.textContent = '새 추천 결과를 확인해 주세요.';
       renderResults(data.items || []);
@@ -379,6 +397,11 @@
 
     saveBtn.addEventListener('click', async () => {
       if (!selectedStyleId) {
+        if (grid && grid.children.length > 0) {
+          alert('상담을 요청할 스타일을 선택해 주세요.\n마음에 드는 스타일 카드를 클릭하면 선택됩니다.');
+        } else {
+          alert('현재 추천된 스타일이 없습니다.\n"추천 없이 바로 상담 요청" 버튼을 이용해 주세요.');
+        }
         return;
       }
 

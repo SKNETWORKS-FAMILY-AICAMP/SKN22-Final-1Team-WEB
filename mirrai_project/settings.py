@@ -49,13 +49,15 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.elasticbeanstalk.com"
 ]
 
+# Database 설정: Supabase PostgreSQL을 유일한 DB로 고정합니다.
 SUPABASE_DB_URL = env("SUPABASE_DB_URL", default="")
-LOCAL_DATABASE_URL = env("LOCAL_DATABASE_URL", default="sqlite:///db.sqlite3")
-SUPABASE_USE_REMOTE_DB = env.bool("SUPABASE_USE_REMOTE_DB", default=False)
-ACTIVE_DATABASE_URL = SUPABASE_DB_URL if SUPABASE_USE_REMOTE_DB and SUPABASE_DB_URL else LOCAL_DATABASE_URL
+if not SUPABASE_DB_URL:
+    # 실서버 또는 로컬 개발 시에도 Supabase URL이 없으면 에러를 발생시켜 명확히 알립니다.
+    raise ImproperlyConfigured("SUPABASE_DB_URL 환경 변수가 설정되지 않았습니다. Supabase 연결이 필수입니다.")
+
 DATABASES = {
     "default": {
-        **environ.Env.db_url_config(ACTIVE_DATABASE_URL),
+        **environ.Env.db_url_config(SUPABASE_DB_URL),
         "CONN_MAX_AGE": 60,
     }
 }

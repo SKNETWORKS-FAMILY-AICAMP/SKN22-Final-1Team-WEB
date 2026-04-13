@@ -4,6 +4,7 @@ from django.views.generic import RedirectView
 
 from app.front_views import (
     admin_dashboard_page,
+    admin_mypage_page,
     admin_login_page,
     admin_signup_page,
     client_camera_page,
@@ -67,6 +68,7 @@ urlpatterns = [
     path("partner/select-designer/", partner_select_designer, name="partner_select_designer"),
     path("partner/dashboard/enter/", enter_partner_dashboard, name="partner_dashboard_enter"),
     path("partner/dashboard/", gated_partner_dashboard, name="partner_dashboard"),
+    path("partner/mypage/", admin_mypage_page, name="partner_mypage"),
     path("partner/staff/", gated_partner_staff_dashboard, name="partner_staff_dashboard"),
     path(
         "partner/customer-detail/<int:pk>/",

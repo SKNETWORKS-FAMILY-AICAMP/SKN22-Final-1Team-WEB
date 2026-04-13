@@ -45,6 +45,7 @@ from .admin_views import (
     AdminAiHealthView,
     StyleReportView,
     DesignerListView,
+    DesignerPinChangeView,
 )
 
 urlpatterns = [
@@ -96,4 +97,5 @@ urlpatterns = [
     path('admin/trend-report/', AdminTrendReportView.as_view(), name='admin-trend-report'),
     path('admin/style-report/', StyleReportView.as_view(), name='admin-style-report'),
     path('admin/designers/', DesignerListView.as_view(), name='admin-designers'),
+    path('admin/designers/change-pin/', DesignerPinChangeView.as_view(), name='admin-designer-change-pin'),
 ]
