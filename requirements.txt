@@ -1,4 +1,3 @@
 -r requirements-trends.txt
 
-# Local-only tooling
-playwright>=1.49,<2.0
+# Local-only tooling can be added below when needed.
