@@ -72,7 +72,6 @@ from app.services.storage_service import (
     persist_simulation_image_reference,
     resolve_storage_reference,
 )
-from app.trend_pipeline.style_collection import load_hairstyles
 
 if TYPE_CHECKING:
     from app.models_django import (
@@ -115,14 +114,6 @@ CURRENT_RECOMMENDATION_WAIT_POLICY = RecommendationWaitPolicy(
     interval_seconds=3.0,
 )
 FAILED_RECOMMENDATION_INPUT_STATUSES = {"FAILED", "NEEDS_RETAKE", "ERROR"}
-
-
-def _seed_trend_styles(limit: int = 5) -> list[dict]:
-    try:
-        styles = load_hairstyles()
-    except FileNotFoundError:
-        return []
-    return styles[:limit]
 
 
 def build_default_survey_context(client_id: int) -> SimpleNamespace:
@@ -2877,62 +2868,6 @@ def get_trend_recommendations(*, days: int = 30, client: "Client | None" = None)
                 "is_chosen": False,
             }
         )
-
-    if not items:
-        seed_styles = _seed_trend_styles(limit=5)
-        seeded_names = [str(item.get("style_name") or "").strip() for item in seed_styles if str(item.get("style_name") or "").strip()]
-        db_seeded = {}
-        for style_name in seeded_names:
-            style = get_style_record_by_name(style_name=style_name)
-            if style is None:
-                continue
-            normalized_name = str(
-                getattr(style, "name", None)
-                or getattr(style, "style_name", None)
-                or style_name
-            ).strip()
-            db_seeded[normalized_name] = style
-
-        for rank, seed in enumerate(seed_styles, start=1):
-            style = db_seeded.get(str(seed.get("style_name") or "").strip())
-            if not style:
-                continue
-            style_id = int(
-                getattr(style, "backend_style_id", None)
-                or getattr(style, "hairstyle_id", None)
-                or getattr(style, "id", 0)
-            )
-            style_name = getattr(style, "name", None) or getattr(style, "style_name", None) or ""
-            style_description = getattr(style, "description", None) or str(seed.get("description") or "")
-            style_image_url = getattr(style, "image_url", None)
-            style_vibe = getattr(style, "vibe", None)
-            items.append(
-                {
-                    "source": "trend",
-                    "style_id": style_id,
-                    "style_name": style_name,
-                    "style_description": style_description,
-                    "keywords": list(seed.get("keywords") or ([style_vibe] if style_vibe else [])),
-                    "sample_image_url": resolve_storage_reference(style_image_url),
-                    "simulation_image_url": resolve_storage_reference(style_image_url),
-                    "synthetic_image_url": resolve_storage_reference(style_image_url),
-                    "llm_explanation": style_description,
-                    "reasoning": "fallback trend catalog synced from refreshed seed data",
-                    "reasoning_snapshot": {
-                        "summary": "fallback trend catalog synced from refreshed seed data",
-                        "selection_count": 0,
-                        "days": days,
-                        "source": "trend",
-                        "trend_scope": trend_scope,
-                        "age_profile": target_age_profile,
-                        "seed_source": str(seed.get("source") or ""),
-                        "seed_last_updated": str(seed.get("last_updated") or ""),
-                    },
-                    "match_score": float(seed.get("freshness_score") or 0.0),
-                    "rank": rank,
-                    "is_chosen": False,
-                }
-            )
 
     if not items:
         styles_by_id = ensure_catalog_styles()

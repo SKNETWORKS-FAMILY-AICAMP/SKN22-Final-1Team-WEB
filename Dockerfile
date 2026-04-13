@@ -20,6 +20,7 @@ COPY requirements.txt requirements-deploy.txt requirements-trends.txt ./
 ARG INSTALL_TRENDS_DEPS=0
 RUN if [ "$INSTALL_TRENDS_DEPS" = "1" ]; then \
       pip install --no-cache-dir -r requirements-trends.txt; \
+      python -m playwright install --with-deps chromium; \
     else \
       pip install --no-cache-dir -r requirements-deploy.txt; \
     fi

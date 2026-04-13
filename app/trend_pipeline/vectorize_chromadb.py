@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import Any
 
 import chromadb
+from chromadb.errors import NotFoundError
 
 from .chroma_client import create_persistent_client
 from .paths import CHROMA_TRENDS_DIR, TREND_PROCESSED_DIR, ensure_directories
@@ -391,7 +392,7 @@ def build_collection() -> chromadb.api.models.Collection.Collection:
     try:
         client.delete_collection(COLLECTION_NAME)
         print(f"Deleted existing collection '{COLLECTION_NAME}'.")
-    except ValueError:
+    except (ValueError, NotFoundError):
         pass
 
     collection = client.create_collection(

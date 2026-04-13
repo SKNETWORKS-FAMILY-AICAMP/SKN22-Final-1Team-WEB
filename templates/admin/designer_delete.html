@@ -53,7 +53,7 @@
     function maskPhone(phone) {
       if (!phone || phone === '-') return '-';
       const str = String(phone).trim();
-      
+
       if (str.includes('*')) return str;
 
       if (str.includes('-')) {
@@ -62,7 +62,7 @@
           return `${parts[0]}-****-${parts[2]}`;
         }
       }
-      
+
       const digits = str.replace(/\D/g, '');
       if (digits.length === 11) {
         return digits.replace(/(\d{3})(\d{4})(\d{4})/, '$1-****-$3');

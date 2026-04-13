@@ -12,7 +12,7 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from app.api.v1.services_django import get_trend_recommendations
-from app.models_django import Style
+from app.services.model_team_bridge import get_style_record_by_name
 from app.services.trend_refresh import (
     build_chromadb_archive,
     run_local_refresh_trends_pipeline,
@@ -234,8 +234,8 @@ class TrendRefreshDatabaseSyncTests(TestCase):
         )
 
         self.assertEqual(result["style_count"], 2)
-        self.assertEqual(Style.objects.filter(name="Soft Wolf Cut").count(), 1)
-        self.assertEqual(Style.objects.get(name="Curtain Bob").vibe, "Classic")
+        self.assertIsNotNone(get_style_record_by_name(style_name="Soft Wolf Cut"))
+        self.assertEqual(get_style_record_by_name(style_name="Curtain Bob").vibe, "Classic")
         self.assertEqual(result["duplicate_count"], 0)
         self.assertEqual(result["skipped_count"], 0)
 
@@ -264,9 +264,9 @@ class TrendRefreshDatabaseSyncTests(TestCase):
         self.assertEqual(result["created_count"], 1)
         self.assertEqual(result["duplicate_count"], 1)
         self.assertEqual(result["skipped_count"], 1)
-        self.assertEqual(Style.objects.filter(name="Soft Wolf Cut").count(), 1)
+        self.assertIsNotNone(get_style_record_by_name(style_name="Soft Wolf Cut"))
 
-    def test_trend_fallback_prefers_synced_seed_styles(self):
+    def test_trend_fallback_uses_default_catalog_when_selection_data_is_missing(self):
         sync_seed_styles_to_db(
             styles=[
                 {
@@ -290,31 +290,10 @@ class TrendRefreshDatabaseSyncTests(TestCase):
             ]
         )
 
-        with patch(
-            "app.api.v1.services_django.load_hairstyles",
-            return_value=[
-                {
-                    "style_name": "Soft Wolf Cut",
-                    "description": "Layered wolf cut synced from trend seed.",
-                    "keywords": ["wolf cut", "layered"],
-                    "freshness_score": 0.88,
-                    "source": "test_seed",
-                    "last_updated": "2026-03-27",
-                },
-                {
-                    "style_name": "Curtain Bob",
-                    "description": "Jaw-length bob synced from trend seed.",
-                    "keywords": ["bob", "curtain"],
-                    "freshness_score": 0.72,
-                    "source": "test_seed",
-                    "last_updated": "2026-03-27",
-                },
-            ],
-        ):
-            payload = get_trend_recommendations(days=30, client=None)
+        payload = get_trend_recommendations(days=30, client=None)
 
-        self.assertEqual(payload["items"][0]["style_name"], "Soft Wolf Cut")
+        self.assertEqual(payload["items"][0]["style_name"], "Side-Parted Lob")
         self.assertEqual(
             payload["items"][0]["reasoning_snapshot"]["summary"],
-            "fallback trend catalog synced from refreshed seed data",
+            "fallback trend catalog",
         )

@@ -8,7 +8,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 VALID_STEPS = ("crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs", "rebuild_styles", "analyze")
-DEFAULT_REFRESH_STEPS = ("crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs", "rebuild_styles")
+DEFAULT_REFRESH_STEPS = ("crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs")
 
 
 def refresh_trends(steps: list[str] | None = None) -> dict[str, Any]:

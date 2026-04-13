@@ -13,7 +13,13 @@ server_log.txt
 backend/
 data/rag/*
 !data/rag/stores/
-!data/rag/stores/**
+data/rag/stores/**
+!data/rag/stores/chromadb_trends/
+!data/rag/stores/chromadb_trends/**
+!data/rag/stores/chromadb_ncs/
+!data/rag/stores/chromadb_ncs/**
+!data/rag/stores/chromadb_chatbot/
+!data/rag/stores/chromadb_chatbot/**
 app/tests/
 docs/
 front_feedback/

@@ -28,12 +28,12 @@
 <style>
   .hero-section { display: flex !important; }
   .content-section { margin-top: -20px !important; }
-  
+
   #authSection {
-    max-width: 600px; 
+    max-width: 600px;
     min-height: 350px;
     margin: 0 auto;
-    padding: 32px !important; 
+    padding: 32px !important;
     border-radius: 24px !important;
     background: #fff;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
@@ -362,7 +362,7 @@
     }
 
     // Dashboard Logic
-    let allCustomers = []; 
+    let allCustomers = [];
     const customerListBody = document.getElementById('customerListBody');
     const customerSearchInput = document.getElementById('customerSearchInput');
     const designerSelect = document.getElementById('designerSelect');
@@ -575,9 +575,9 @@
 
     function renderCustomers(customers) {
       if (!customerListBody) return;
-      if (!customers || customers.length === 0) { 
-        customerListBody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px; opacity:0.5;">조회된 고객이 없습니다.</td></tr>'; 
-        return; 
+      if (!customers || customers.length === 0) {
+        customerListBody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px; opacity:0.5;">조회된 고객이 없습니다.</td></tr>';
+        return;
       }
       customerListBody.innerHTML = customers.map(c => {
         let visitText = '첫 방문';
@@ -590,9 +590,9 @@
         const sessionBadge = sessionActive
           ? '<span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background: rgba(21, 128, 61, 0.12); color:#166534; font-size:11px; font-weight:700;">세션 진행 중</span>'
           : '<span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background: rgba(71, 85, 105, 0.12); color:#475569; font-size:11px; font-weight:700;">세션 없음</span>';
-        
+
         let detailAction = "";
-        
+
         if (isDesignerSession) {
           // 디자이너 대시보드: 기존 디자이너 PIN 인증 로직 유지
           detailAction = `location.href='/partner/designer-select/?next=/partner/customer-detail/${c.id}/&designer_id=${c.designer_id || ''}'`;
@@ -707,13 +707,13 @@
             updateDesignerPinUI();
           }
         } catch (e) { alert('인증 처리 중 오류가 발생했습니다.'); }
-      } 
+      }
       else if (designerPinState === 'ENTER_NEW') {
         newDesignerPinTemp = designerPinBuffer;
         designerPinState = 'CONFIRM_NEW';
         designerPinBuffer = '';
         updateDesignerPinUI();
-      } 
+      }
       else if (designerPinState === 'CONFIRM_NEW') {
         if (designerPinBuffer === newDesignerPinTemp) {
           // 최종 변경 요청 (서버)
@@ -732,15 +732,15 @@
 
         const response = await fetch('/api/v1/admin/designers/change-pin/', {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-CSRFToken': '{{ csrf_token }}' 
+            'X-CSRFToken': '{{ csrf_token }}'
           },
           body: formData.toString()
         });
 
         const data = await response.json();
-        
+
         if (response.ok) {
           alert(data.message || '보안키가 성공적으로 변경되었습니다.');
           closeDesignerPinModal();
@@ -748,15 +748,15 @@
           // 서버에서 전달한 상세 에러 메시지 표시
           const errorMsg = data.detail || data.message || '변경 중 오류가 발생했습니다.';
           alert(errorMsg);
-          
+
           // 동일 보안키 에러 등의 경우, 모달을 닫지 않고 새 보안키 입력 단계로 초기화
           designerPinBuffer = '';
           designerPinState = 'ENTER_NEW'; // 바로 새 보안키 입력 단계로 이동 (현재 보안키 인증은 이미 통과했으므로)
           updateDesignerPinUI();
         }
-      } catch (e) { 
+      } catch (e) {
         console.error("PIN change error:", e);
-        alert('서버 통신 오류가 발생했습니다.'); 
+        alert('서버 통신 오류가 발생했습니다.');
       }
     }
 
@@ -767,7 +767,7 @@
     if (customerSearchInput) customerSearchInput.addEventListener('input', applyFilters);
     if (designerSelect) designerSelect.onchange = applyFilters;
     if (visitPeriodSelect) visitPeriodSelect.onchange = applyFilters;
-    
+
     if (showReportBtn) {
       showReportBtn.onclick = async () => {
         listView.style.display = 'none';

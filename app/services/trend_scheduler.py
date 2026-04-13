@@ -32,7 +32,7 @@ WEEKDAY_TO_INT = {
     "sat": 5,
     "sun": 6,
 }
-DEFAULT_STEPS = ["crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs", "rebuild_styles"]
+DEFAULT_STEPS = ["crawl", "refine", "llm_refine", "vectorize", "rebuild_ncs"]
 DEFAULT_LOG_PATH = RAG_DIR / "logs" / "trend_scheduler_runs.jsonl"
 SCHEDULER_LOCK_NAMESPACE = 143
 _SCHEDULER_THREAD: threading.Thread | None = None
@@ -91,13 +91,21 @@ def should_autostart_scheduler() -> bool:
         return False
 
     argv = [str(arg).lower() for arg in sys.argv]
-    if "runserver" not in argv:
-        return False
+    server_software = str(os.environ.get("SERVER_SOFTWARE", "")).lower()
+    gunicorn_cmd_args = str(os.environ.get("GUNICORN_CMD_ARGS", "")).lower()
 
-    if "--noreload" in argv:
+    if "runserver" in argv:
+        if "--noreload" in argv:
+            return True
+        return os.environ.get("RUN_MAIN") == "true"
+
+    if any("gunicorn" in arg for arg in argv):
         return True
 
-    return os.environ.get("RUN_MAIN") == "true"
+    if "gunicorn" in server_software or "gunicorn" in gunicorn_cmd_args:
+        return True
+
+    return False
 
 
 def start_scheduler_background_if_configured() -> bool:

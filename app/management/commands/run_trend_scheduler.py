@@ -21,8 +21,8 @@ class Command(BaseCommand):
         parser.add_argument("--weekly-minute", type=int, default=getattr(settings, "TREND_SCHEDULER_WEEKLY_MINUTE", 0))
         parser.add_argument(
             "--steps",
-            default=getattr(settings, "TREND_SCHEDULER_STEPS", "crawl,refine,llm_refine,vectorize,rebuild_ncs,rebuild_styles"),
-            help="Comma-separated local build steps before archive upload.",
+            default=getattr(settings, "TREND_SCHEDULER_STEPS", "crawl,refine,llm_refine,vectorize,rebuild_ncs"),
+            help="Comma-separated local refresh steps.",
         )
         parser.add_argument(
             "--include-ncs",

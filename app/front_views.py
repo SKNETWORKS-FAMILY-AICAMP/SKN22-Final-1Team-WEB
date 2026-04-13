@@ -363,7 +363,7 @@ def partner_designer_select_page(request: HttpRequest):
         login_url = reverse("partner_login")
         query = urlencode({"next": request.get_full_path()})
         return redirect(f"{login_url}?{query}")
-    
+
     # 고객 세션이 있는 경우 템플릿으로 전달
     client = get_session_customer(request=request)
     return render(request, "admin/designer_select.html", {"client": client})
@@ -592,7 +592,7 @@ def designer_delete_page(request):
 def admin_mypage_page(request):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
-    
+
     admin = get_session_admin(request=request)
     if admin is None:
         return redirect("partner_index")
@@ -609,13 +609,13 @@ def admin_mypage_page(request):
                 },
                 status=400,
             )
-        
+
         # 실제 모델 객체 가져오기 (세션의 SimpleNamespace는 저장 기능이 없음)
         from app.models_django import AdminAccount
         try:
             # backend_admin_id 필드를 사용하여 기존 정수형 ID로 조회
             admin_obj = AdminAccount.objects.get(backend_admin_id=admin.id)
-            
+
             # 기존 보안키와 동일한지 체크
             if admin_obj.admin_pin == new_pin:
                 return render(
@@ -725,7 +725,7 @@ def partner_verify(request):
         clear_customer_session(request=request)
         clear_designer_session(request=request)
         set_admin_session(request=request, admin=admin)
-        # 매장 로그인 성공 시 대시보드 기본 접근은 허용하되, 
+        # 매장 로그인 성공 시 대시보드 기본 접근은 허용하되,
         # 디자이너 관리 등 민감 페이지는 별도 비밀번호 확인 절차를 거침
         return JsonResponse(
             {
@@ -758,7 +758,7 @@ def partner_verify(request):
                 {"status": "error", "message": "먼저 매장 관리자 로그인을 진행해 주세요."},
                 status=401,
             )
-        
+
         if not re.fullmatch(r"\d{4}", pin):
             return JsonResponse(
                 {"status": "error", "message": "PIN 번호 4자리를 입력해 주세요."},
@@ -768,7 +768,7 @@ def partner_verify(request):
         from app.models_django import Designer
         import uuid
         designer = None
-        
+
         # UUID 또는 정수형 ID(backend_designer_id) 모두 지원하는 조회 로직
         try:
             try:
