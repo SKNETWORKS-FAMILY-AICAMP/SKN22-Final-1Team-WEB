@@ -1316,6 +1316,7 @@ def _build_recommendation_debug_prompt_payload_from_snapshot(
             {
                 "face_shape": analysis_snapshot.get("face_shape"),
                 "golden_ratio_score": analysis_snapshot.get("golden_ratio_score"),
+                "landmark_snapshot": dict(analysis_snapshot.get("landmark_snapshot") or {}),
             }
             if analysis_snapshot.get("present")
             else None
@@ -2404,6 +2405,7 @@ def _build_recommendation_diagnostic_snapshot(
             "analysis_id": getattr(latest_analysis, "id", None) or getattr(latest_analysis, "analysis_id", None),
             "face_shape": getattr(latest_analysis, "face_shape", None),
             "golden_ratio_score": getattr(latest_analysis, "golden_ratio_score", None),
+            "landmark_snapshot": dict(getattr(latest_analysis, "landmark_snapshot", None) or {}),
             "created_at": (getattr(latest_analysis, "created_at", None).isoformat() if getattr(latest_analysis, "created_at", None) else None),
         },
         "legacy_recommendations": {

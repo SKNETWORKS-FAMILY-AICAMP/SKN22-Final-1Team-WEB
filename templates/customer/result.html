@@ -124,6 +124,7 @@
     line-height: 1.5;
     color: var(--bg-dark);
     font-weight: 700;
+    white-space: pre-wrap;
     word-break: break-word;
   }
 
@@ -252,7 +253,7 @@
     <div>
       <p style="font-size: 11px; font-weight: 800; color: var(--text-secondary); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px;">Prompt Debug</p>
       <h3 class="section-title" style="font-size: 18px; margin-bottom: 6px;">추천 생성 입력값</h3>
-      <p class="section-copy" style="font-size: 13px; margin-bottom: 0;">RunPod로 보내는 프롬프트 성격의 입력값과 `xx% 매칭` 산식을 같이 확인할 수 있어요.</p>
+      <p class="section-copy" style="font-size: 13px; margin-bottom: 0;">RunPod로 보내는 실제 prompt preview, request preview, `xx% 매칭` 산식을 같이 확인할 수 있어요.</p>
     </div>
     <span id="promptDebugStageChip" style="display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 14px; border-radius: var(--radius-pill); background: rgba(0,0,0,0.06); color: var(--bg-dark); font-size: 12px; font-weight: 800;">초기 추천</span>
   </div>
@@ -433,6 +434,23 @@
       const analysis = debugPayload.analysis_summary || {};
       const matchScoreBasis = debugPayload.match_score_basis || {};
       const stage = String(debugPayload.recommendation_stage || 'initial').toLowerCase();
+      const explicitQuestionCount = Object.values(questionAnswers).filter(value => {
+        if (typeof value === 'string') {
+          return Boolean(value.trim());
+        }
+        return Boolean(value);
+      }).length;
+      const parsedQuestionAnswerCount = Number(survey.question_answer_count);
+      const questionAnswerCount = Number.isFinite(parsedQuestionAnswerCount) && parsedQuestionAnswerCount >= 0
+        ? parsedQuestionAnswerCount
+        : explicitQuestionCount;
+      const parsedQuestionAnswerTotal = Number(survey.question_answer_total);
+      const questionAnswerTotal = Number.isFinite(parsedQuestionAnswerTotal) && parsedQuestionAnswerTotal > 0
+        ? parsedQuestionAnswerTotal
+        : 6;
+      const questionAnswerSuffix = survey.question_answer_count_source === 'inferred_from_normalized_preferences'
+        ? ' (정규화 기준)'
+        : '';
       const summaryItems = [
         { label: '사용 Provider', value: runtime.resolved_provider || '-' },
         { label: '추천 단계', value: stage === 'retry' ? '재생성 배치' : '초기 배치' },
@@ -447,7 +465,9 @@
             survey.budget_range || '-',
           ].join(' / '),
         },
-        { label: '질문 응답 수', value: `${Object.values(questionAnswers).filter(Boolean).length} / 6` },
+        { label: '질문 응답 수', value: `${questionAnswerCount} / ${questionAnswerTotal}${questionAnswerSuffix}` },
+        { label: 'RunPod prompt', value: runpodPayload.prompt_text || '-' },
+        { label: 'Direct prompt', value: directRunpodPayload.prompt_text || '-' },
         { label: 'hairstyle_text', value: runpodPayload.hairstyle_text || '-' },
         { label: 'color_text', value: runpodPayload.color_text || '-' },
         { label: 'preference_text', value: directRunpodPayload.preference_text || '-' },

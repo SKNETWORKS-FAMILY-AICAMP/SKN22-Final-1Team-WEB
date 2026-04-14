@@ -12,6 +12,7 @@ from app.services import ai_facade
 from app.services.ai_facade import (
     build_ai_runtime_diagnostic_snapshot,
     build_model_connection_validation_snapshot,
+    build_recommendation_debug_payload,
     generate_recommendation_batch,
     get_ai_health,
     get_ai_runtime_config_snapshot,
@@ -40,6 +41,78 @@ class _MockResponse:
 
 
 class AiFacadeContractTests(SimpleTestCase):
+    def test_build_recommendation_debug_payload_prefers_explicit_question_answers(self):
+        payload = build_recommendation_debug_payload(
+            survey_data={
+                "target_length": "medium",
+                "target_vibe": "natural",
+                "question_answers": {
+                    "q1": "중간 길이",
+                    "q2": "레이어감 있는 스타일",
+                    "q3": "",
+                    "q4": "끝선 위주 자연스러운 컬",
+                    "q5": None,
+                    "q6": "적당히 변화를 주고 싶음",
+                },
+            },
+            analysis_data={},
+        )
+
+        self.assertEqual(payload["survey_data"]["question_answer_count"], 4)
+        self.assertEqual(payload["survey_data"]["question_answer_count_source"], "explicit")
+        self.assertEqual(payload["survey_data"]["question_answer_total"], 6)
+        self.assertEqual(payload["runpod_payload"]["request_payload_preview"]["hairstyle_text"], "medium natural")
+        self.assertIn("hairstyle_text=medium natural", payload["runpod_payload"]["prompt_text"])
+        self.assertIn("preference_text=medium, natural", payload["runpod_payload"]["prompt_text"])
+        self.assertIn(
+            "face_ratios=[unavailable in snapshot]",
+            payload["direct_runpod_payload"]["prompt_text"],
+        )
+
+    def test_build_recommendation_debug_payload_infers_answer_count_from_normalized_preferences(self):
+        payload = build_recommendation_debug_payload(
+            survey_data={
+                "target_length": "medium",
+                "target_vibe": "natural",
+                "scalp_type": "straight",
+                "hair_colour": "black",
+                "budget_range": "low",
+                "question_answers": {},
+                "survey_profile": {},
+            },
+            analysis_data={
+                "landmark_snapshot": {
+                    "face_bbox": {"width": 100, "height": 140},
+                    "landmarks": {
+                        "left_eye": {"point": {"x": 20, "y": 40}},
+                        "right_eye": {"point": {"x": 80, "y": 40}},
+                        "mouth_center": {"point": {"x": 50, "y": 90}},
+                        "chin_center": {"point": {"x": 50, "y": 130}},
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(payload["survey_data"]["question_answer_count"], 6)
+        self.assertEqual(
+            payload["survey_data"]["question_answer_count_source"],
+            "inferred_from_normalized_preferences",
+        )
+        self.assertEqual(payload["survey_data"]["question_answer_total"], 6)
+        self.assertEqual(
+            payload["direct_runpod_payload"]["request_payload_preview"]["face_ratios"],
+            {
+                "cheekbone_to_height": 0.4286,
+                "jaw_to_height": 0.2857,
+                "temple_to_height": 0.7143,
+                "jaw_to_cheekbone": 1.6667,
+            },
+        )
+        self.assertIn(
+            'face_ratios={"cheekbone_to_height": 0.4286, "jaw_to_cheekbone": 1.6667, "jaw_to_height": 0.2857, "temple_to_height": 0.7143}',
+            payload["direct_runpod_payload"]["prompt_text"],
+        )
+
     @patch.dict(
         os.environ,
         {
