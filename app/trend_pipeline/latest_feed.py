@@ -355,6 +355,48 @@ def _runpod_latest_poll_interval() -> float:
         return DEFAULT_RUNPOD_LATEST_POLL_INTERVAL
 
 
+def _latest_trends_cache_seconds() -> int:
+    raw = os.environ.get("LATEST_TRENDS_CACHE_SECONDS") or _get_django_setting("LATEST_TRENDS_CACHE_SECONDS", "60")
+    try:
+        return max(0, int(str(raw).strip()))
+    except (TypeError, ValueError):
+        return 60
+
+
+def _latest_trends_cache_key(limit: int) -> str:
+    prefix = os.environ.get("REDIS_KEY_PREFIX") or _get_django_setting("REDIS_KEY_PREFIX", "mirrai")
+    normalized_prefix = str(prefix or "mirrai").strip() or "mirrai"
+    remote_enabled = "1" if _runpod_latest_enabled() else "0"
+    return f"{normalized_prefix}:cache:latest-trends:v1:limit:{int(limit)}:remote-enabled:{remote_enabled}"
+
+
+def _get_latest_trends_cached(limit: int) -> dict[str, Any] | None:
+    if _latest_trends_cache_seconds() <= 0:
+        return None
+
+    try:
+        from app.services.runtime_cache import get_cached_payload
+
+        payload = get_cached_payload(_latest_trends_cache_key(limit))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _set_latest_trends_cached(limit: int, payload: dict[str, Any]) -> dict[str, Any]:
+    timeout = _latest_trends_cache_seconds()
+    if timeout <= 0:
+        return payload
+
+    try:
+        from app.services.runtime_cache import set_cached_payload
+
+        set_cached_payload(_latest_trends_cache_key(limit), payload, timeout=timeout)
+    except Exception:
+        return payload
+    return payload
+
+
 def _source_slug(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
 
@@ -835,9 +877,14 @@ def _attach_korean_fields(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
+    limit = max(1, min(int(limit), 5))
+    cached_payload = _get_latest_trends_cached(limit)
+    if cached_payload is not None:
+        return cached_payload
+
     remote_payload = _load_runpod_latest_trends(limit=limit)
     if remote_payload is not None:
-        return remote_payload
+        return _set_latest_trends_cached(limit, remote_payload)
 
     source_label = "chromadb_trends"
     raw_items = _iter_chroma_items()
@@ -885,9 +932,10 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
 
     localized_items = _attach_korean_fields(selected_items)
 
-    return {
+    payload = {
         "status": "ready",
         "source": source_label,
         "count": len(localized_items),
         "items": localized_items,
     }
+    return _set_latest_trends_cached(limit, payload)
