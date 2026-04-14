@@ -2,27 +2,44 @@ from __future__ import annotations
 
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.views.decorators.cache import never_cache
 
-from app.front_views import admin_dashboard_page, designer_dashboard_page
+from app.front_views import admin_dashboard_page, admin_mypage_page, designer_dashboard_page
 from app.session_state import (
     can_access_designer_dashboard,
-    can_access_owner_dashboard,
     get_session_admin,
     get_session_designer,
     revoke_designer_dashboard,
 )
 
 
+@never_cache
 def gated_partner_dashboard(request):
+    """파트너 대시보드 게이트.
+
+    매장 세션이 없으면 로그인 페이지로.
+    PIN 인증 여부는 base_site.html의 JS 모달이 클라이언트 측에서 처리.
+    """
     admin = get_session_admin(request=request)
     if admin is None:
         return redirect("partner_index")
-    
-    # 매장 관리자 권한이 있다면 즉시 대시보드 표시
-    # (이미 admin_login 또는 partner_verify 단계에서 allow_owner_dashboard가 호출됨)
     return admin_dashboard_page(request)
 
 
+@never_cache
+def gated_partner_mypage(request):
+    """내 페이지 게이트.
+
+    매장 세션이 없으면 로그인 페이지로.
+    PIN 인증 여부는 base_site.html의 JS 모달이 클라이언트 측에서 처리.
+    """
+    admin = get_session_admin(request=request)
+    if admin is None:
+        return redirect("partner_index")
+    return admin_mypage_page(request)
+
+
+@never_cache
 def gated_partner_staff_dashboard(request):
     designer = get_session_designer(request=request)
     if designer is None:

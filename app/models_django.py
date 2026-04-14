@@ -1,6 +1,12 @@
+from django.contrib.auth.hashers import make_password
 from django.db import models
 import uuid
 from app.services.age_profile import build_age_profile
+
+
+def default_admin_pin_hash() -> str:
+    return make_password("0000")
+
 
 class AdminAccount(models.Model):
     id = models.UUIDField(primary_key=True, db_column='shop_id', default=uuid.uuid4)
@@ -9,7 +15,7 @@ class AdminAccount(models.Model):
     biz_number = models.CharField(max_length=20, unique=True, null=True, blank=True)
     owner_phone = models.CharField(max_length=20, null=True, blank=True)
     password = models.CharField(max_length=255, null=True, blank=True)
-    admin_pin = models.CharField(max_length=255, default="0000")
+    admin_pin = models.CharField(max_length=255, default=default_admin_pin_hash)
     created_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(null=True, blank=True)
     backend_admin_id = models.BigIntegerField(null=True, blank=True)

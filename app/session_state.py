@@ -31,6 +31,7 @@ DESIGNER_ID_SESSION_KEY = "designer_id"
 DESIGNER_LEGACY_ID_SESSION_KEY = "designer_legacy_id"
 DESIGNER_NAME_SESSION_KEY = "designer_name"
 OWNER_DASHBOARD_ALLOWED_SESSION_KEY = "owner_dashboard_allowed"
+OWNER_MYPAGE_ALLOWED_SESSION_KEY = "owner_mypage_allowed"
 DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY = "designer_dashboard_allowed"
 
 
@@ -53,6 +54,7 @@ def clear_customer_session(*, request: HttpRequest) -> None:
     request.session.pop(CUSTOMER_LEGACY_ID_SESSION_KEY, None)
     request.session.pop(CUSTOMER_NAME_SESSION_KEY, None)
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session[OWNER_MYPAGE_ALLOWED_SESSION_KEY] = False
     request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
 
@@ -94,6 +96,7 @@ def set_admin_session(*, request: HttpRequest, admin: AdminAccount) -> None:
     request.session[ADMIN_STORE_NAME_SESSION_KEY] = admin.store_name
     request.session[ADMIN_NAME_SESSION_KEY] = admin.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session[OWNER_MYPAGE_ALLOWED_SESSION_KEY] = False
     
     # 매장 세션은 24시간 유지
     request.session.set_expiry(24 * 60 * 60)
@@ -106,6 +109,7 @@ def clear_admin_session(*, request: HttpRequest) -> None:
     request.session.pop(ADMIN_STORE_NAME_SESSION_KEY, None)
     request.session.pop(ADMIN_NAME_SESSION_KEY, None)
     request.session.pop(OWNER_DASHBOARD_ALLOWED_SESSION_KEY, None)
+    request.session.pop(OWNER_MYPAGE_ALLOWED_SESSION_KEY, None)
     request.session.modified = True
 
 
@@ -147,6 +151,7 @@ def set_designer_session(*, request: HttpRequest, designer: Designer) -> None:
     request.session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
     request.session[DESIGNER_NAME_SESSION_KEY] = designer.name
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session[OWNER_MYPAGE_ALLOWED_SESSION_KEY] = False
     request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = True
     
     # 디자이너 인증 세션은 30분 유지
@@ -159,6 +164,7 @@ def clear_designer_session(*, request: HttpRequest) -> None:
     request.session.pop(DESIGNER_LEGACY_ID_SESSION_KEY, None)
     request.session.pop(DESIGNER_NAME_SESSION_KEY, None)
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
+    request.session[OWNER_MYPAGE_ALLOWED_SESSION_KEY] = False
     request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
 
@@ -194,18 +200,54 @@ def get_session_designer(*, request: HttpRequest) -> Designer | None:
     return None
 
 
-def allow_owner_dashboard(*, request: HttpRequest) -> None:
-    request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = True
+def _set_owner_scope(*, request: HttpRequest, session_key: str, allowed: bool) -> None:
+    request.session[session_key] = allowed
     request.session.modified = True
+
+
+def allow_owner_dashboard(*, request: HttpRequest) -> None:
+    _set_owner_scope(
+        request=request,
+        session_key=OWNER_DASHBOARD_ALLOWED_SESSION_KEY,
+        allowed=True,
+    )
 
 
 def revoke_owner_dashboard(*, request: HttpRequest) -> None:
-    request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
-    request.session.modified = True
+    _set_owner_scope(
+        request=request,
+        session_key=OWNER_DASHBOARD_ALLOWED_SESSION_KEY,
+        allowed=False,
+    )
 
 
 def can_access_owner_dashboard(*, request: HttpRequest) -> bool:
     return bool(request.session.get(OWNER_DASHBOARD_ALLOWED_SESSION_KEY))
+
+
+def allow_owner_mypage(*, request: HttpRequest) -> None:
+    _set_owner_scope(
+        request=request,
+        session_key=OWNER_MYPAGE_ALLOWED_SESSION_KEY,
+        allowed=True,
+    )
+
+
+def revoke_owner_mypage(*, request: HttpRequest) -> None:
+    _set_owner_scope(
+        request=request,
+        session_key=OWNER_MYPAGE_ALLOWED_SESSION_KEY,
+        allowed=False,
+    )
+
+
+def can_access_owner_mypage(*, request: HttpRequest) -> bool:
+    return bool(request.session.get(OWNER_MYPAGE_ALLOWED_SESSION_KEY))
+
+
+def revoke_all_owner_scopes(*, request: HttpRequest) -> None:
+    revoke_owner_dashboard(request=request)
+    revoke_owner_mypage(request=request)
 
 
 def allow_designer_dashboard(*, request: HttpRequest) -> None:

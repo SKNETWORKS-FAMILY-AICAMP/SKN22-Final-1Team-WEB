@@ -360,7 +360,7 @@ class FrontCompatibilityTests(APITestCase):
         DEBUG=True,
         STATICFILES_STORAGE="django.contrib.staticfiles.storage.StaticFilesStorage",
     )
-    def test_partner_dashboard_redirects_shop_only_session_back_to_partner_login(self):
+    def test_partner_dashboard_renders_pin_gate_for_shop_only_session(self):
         admin = self._create_admin(
             name="Dashboard Owner",
             store_name="MirrAI Dashboard",
@@ -378,14 +378,15 @@ class FrontCompatibilityTests(APITestCase):
 
         response = self.client.get("/partner/dashboard/")
 
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(response["Location"].endswith("/partner/"))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["is_shop_owner"])
+        self.assertContains(response, 'data-admin-gate-scope="dashboard"', html=False)
 
     @override_settings(
         DEBUG=True,
         STATICFILES_STORAGE="django.contrib.staticfiles.storage.StaticFilesStorage",
     )
-    def test_partner_dashboard_enter_allows_shop_owner_session(self):
+    def test_partner_dashboard_enter_allows_dashboard_scope_only(self):
         admin = self._create_admin(
             name="Dashboard Owner",
             store_name="MirrAI Dashboard",
@@ -401,17 +402,21 @@ class FrontCompatibilityTests(APITestCase):
         )
         self._set_admin_session(admin)
 
-        enter_response = self.client.post("/partner/dashboard/enter/", {"password": "pw1234!!"})
+        enter_response = self.client.post("/partner/dashboard/enter/", {"pin": "0000", "scope": "dashboard"})
         dashboard_response = self.client.get("/partner/dashboard/")
+        session = self.client.session
 
         self.assertEqual(enter_response.status_code, 200)
         self.assertEqual(enter_response.json()["status"], "success")
         self.assertEqual(enter_response.json()["redirect"], "/partner/dashboard/")
+        self.assertTrue(session["owner_dashboard_allowed"])
+        self.assertFalse(session.get("owner_mypage_allowed", False))
         self.assertEqual(dashboard_response.status_code, 200)
+        self.assertTrue(dashboard_response.context["is_shop_owner"])
         self.assertContains(dashboard_response, 'id="showReportBtn"', html=False)
         self.assertContains(dashboard_response, "assignCustomer(")
 
-    def test_partner_dashboard_enter_requires_password_reentry(self):
+    def test_partner_dashboard_enter_requires_pin_reentry(self):
         admin = self._create_admin(
             name="Dashboard Owner",
             store_name="MirrAI Dashboard",
@@ -427,10 +432,93 @@ class FrontCompatibilityTests(APITestCase):
         )
         self._set_admin_session(admin)
 
-        response = self.client.post("/partner/dashboard/enter/", {"password": "wrong"})
+        response = self.client.post("/partner/dashboard/enter/", {"pin": "1111", "scope": "dashboard"})
 
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["message"], "비밀번호를 다시 확인해 주세요.")
+        self.assertEqual(response.json()["message"], "보안키가 일치하지 않습니다.")
+
+    def test_partner_dashboard_enter_allows_mypage_scope_only(self):
+        admin = self._create_admin(
+            name="Dashboard Owner",
+            store_name="MirrAI Dashboard",
+            role="owner",
+            phone="01055556663",
+            business_number=build_valid_business_number("920456780"),
+            password_hash=make_password("pw1234!!"),
+            consent_snapshot={
+                "agree_terms": True,
+                "agree_privacy": True,
+                "agree_third_party_sharing": True,
+            },
+        )
+        self._set_admin_session(admin)
+
+        enter_response = self.client.post("/partner/dashboard/enter/", {"pin": "0000", "scope": "mypage"})
+        mypage_response = self.client.get("/partner/mypage/")
+        session = self.client.session
+
+        self.assertEqual(enter_response.status_code, 200)
+        self.assertEqual(enter_response.json()["status"], "success")
+        self.assertEqual(enter_response.json()["redirect"], "/partner/mypage/")
+        self.assertTrue(session["owner_mypage_allowed"])
+        self.assertFalse(session.get("owner_dashboard_allowed", False))
+        self.assertEqual(mypage_response.status_code, 200)
+        self.assertTrue(mypage_response.context["is_mypage_owner"])
+
+    def test_partner_dashboard_enter_upgrades_plaintext_admin_pin(self):
+        admin = self._create_admin(
+            name="Dashboard Owner",
+            store_name="MirrAI Dashboard",
+            role="owner",
+            phone="01055556662",
+            business_number=build_valid_business_number("919456780"),
+            password_hash=make_password("pw1234!!"),
+            consent_snapshot={
+                "agree_terms": True,
+                "agree_privacy": True,
+                "agree_third_party_sharing": True,
+            },
+        )
+        AdminAccount.objects.filter(backend_admin_id=admin.id).update(admin_pin="1234")
+        self._set_admin_session(admin)
+
+        response = self.client.post("/partner/dashboard/enter/", {"pin": "1234", "scope": "dashboard"})
+        persisted_admin = AdminAccount.objects.get(backend_admin_id=admin.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(persisted_admin.admin_pin, "1234")
+        self.assertTrue(check_password("1234", persisted_admin.admin_pin))
+
+    def test_partner_mypage_change_pin_hashes_new_value(self):
+        admin = self._create_admin(
+            name="Dashboard Owner",
+            store_name="MirrAI Dashboard",
+            role="owner",
+            phone="01055556661",
+            business_number=build_valid_business_number("918456780"),
+            password_hash=make_password("pw1234!!"),
+            consent_snapshot={
+                "agree_terms": True,
+                "agree_privacy": True,
+                "agree_third_party_sharing": True,
+            },
+        )
+        self._set_admin_session(admin)
+
+        response = self.client.post(
+            "/partner/mypage/",
+            {
+                "action": "change_pin",
+                "current_pin": "0000",
+                "admin_pin": "2468",
+            },
+        )
+        persisted_admin = AdminAccount.objects.get(backend_admin_id=admin.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "success")
+        self.assertTrue(check_password("2468", persisted_admin.admin_pin))
+        self.assertFalse(response.json()["is_default_admin_pin"])
 
     def test_partner_dashboard_redirects_designer_to_staff_dashboard(self):
         admin = self._create_admin(

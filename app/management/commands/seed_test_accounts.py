@@ -219,7 +219,7 @@ class Command(BaseCommand):
         existing.biz_number = business_number
         existing.owner_phone = "01080001000"
         existing.password = make_password("1234")
-        existing.admin_pin = "1000"
+        existing.admin_pin = make_password("1000")
         existing.name = "테스트 매장 관리자"
         existing.store_name = "MirrAI Test Shop"
         existing.role = "owner"
