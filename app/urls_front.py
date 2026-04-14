@@ -34,7 +34,7 @@ from app.front_views import (
     privacy_policy_page,
     terms_page,
 )
-from app.dashboard_gate_views import gated_partner_dashboard, gated_partner_staff_dashboard
+from app.dashboard_gate_views import gated_partner_dashboard, gated_partner_mypage, gated_partner_staff_dashboard
 
 
 urlpatterns = [
@@ -68,7 +68,7 @@ urlpatterns = [
     path("partner/select-designer/", partner_select_designer, name="partner_select_designer"),
     path("partner/dashboard/enter/", enter_partner_dashboard, name="partner_dashboard_enter"),
     path("partner/dashboard/", gated_partner_dashboard, name="partner_dashboard"),
-    path("partner/mypage/", admin_mypage_page, name="partner_mypage"),
+    path("partner/mypage/", gated_partner_mypage, name="partner_mypage"),
     path("partner/staff/", gated_partner_staff_dashboard, name="partner_staff_dashboard"),
     path(
         "partner/customer-detail/<int:pk>/",

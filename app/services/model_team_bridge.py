@@ -5,6 +5,7 @@ from functools import lru_cache
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Iterable
 
+from django.contrib.auth.hashers import make_password
 from django.db import DataError, connection, transaction
 from django.db.models import Count, Max, Q
 from django.utils.dateparse import parse_datetime
@@ -684,7 +685,7 @@ def create_admin_record(*, name: str, store_name: str, role: str, phone: str, bu
         biz_number=business_number,
         owner_phone=_normalize_phone(phone),
         password=password_hash,
-        admin_pin="0000",
+        admin_pin=make_password("0000"),
         created_at=created_at.isoformat(),
         updated_at=created_at.isoformat(),
         backend_admin_id=backend_admin_id,

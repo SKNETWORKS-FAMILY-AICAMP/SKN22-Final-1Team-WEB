@@ -98,14 +98,14 @@
               {% if request.session.admin_id and not request.session.designer_id %}
                 {# 오직 매장 로그인 상태에서만: 페이지별 노출 조건 분기 #}
                 {% if request.resolver_match.url_name == 'index' or request.resolver_match.url_name == 'partner_designer_select' %}
-                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true">내 페이지</a>
-                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true">파트너 센터</a>
+                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="mypage">내 페이지</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="dashboard">파트너 센터</a>
                 {% elif request.resolver_match.url_name == 'partner_mypage' %}
-                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true">파트너 센터</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="dashboard">파트너 센터</a>
                 {% elif request.resolver_match.url_name == 'partner_dashboard' %}
-                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true">내 페이지</a>
+                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="mypage">내 페이지</a>
                 {% else %}
-                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true">파트너 센터</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="dashboard">파트너 센터</a>
                 {% endif %}
               {% elif not request.session.admin_id and not request.session.designer_id %}
                 {# 아무도 로그인하지 않은 경우에만 로그인 유도 #}
@@ -270,21 +270,21 @@
         </div>
 
         <div class="keypad-grid">
-          <button class="keypad-btn" onclick="appendPin('1')">1</button>
-          <button class="keypad-btn" onclick="appendPin('2')">2</button>
-          <button class="keypad-btn" onclick="appendPin('3')">3</button>
-          <button class="keypad-btn" onclick="appendPin('4')">4</button>
-          <button class="keypad-btn" onclick="appendPin('5')">5</button>
-          <button class="keypad-btn" onclick="appendPin('6')">6</button>
-          <button class="keypad-btn" onclick="appendPin('7')">7</button>
-          <button class="keypad-btn" onclick="appendPin('8')">8</button>
-          <button class="keypad-btn" onclick="appendPin('9')">9</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('1')">1</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('2')">2</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('3')">3</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('4')">4</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('5')">5</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('6')">6</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('7')">7</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('8')">8</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('9')">9</button>
           <div class="keypad-btn btn-empty"></div>
-          <button class="keypad-btn" onclick="appendPin('0')">0</button>
-          <button class="keypad-btn btn-back" onclick="backspacePin()">삭제</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('0')">0</button>
+          <button class="keypad-btn btn-back" onclick="adminGateBackspacePin()">삭제</button>
         </div>
 
-        <button onclick="closeAdminPinModal()" class="keypad-close">취소 (닫기)</button>
+        <button onclick="adminGateCloseModal()" class="keypad-close">취소 (닫기)</button>
       </div>
     </div>
 
@@ -294,40 +294,83 @@
       (function() {
         let currentPin = '';
         let pinTargetType = ''; 
-        let pinTargetId = '';   
+        let pinTargetId = '';
+        let pinTargetScope = 'dashboard';
         const pinModal = document.getElementById('adminPinModal');
         const pinDots = document.querySelectorAll('#adminPinModal .keypad-dot');
         const pinSubtext = document.getElementById('pinModalSubtext');
 
-        window.openAdminPinModal = function(type, id = '', message = '') {
+        const submitAdminGatePin = async function() {
+          if (!currentPin || currentPin.length < 4) return;
+
+          const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+
+          try {
+            const response = await fetch('/partner/dashboard/enter/', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken
+              },
+              body: `pin=${encodeURIComponent(currentPin)}&scope=${encodeURIComponent(pinTargetScope)}`
+            });
+            const data = await response.json();
+            if (data.status === 'success') {
+              window.adminGateCloseModal();
+              if (pinTargetType === 'header' || pinTargetType === 'current-view') {
+                if (window.location.pathname + window.location.search === pinTargetId) {
+                  window.location.reload();
+                } else {
+                  window.location.href = pinTargetId;
+                }
+              } else if (pinTargetType === 'dashboard') {
+                window.location.href = data.redirect || '/partner/dashboard/';
+              } else if (pinTargetType === 'detail') {
+                window.location.href = `/partner/customer-detail/${pinTargetId}/`;
+              } else {
+                window.location.reload();
+              }
+            } else {
+              alert(data.message || '보안키가 일치하지 않습니다.');
+              window.adminGateClearPin();
+            }
+          } catch (error) {
+            console.error('PIN submit error:', error);
+            alert('인증 처리 중 오류가 발생했습니다.');
+            window.adminGateClearPin();
+          }
+        };
+
+        window.openAdminPinModal = function(type, id = '', message = '', scope = 'dashboard') {
           currentPin = '';
           pinTargetType = type;
           pinTargetId = id;
+          pinTargetScope = scope;
           if (pinSubtext && message) pinSubtext.textContent = message;
           updatePinDots();
           if (pinModal) pinModal.classList.add('active');
         };
 
-        window.closeAdminPinModal = function() {
+        window.adminGateCloseModal = function() {
           if (pinModal) pinModal.classList.remove('active');
         };
 
-        window.appendPin = function(num) {
+        window.adminGateAppendPin = function(num) {
           if (currentPin.length < 4) {
             currentPin += num;
             updatePinDots();
             if (currentPin.length === 4) {
-              setTimeout(submitPin, 300);
+              setTimeout(submitAdminGatePin, 300);
             }
           }
         };
 
-        window.clearPin = function() {
+        window.adminGateClearPin = function() {
           currentPin = '';
           updatePinDots();
         };
 
-        window.backspacePin = function() {
+        window.adminGateBackspacePin = function() {
           if (currentPin.length > 0) {
             currentPin = currentPin.slice(0, -1);
             updatePinDots();
@@ -341,72 +384,45 @@
           });
         }
 
-        window.submitPin = async function() {
-          if (!currentPin || currentPin.length < 4) return;
-          
-          const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
-          
-          try {
-            const response = await fetch('/partner/dashboard/enter/', {
-              method: 'POST',
-              headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded', 
-                'X-CSRFToken': csrfToken 
-              },
-              body: `password=${encodeURIComponent(currentPin)}`
-            });
-            const data = await response.json();
-            if (data.status === 'success') {
-              if (pinTargetType === 'header') {
-                window.location.href = pinTargetId;
-              } else if (pinTargetType === 'dashboard') {
-                window.location.href = data.redirect || '/partner/dashboard/';
-              } else if (pinTargetType === 'detail') {
-                window.location.href = `/partner/customer-detail/${pinTargetId}/`;
-              } else {
-                window.location.reload();
-              }
-            } else {
-              alert(data.message || '보안키가 일치하지 않습니다.');
-              window.clearPin();
-            }
-          } catch (error) {
-            console.error('PIN submit error:', error);
-            alert('인증 처리 중 오류가 발생했습니다.');
-            window.clearPin();
-          }
-        };
-
         document.addEventListener('DOMContentLoaded', function() {
           const gateLinks = document.querySelectorAll('[data-admin-gate="true"]');
-          const isOwnerDashboardAllowed = {% if request.session.owner_dashboard_allowed %}true{% else %}false{% endif %};
+          const allowedScopes = {
+            dashboard: {% if request.session.owner_dashboard_allowed %}true{% else %}false{% endif %},
+            mypage: {% if request.session.owner_mypage_allowed %}true{% else %}false{% endif %},
+          };
           const currentUrlName = "{{ request.resolver_match.url_name }}";
           
-          // 1. 클릭 게이트웨이 로직
           gateLinks.forEach(link => {
             link.addEventListener('click', function(e) {
-              if (!isOwnerDashboardAllowed) {
+              const targetScope = this.dataset.adminGateScope || 'dashboard';
+              if (!allowedScopes[targetScope]) {
                 e.preventDefault();
                 const targetUrl = this.href;
-                window.openAdminPinModal('header', targetUrl, '보안키를 입력해 주세요.');
+                const message = targetScope === 'mypage'
+                  ? '내 페이지 접근을 위해 관리자 보안키를 입력해 주세요.'
+                  : '파트너 센터 접근을 위해 관리자 보안키를 입력해 주세요.';
+                window.openAdminPinModal('header', targetUrl, message, targetScope);
               }
             });
           });
 
-          // 2. 페이지 로드 시 자동 체크 로직 (보안 영역 진입 시 세션 체크)
-          const protectedViewNames = [
-            'partner_dashboard', 
-            'partner_mypage', 
-            'partner_designer_management',
-            'partner_designer_signup',
-            'partner_designer_delete',
-            'partner_customer_detail',
-            'partner_customer_reanalysis_start'
-          ];
-          
-          if (protectedViewNames.includes(currentUrlName) && !isOwnerDashboardAllowed) {
-            // 보호 영역인데 세션이 없다면 즉시 모달 트리거
-            window.openAdminPinModal('dashboard', '', '보안을 위해 관리자 보안키를 입력해 주세요.');
+          const protectedViewScopeMap = {
+            partner_dashboard: 'dashboard',
+            partner_designer_management: 'dashboard',
+            partner_designer_signup: 'dashboard',
+            partner_designer_delete: 'dashboard',
+            partner_customer_detail: 'dashboard',
+            partner_customer_reanalysis_start: 'dashboard',
+            partner_mypage: 'mypage',
+          };
+
+          const currentScope = protectedViewScopeMap[currentUrlName];
+          if (currentScope && !allowedScopes[currentScope]) {
+            const currentUrl = window.location.pathname + window.location.search;
+            const message = currentScope === 'mypage'
+              ? '내 페이지 접근을 위해 관리자 보안키를 입력해 주세요.'
+              : '보안을 위해 관리자 보안키를 입력해 주세요.';
+            window.openAdminPinModal('current-view', currentUrl, message, currentScope);
           }
         });
       })();

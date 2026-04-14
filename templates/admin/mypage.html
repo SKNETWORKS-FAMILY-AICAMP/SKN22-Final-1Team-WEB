@@ -5,53 +5,160 @@
 
 {% block extra_head %}
 <style>
-  /* Admin PIN Change Modal Styles */
-  .pin-change-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(8px);
+  .mypage-shell {
+    display: block;
+  }
+
+  .mypage-panel {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 48px !important;
+    border-radius: 24px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
+  }
+
+  .mypage-section + .mypage-section {
+    margin-top: 40px;
+  }
+
+  .mypage-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1.5px solid var(--line);
+  }
+
+  .mypage-section-head h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .mypage-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .mypage-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .mypage-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  .mypage-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: right;
+  }
+
+  .mypage-security-card {
+    padding: 24px;
+    background: var(--bg-light);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .mypage-security-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 24px;
+    flex: 0 0 auto;
+  }
+
+  .mypage-security-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .mypage-security-copy {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  .pin-change-overlay,
+  #warningOverlay {
+    position: fixed;
+    inset: 0;
+    padding: 24px;
+    box-sizing: border-box;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.82);
+    backdrop-filter: blur(8px);
+  }
+
+  .pin-change-overlay {
     z-index: 2000;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
   }
-  .pin-change-overlay.is-active {
-    opacity: 1;
-    visibility: visible;
+
+  #warningOverlay {
+    z-index: 2100;
   }
-  .pin-change-container {
-    width: 320px;
+
+  .pin-change-overlay.is-active,
+  #warningOverlay.is-active {
+    display: flex;
+  }
+
+  .pin-change-container,
+  .warning-container {
+    width: min(100%, 340px);
     background: var(--bg-dark);
     border: 1px solid var(--line);
     border-radius: 24px;
-    padding: 32px;
-    text-align: center;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
   }
+
+  .pin-change-container {
+    padding: 32px;
+    text-align: center;
+  }
+
   .pin-change-title {
+    margin: 0 0 8px;
     font-size: 18px;
     font-weight: 700;
     color: #fff;
-    margin-bottom: 8px;
   }
+
   .pin-change-subtitle {
+    margin: 0 0 24px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.5);
-    margin-bottom: 24px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.55);
   }
+
   .pin-change-display {
     display: flex;
     justify-content: center;
     gap: 12px;
     margin-bottom: 32px;
   }
+
   .pin-change-dot {
     width: 16px;
     height: 16px;
@@ -59,15 +166,18 @@
     background: rgba(255, 255, 255, 0.1);
     transition: all 0.2s ease;
   }
+
   .pin-change-dot.is-filled {
     background: var(--accent-neon);
     box-shadow: 0 0 10px var(--accent-neon);
   }
+
   .pin-change-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
   }
+
   .pin-change-btn {
     aspect-ratio: 1;
     border-radius: 50%;
@@ -82,57 +192,92 @@
     justify-content: center;
     transition: all 0.15s ease;
   }
+
   .pin-change-btn:active {
     background: rgba(255, 255, 255, 0.2);
     transform: scale(0.92);
   }
+
   .pin-change-btn.btn-empty {
     background: transparent;
     border: none;
     cursor: default;
   }
+
   .pin-change-btn.btn-back {
     font-size: 14px;
     color: var(--status-red);
   }
+
   .pin-change-close {
     margin-top: 24px;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.4);
-    background: none;
-    border: none;
-    cursor: pointer;
-    text-decoration: underline;
-  }
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.45);
     background: none;
     border: none;
     cursor: pointer;
     text-decoration: underline;
   }
 
-  /* Warning Popup Styles */
-  #warningOverlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 2100; opacity: 0; visibility: hidden; transition: all 0.3s ease;
-  }
-  #warningOverlay.is-active { opacity: 1; visibility: visible; }
   .warning-container {
-    width: 340px; background: var(--bg-dark); border: 1px solid var(--line);
-    border-radius: 24px; padding: 40px 32px; text-align: center;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    padding: 40px 32px;
+    text-align: center;
   }
-  .warning-icon { font-size: 40px; margin-bottom: 20px; display: block; }
-  .warning-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 12px; line-height: 1.4; }
-  .warning-text { font-size: 14px; color: rgba(255, 255, 255, 0.6); margin-bottom: 32px; line-height: 1.6; }
+
+  .warning-icon {
+    font-size: 40px;
+    margin-bottom: 20px;
+    display: block;
+  }
+
+  .warning-title {
+    margin: 0 0 12px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: #fff;
+  }
+
+  .warning-text {
+    margin: 0 0 32px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.68);
+  }
+
   .warning-btn {
-    width: 100%; height: 52px; border-radius: 14px; border: none;
-    background: var(--accent-neon); color: var(--bg-dark);
-    font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+    width: 100%;
+    height: 52px;
+    border-radius: 14px;
+    border: none;
+    background: var(--accent-neon);
+    color: var(--bg-dark);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
   }
-  .warning-btn:active { transform: scale(0.96); }
+
+  .warning-btn:active {
+    transform: scale(0.97);
+  }
+
+  @media (max-width: 768px) {
+    .mypage-panel {
+      padding: 32px 24px !important;
+    }
+
+    .mypage-section-head,
+    .mypage-row,
+    .mypage-security-card {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .mypage-value {
+      text-align: left;
+    }
+  }
 </style>
 {% endblock %}
 
@@ -144,49 +289,49 @@
 {% endblock %}
 
 {% block content %}
-<div class="customer-layout" style="display: block;">
-  <div class="panel" style="max-width: 600px; margin: 0 auto; padding: 48px !important; border-radius: 24px !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;">
-
-    <div style="margin-bottom: 40px;">
-      <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 24px; color: var(--text-primary); border-bottom: 1.5px solid var(--line); padding-bottom: 12px;">기본 정보</h3>
-      <div style="display: flex; flex-direction: column; gap: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-secondary); font-size: 14px;">매장명</span>
-          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.store_name }}</span>
+<div class="customer-layout mypage-shell">
+  <div class="panel mypage-panel">
+    <section class="mypage-section">
+      <div class="mypage-section-head">
+        <h3>기본 정보</h3>
+      </div>
+      <div class="mypage-info-list">
+        <div class="mypage-row">
+          <span class="mypage-label">매장명</span>
+          <span class="mypage-value">{{ active_shop.store_name }}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-secondary); font-size: 14px;">관리자명</span>
-          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.name }}</span>
+        <div class="mypage-row">
+          <span class="mypage-label">관리자명</span>
+          <span class="mypage-value">{{ active_shop.name }}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-secondary); font-size: 14px;">연락처</span>
-          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.phone }}</span>
+        <div class="mypage-row">
+          <span class="mypage-label">연락처</span>
+          <span class="mypage-value">{{ active_shop.phone }}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-secondary); font-size: 14px;">사업자번호</span>
-          <span style="color: var(--text-primary); font-weight: 600;">{{ active_shop.business_number }}</span>
+        <div class="mypage-row">
+          <span class="mypage-label">사업자번호</span>
+          <span class="mypage-value">{{ active_shop.business_number }}</span>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div>
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1.5px solid var(--line); padding-bottom: 12px;">
-        <h3 style="font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0;">보안 설정</h3>
-        <button id="openKeypadBtn" class="btn btn-dark" style="height: 36px; padding: 0 16px; font-size: 13px; font-weight: 600;">보안키 변경</button>
+    <section class="mypage-section">
+      <div class="mypage-section-head">
+        <h3>보안 설정</h3>
+        <button id="openKeypadBtn" type="button" class="btn btn-dark" style="height: 36px; padding: 0 16px; font-size: 13px; font-weight: 600;">보안키 변경</button>
       </div>
 
-      <div style="padding: 24px; background: var(--bg-light); border-radius: 16px; display: flex; align-items: center; gap: 16px;">
-        <div style="width: 48px; height: 48px; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px;">🔑</div>
+      <div class="mypage-security-card">
+        <div class="mypage-security-icon">🔑</div>
         <div>
-          <p style="margin: 0; font-size: 15px; font-weight: 600; color: var(--text-primary);">관리자 보안키 (PIN)</p>
-          <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--text-secondary);">매장 내 민감한 정보 접근 시 사용되는 4자리 보안키입니다.</p>
+          <p class="mypage-security-title">관리자 보안키 (PIN)</p>
+          <p class="mypage-security-copy">매장 내 민감한 정보 접근 시 사용되는 4자리 보안키입니다.</p>
         </div>
       </div>
-    </div>
+    </section>
   </div>
 </div>
 
-<!-- PIN Change Modal -->
 <div id="pinChangeOverlay" class="pin-change-overlay">
   <div class="pin-change-container">
     <div id="pinChangeStepTitle" class="pin-change-title">보안키 확인</div>
@@ -200,31 +345,30 @@
     </div>
 
     <div class="pin-change-grid">
-      <button class="pin-change-btn" data-val="1">1</button>
-      <button class="pin-change-btn" data-val="2">2</button>
-      <button class="pin-change-btn" data-val="3">3</button>
-      <button class="pin-change-btn" data-val="4">4</button>
-      <button class="pin-change-btn" data-val="5">5</button>
-      <button class="pin-change-btn" data-val="6">6</button>
-      <button class="pin-change-btn" data-val="7">7</button>
-      <button class="pin-change-btn" data-val="8">8</button>
-      <button class="pin-change-btn" data-val="9">9</button>
+      <button type="button" class="pin-change-btn" data-val="1">1</button>
+      <button type="button" class="pin-change-btn" data-val="2">2</button>
+      <button type="button" class="pin-change-btn" data-val="3">3</button>
+      <button type="button" class="pin-change-btn" data-val="4">4</button>
+      <button type="button" class="pin-change-btn" data-val="5">5</button>
+      <button type="button" class="pin-change-btn" data-val="6">6</button>
+      <button type="button" class="pin-change-btn" data-val="7">7</button>
+      <button type="button" class="pin-change-btn" data-val="8">8</button>
+      <button type="button" class="pin-change-btn" data-val="9">9</button>
       <div class="pin-change-btn btn-empty"></div>
-      <button class="pin-change-btn" data-val="0">0</button>
-      <button class="pin-change-btn btn-back" id="pinChangeBack">삭제</button>
+      <button type="button" class="pin-change-btn" data-val="0">0</button>
+      <button type="button" class="pin-change-btn btn-back" id="pinChangeBack">삭제</button>
     </div>
 
-    <button id="closePinChangeBtn" class="pin-change-close">닫기</button>
+    <button id="closePinChangeBtn" type="button" class="pin-change-close">취소</button>
   </div>
 </div>
 
-<!-- Initial PIN Warning Popup -->
 <div id="warningOverlay">
   <div class="warning-container">
     <span class="warning-icon">⚠️</span>
     <div class="warning-title">보안 위험 알림</div>
-    <p class="warning-text">현재 보안키가 0000으로 셋팅 되어 있습니다.<br>보안이 취약하오니 보안키를 변경해주세요!</p>
-    <button id="goToChangePinBtn" class="warning-btn">보안키 변경하기</button>
+    <p class="warning-text">현재 보안키가 0000으로 설정되어 있습니다.<br>보안이 취약하오니 보안키를 변경해 주세요.</p>
+    <button id="goToChangePinBtn" type="button" class="warning-btn">보안키 변경하기</button>
   </div>
 </div>
 {% endblock %}
@@ -234,8 +378,8 @@
   (function() {
     'use strict';
 
-    const currentPin = "{{ active_shop.admin_pin|default:'' }}";
-    console.log("[MyPage] Loaded admin PIN:", currentPin);
+    const isMypageVerified = {% if is_mypage_owner %}true{% else %}false{% endif %};
+    let isDefaultAdminPin = {% if is_default_admin_pin %}true{% else %}false{% endif %};
     const overlay = document.getElementById('pinChangeOverlay');
     const warningOverlay = document.getElementById('warningOverlay');
     const goToChangePinBtn = document.getElementById('goToChangePinBtn');
@@ -244,150 +388,196 @@
     const dots = document.querySelectorAll('.pin-change-dot');
     const titleEl = document.getElementById('pinChangeStepTitle');
     const subEl = document.getElementById('pinChangeStepSub');
-    const statusAlert = document.getElementById('statusAlert');
+    const keypadButtons = document.querySelectorAll('.pin-change-btn[data-val]');
+    const backBtn = document.getElementById('pinChangeBack');
 
-    let state = 'VERIFY_CURRENT'; // VERIFY_CURRENT -> ENTER_NEW -> CONFIRM_NEW
+    let state = 'VERIFY_CURRENT';
     let inputBuffer = '';
+    let verifiedCurrentPin = '';
     let newPinBuffer = '';
 
-    // 초기 방문 체크 (0000인 경우 커스텀 팝업 노출)
     window.addEventListener('load', () => {
-      if (currentPin === '0000') {
-        if (warningOverlay) warningOverlay.classList.add('is-active');
+      if (isMypageVerified && isDefaultAdminPin && warningOverlay) {
+        warningOverlay.classList.add('is-active');
       }
     });
 
-    if (goToChangePinBtn) {
-      goToChangePinBtn.onclick = () => {
-        if (warningOverlay) warningOverlay.classList.remove('is-active');
-        openKeypad();
-      };
-    }
-
     function openKeypad() {
       resetKeypad();
+      if (warningOverlay) {
+        warningOverlay.classList.remove('is-active');
+      }
       overlay.classList.add('is-active');
     }
 
     function closeKeypad() {
       overlay.classList.remove('is-active');
+      if (isMypageVerified && isDefaultAdminPin && warningOverlay) {
+        warningOverlay.classList.add('is-active');
+      }
     }
 
     function resetKeypad() {
       state = 'VERIFY_CURRENT';
       inputBuffer = '';
+      verifiedCurrentPin = '';
       newPinBuffer = '';
       updateUI();
     }
 
     function updateUI() {
-      // Update Title & Subtitle based on state
       if (state === 'VERIFY_CURRENT') {
         titleEl.textContent = '현재 보안키 확인';
-        subEl.textContent = '현재 사용 중인 보안키 4자리를 입력하세요.';
+        subEl.textContent = '현재 사용 중인 보안키 4자리를 입력해 주세요.';
       } else if (state === 'ENTER_NEW') {
         titleEl.textContent = '새 보안키 설정';
-        subEl.textContent = '변경할 새로운 보안키 4자리를 입력하세요.';
+        subEl.textContent = '변경할 새로운 보안키 4자리를 입력해 주세요.';
       } else if (state === 'CONFIRM_NEW') {
         titleEl.textContent = '보안키 재확인';
-        subEl.textContent = '확인을 위해 새 보안키를 다시 입력하세요.';
+        subEl.textContent = '확인을 위해 새 보안키를 다시 입력해 주세요.';
       }
 
-      // Update dots
       dots.forEach((dot, idx) => {
         dot.classList.toggle('is-filled', idx < inputBuffer.length);
       });
     }
 
-    function handleInput(val) {
-      if (inputBuffer.length >= 4) return;
-      inputBuffer += val;
+    function handleInput(value) {
+      if (inputBuffer.length >= 4) {
+        return;
+      }
+
+      inputBuffer += value;
       updateUI();
 
       if (inputBuffer.length === 4) {
-        setTimeout(processStep, 300);
+        setTimeout(processStep, 250);
       }
     }
 
     function handleBack() {
-      if (inputBuffer.length > 0) {
-        inputBuffer = inputBuffer.slice(0, -1);
-        updateUI();
+      if (!inputBuffer.length) {
+        return;
       }
+
+      inputBuffer = inputBuffer.slice(0, -1);
+      updateUI();
+    }
+
+    async function verifyCurrentPin(pin) {
+      const formData = new URLSearchParams();
+      formData.append('action', 'verify_current_pin');
+      formData.append('current_pin', pin);
+
+      const response = await fetch(window.location.pathname, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: formData.toString(),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        alert(data.message || '현재 보안키가 일치하지 않습니다.');
+        return false;
+      }
+      return true;
     }
 
     async function processStep() {
       if (state === 'VERIFY_CURRENT') {
-        if (inputBuffer === currentPin) {
+        const verified = await verifyCurrentPin(inputBuffer);
+        if (verified) {
+          verifiedCurrentPin = inputBuffer;
           state = 'ENTER_NEW';
           inputBuffer = '';
           updateUI();
-        } else {
-          alert('현재 보안키가 일치하지 않습니다.');
-          inputBuffer = '';
-          updateUI();
+          return;
         }
-      } else if (state === 'ENTER_NEW') {
+
+        inputBuffer = '';
+        updateUI();
+        return;
+      }
+
+      if (state === 'ENTER_NEW') {
         newPinBuffer = inputBuffer;
         state = 'CONFIRM_NEW';
         inputBuffer = '';
         updateUI();
-      } else if (state === 'CONFIRM_NEW') {
-        if (inputBuffer === newPinBuffer) {
-          await finalizeChange(newPinBuffer);
-        } else {
-          alert('새 보안키가 일치하지 않습니다. 처음부터 다시 시도해 주세요.');
-          resetKeypad();
-        }
+        return;
       }
+
+      if (inputBuffer !== newPinBuffer) {
+        alert('새 보안키가 일치하지 않습니다. 처음부터 다시 시도해 주세요.');
+        resetKeypad();
+        return;
+      }
+
+      await finalizeChange(newPinBuffer);
     }
 
     async function finalizeChange(pin) {
       try {
         const formData = new URLSearchParams();
+        formData.append('action', 'change_pin');
+        formData.append('current_pin', verifiedCurrentPin);
         formData.append('admin_pin', pin);
 
         const response = await fetch(window.location.pathname, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': '{{ csrf_token }}',
           },
-          body: formData.toString()
+          body: formData.toString(),
         });
 
         const data = await response.json();
 
-        if (response.ok) {
-          alert(data.message || '보안키가 성공적으로 변경되었습니다.');
-          closeKeypad();
-          // 보안키 변경 후 최신 상태 유지를 위해 필요한 경우에만 새로고침 (선택 사항)
-          // window.location.reload();
-        } else {
-          // 서버에서 전달한 에러 메시지 표시
-          const errorMsg = data.message || '현재 사용 중인 보안키와 동일합니다. 다른 번호를 입력해 주세요.';
-          alert(errorMsg);
-
-          // 모달을 닫지 않고 새 보안키 입력 단계로 초기화
+        if (!response.ok) {
+          alert(data.message || '보안키 변경 중 오류가 발생했습니다.');
           state = 'ENTER_NEW';
           inputBuffer = '';
           updateUI();
+          return;
         }
-      } catch (err) {
-        console.error("PIN change error:", err);
+
+        verifiedCurrentPin = pin;
+        isDefaultAdminPin = Boolean(data.is_default_admin_pin);
+        closeKeypad();
+        if (warningOverlay) {
+          warningOverlay.classList.remove('is-active');
+        }
+        alert(data.message || '보안키가 성공적으로 변경되었습니다.');
+      } catch (error) {
+        console.error('PIN change error:', error);
         alert('서버 처리 중 오류가 발생했습니다.');
         resetKeypad();
       }
     }
 
-    // Events
-    openBtn.addEventListener('click', openKeypad);
-    closeBtn.addEventListener('click', closeKeypad);
-    document.querySelectorAll('.pin-change-btn[data-val]').forEach(btn => {
-      btn.addEventListener('click', () => handleInput(btn.dataset.val));
-    });
-    document.getElementById('pinChangeBack').addEventListener('click', handleBack);
+    if (goToChangePinBtn) {
+      goToChangePinBtn.addEventListener('click', openKeypad);
+    }
 
+    if (openBtn) {
+      openBtn.addEventListener('click', openKeypad);
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', closeKeypad);
+    }
+
+    keypadButtons.forEach((button) => {
+      button.addEventListener('click', () => handleInput(button.dataset.val));
+    });
+
+    if (backBtn) {
+      backBtn.addEventListener('click', handleBack);
+    }
   })();
 </script>
 {% endblock %}

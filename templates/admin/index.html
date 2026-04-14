@@ -171,7 +171,7 @@
         <div>
           {% if is_designer_session %}
             <h2 class="section-title compact" style="margin-bottom: 4px;">{{ designer.name }} 디자이너 대시보드</h2>
-            <p class="section-copy">{{ admin.store_name }} 매장 고객 현황</p>
+            <p class="section-copy">{{ designer.name }} 디자이너 담당 고객 현황</p>
           {% else %}
             <h2 class="section-title compact" style="margin-bottom: 4px;">{{ admin.store_name }} 매장 대시보드</h2>
             <p class="section-copy">고객 현황과 디자이너 배정 상태를 한눈에 확인할 수 있습니다.</p>
@@ -225,10 +225,16 @@
       <div id="reportViewContainer" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
           <div class="report-tabs">
-            <button type="button" class="report-tab-btn active" data-report-type="styleTop10">매장 스타일 TOP10</button>
+            {% if is_designer_session %}
+              <button type="button" class="report-tab-btn active" data-report-type="styleTop10">상담 스타일 TOP10</button>
+            {% else %}
+              <button type="button" class="report-tab-btn active" data-report-type="styleTop10">매장 스타일 TOP10</button>
+            {% endif %}
             <button type="button" class="report-tab-btn" data-report-type="dailyVisitors">일별 방문자</button>
             <button type="button" class="report-tab-btn" data-report-type="ageVisitors">연령별 방문자</button>
-            <button type="button" class="report-tab-btn" data-report-type="designerCustomers">디자이너별 고객수</button>
+            {% if not is_designer_session %}
+              <button type="button" class="report-tab-btn" data-report-type="designerCustomers">디자이너별 고객수</button>
+            {% endif %}
           </div>
           <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 22px;">
             <select id="reportPeriodSelect" class="form-control" style="width: auto; height: 32px; font-size: 13px; padding: 0 12px 0 10px; border-radius: 999px; border: 1.5px solid var(--line); background: #fff; cursor: pointer; color: var(--bg-dark); font-weight: 600; outline: none; display: none;">
@@ -335,11 +341,8 @@
         if (data.status === 'success') {
           updateStatus("로그인 성공!", "success");
           const urlParams = new URLSearchParams(window.location.search);
-          const defaultNextUrl = (data.redirect && data.redirect !== '/partner/login/') ? data.redirect : "/partner/dashboard/";
+          const defaultNextUrl = (data.redirect && data.redirect !== '/partner/login/') ? data.redirect : "/";
           const nextUrl = urlParams.get('next') || defaultNextUrl;
-          if (nextUrl.startsWith('/partner/dashboard')) {
-            void prefetchPartnerDashboardData();
-          }
           await nextFrame();
           window.location.replace(nextUrl);
         } else { handleFail(data.message); }

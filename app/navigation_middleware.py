@@ -14,7 +14,7 @@ from app.session_state import (
     get_session_designer,
     has_admin_session,
     has_designer_session,
-    revoke_owner_dashboard,
+    revoke_all_owner_scopes,
 )
 
 if TYPE_CHECKING:
@@ -73,8 +73,8 @@ class CurrentFlowNavigationMiddleware:
 
         # 나가는 페이지로 이동할 때만 인증 해제
         if view_name in exit_views:
-            if request.session.get("owner_dashboard_allowed"):
-                revoke_owner_dashboard(request=request)
+            if request.session.get("owner_dashboard_allowed") or request.session.get("owner_mypage_allowed"):
+                revoke_all_owner_scopes(request=request)
                 request.session.modified = True
 
     def _resolve_current_main_route(self, *, request: HttpRequest, include_customer: bool = True) -> str | None:
@@ -124,7 +124,7 @@ class CurrentFlowNavigationMiddleware:
 
     def _handle_designer_logout(self, request):
         clear_designer_session(request=request)
-        revoke_owner_dashboard(request=request)
+        revoke_all_owner_scopes(request=request)
         if has_admin_session(request=request):
             return self._redirect_response(request, "partner_index", ajax_route_name="partner_designer_select")
         return self._redirect_response(request, "partner_index")
