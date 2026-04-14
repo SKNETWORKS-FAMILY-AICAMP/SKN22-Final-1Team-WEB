@@ -27,6 +27,38 @@
     />
     <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}?v=20260410-01" />
 
+    <style>
+      /* 글로벌 관리자 전용 다크 키패드 모달 스타일 - admin-pin 변경 페이지와 동일한 디자인 */
+      .keypad-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+        display: none; align-items: center; justify-content: center; z-index: 10000;
+        opacity: 0; transition: all 0.3s ease;
+      }
+      .keypad-overlay.active { display: flex; opacity: 1; }
+      .keypad-container {
+        width: 320px; background: var(--bg-dark); border: 1px solid var(--line);
+        border-radius: 24px; padding: 32px; text-align: center;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+      }
+      .keypad-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+      .keypad-subtitle { font-size: 13px; color: rgba(255, 255, 255, 0.5); margin-bottom: 24px; }
+      .keypad-display { display: flex; justify-content: center; gap: 12px; margin-bottom: 32px; }
+      .keypad-dot { width: 16px; height: 16px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); transition: all 0.2s ease; }
+      .keypad-dot.active { background: var(--accent-neon); box-shadow: 0 0 10px var(--accent-neon); }
+      .keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .keypad-btn {
+        aspect-ratio: 1; border-radius: 50%; background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1); color: #fff;
+        font-size: 20px; font-weight: 600; cursor: pointer;
+        display: flex; align-items: center; justify-content: center; transition: all 0.15s ease;
+      }
+      .keypad-btn:active { background: rgba(255, 255, 255, 0.2); transform: scale(0.92); }
+      .keypad-btn.btn-empty { background: transparent; border: none; cursor: default; }
+      .keypad-btn.btn-back { font-size: 14px; color: var(--status-red); }
+      .keypad-close { margin-top: 24px; font-size: 14px; color: rgba(255, 255, 255, 0.4); background: none; border: none; cursor: pointer; text-decoration: underline; }
+    </style>
+
     {% block extra_head %}{% endblock %}
   </head>
   <body data-has-session="{% if request.session.customer_id or request.session.admin_id or request.session.designer_id %}true{% else %}false{% endif %}">
@@ -66,14 +98,14 @@
               {% if request.session.admin_id and not request.session.designer_id %}
                 {# 오직 매장 로그인 상태에서만: 페이지별 노출 조건 분기 #}
                 {% if request.resolver_match.url_name == 'index' or request.resolver_match.url_name == 'partner_designer_select' %}
-                  <a href="{% url 'partner_mypage' %}" class="nav-link">내 페이지</a>
-                  <a href="{% url 'partner_dashboard' %}" class="nav-link">파트너 센터</a>
+                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true">내 페이지</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true">파트너 센터</a>
                 {% elif request.resolver_match.url_name == 'partner_mypage' %}
-                  <a href="{% url 'partner_dashboard' %}" class="nav-link">파트너 센터</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true">파트너 센터</a>
                 {% elif request.resolver_match.url_name == 'partner_dashboard' %}
-                  <a href="{% url 'partner_mypage' %}" class="nav-link">내 페이지</a>
+                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true">내 페이지</a>
                 {% else %}
-                  <a href="{% url 'partner_dashboard' %}" class="nav-link">파트너 센터</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true">파트너 센터</a>
                 {% endif %}
               {% elif not request.session.admin_id and not request.session.designer_id %}
                 {# 아무도 로그인하지 않은 경우에만 로그인 유도 #}
@@ -222,6 +254,162 @@
           }
         });
       });
+    </script>
+
+    <!-- 글로벌 관리자 보안키 인증 모달 -->
+    <div id="adminPinModal" class="keypad-overlay">
+      <div class="keypad-container">
+        <div id="pinModalTitle" class="keypad-title">관리자 보안키 인증</div>
+        <div id="pinModalSubtext" class="keypad-subtitle">관리자 보안키(PIN) 4자리를 입력해 주세요.</div>
+
+        <div class="keypad-display">
+          <div class="keypad-dot"></div>
+          <div class="keypad-dot"></div>
+          <div class="keypad-dot"></div>
+          <div class="keypad-dot"></div>
+        </div>
+
+        <div class="keypad-grid">
+          <button class="keypad-btn" onclick="appendPin('1')">1</button>
+          <button class="keypad-btn" onclick="appendPin('2')">2</button>
+          <button class="keypad-btn" onclick="appendPin('3')">3</button>
+          <button class="keypad-btn" onclick="appendPin('4')">4</button>
+          <button class="keypad-btn" onclick="appendPin('5')">5</button>
+          <button class="keypad-btn" onclick="appendPin('6')">6</button>
+          <button class="keypad-btn" onclick="appendPin('7')">7</button>
+          <button class="keypad-btn" onclick="appendPin('8')">8</button>
+          <button class="keypad-btn" onclick="appendPin('9')">9</button>
+          <div class="keypad-btn btn-empty"></div>
+          <button class="keypad-btn" onclick="appendPin('0')">0</button>
+          <button class="keypad-btn btn-back" onclick="backspacePin()">삭제</button>
+        </div>
+
+        <button onclick="closeAdminPinModal()" class="keypad-close">취소 (닫기)</button>
+      </div>
+    </div>
+
+    <form style="display:none;">{% csrf_token %}</form>
+
+    <script>
+      (function() {
+        let currentPin = '';
+        let pinTargetType = ''; 
+        let pinTargetId = '';   
+        const pinModal = document.getElementById('adminPinModal');
+        const pinDots = document.querySelectorAll('#adminPinModal .keypad-dot');
+        const pinSubtext = document.getElementById('pinModalSubtext');
+
+        window.openAdminPinModal = function(type, id = '', message = '') {
+          currentPin = '';
+          pinTargetType = type;
+          pinTargetId = id;
+          if (pinSubtext && message) pinSubtext.textContent = message;
+          updatePinDots();
+          if (pinModal) pinModal.classList.add('active');
+        };
+
+        window.closeAdminPinModal = function() {
+          if (pinModal) pinModal.classList.remove('active');
+        };
+
+        window.appendPin = function(num) {
+          if (currentPin.length < 4) {
+            currentPin += num;
+            updatePinDots();
+            if (currentPin.length === 4) {
+              setTimeout(submitPin, 300);
+            }
+          }
+        };
+
+        window.clearPin = function() {
+          currentPin = '';
+          updatePinDots();
+        };
+
+        window.backspacePin = function() {
+          if (currentPin.length > 0) {
+            currentPin = currentPin.slice(0, -1);
+            updatePinDots();
+          }
+        };
+
+        function updatePinDots() {
+          pinDots.forEach((dot, idx) => {
+            if (idx < currentPin.length) dot.classList.add('active');
+            else dot.classList.remove('active');
+          });
+        }
+
+        window.submitPin = async function() {
+          if (!currentPin || currentPin.length < 4) return;
+          
+          const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+          
+          try {
+            const response = await fetch('/partner/dashboard/enter/', {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded', 
+                'X-CSRFToken': csrfToken 
+              },
+              body: `password=${encodeURIComponent(currentPin)}`
+            });
+            const data = await response.json();
+            if (data.status === 'success') {
+              if (pinTargetType === 'header') {
+                window.location.href = pinTargetId;
+              } else if (pinTargetType === 'dashboard') {
+                window.location.href = data.redirect || '/partner/dashboard/';
+              } else if (pinTargetType === 'detail') {
+                window.location.href = `/partner/customer-detail/${pinTargetId}/`;
+              } else {
+                window.location.reload();
+              }
+            } else {
+              alert(data.message || '보안키가 일치하지 않습니다.');
+              window.clearPin();
+            }
+          } catch (error) {
+            console.error('PIN submit error:', error);
+            alert('인증 처리 중 오류가 발생했습니다.');
+            window.clearPin();
+          }
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+          const gateLinks = document.querySelectorAll('[data-admin-gate="true"]');
+          const isOwnerDashboardAllowed = {% if request.session.owner_dashboard_allowed %}true{% else %}false{% endif %};
+          const currentUrlName = "{{ request.resolver_match.url_name }}";
+          
+          // 1. 클릭 게이트웨이 로직
+          gateLinks.forEach(link => {
+            link.addEventListener('click', function(e) {
+              if (!isOwnerDashboardAllowed) {
+                e.preventDefault();
+                const targetUrl = this.href;
+                window.openAdminPinModal('header', targetUrl, '보안키를 입력해 주세요.');
+              }
+            });
+          });
+
+          // 2. 페이지 로드 시 자동 체크 로직 (보안 영역 진입 시 세션 체크)
+          const protectedViewNames = [
+            'partner_dashboard', 
+            'partner_mypage', 
+            'partner_designer_management',
+            'partner_designer_signup',
+            'partner_designer_delete',
+            'partner_customer_detail',
+            'partner_customer_reanalysis_start'
+          ];
+          
+          if (protectedViewNames.includes(currentUrlName) && !isOwnerDashboardAllowed) {
+            // 보호 영역인데 세션이 없다면 즉시 모달 트리거
+            window.openAdminPinModal('dashboard', '', '보안을 위해 관리자 보안키를 입력해 주세요.');
+          }
+        });
+      })();
     </script>
 
     {% block page_scripts %}{% endblock %}
