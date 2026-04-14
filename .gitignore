@@ -78,6 +78,21 @@ data/rag/stores/*
 !data/rag/stores/chromadb_chatbot/
 !data/rag/stores/chromadb_chatbot/**
 
+# Keep packaged RAG assets tracked, ignore local regenerated variants.
+data/rag/processed/trends/*.sample.json
+data/rag/stores/chromadb_chatbot/*
+!data/rag/stores/chromadb_chatbot/chroma.sqlite3
+data/rag/stores/chromadb_ncs/*
+!data/rag/stores/chromadb_ncs/chroma.sqlite3
+!data/rag/stores/chromadb_ncs/2a4777a1-6c3d-44ab-beac-cce56282d28b/
+!data/rag/stores/chromadb_ncs/2a4777a1-6c3d-44ab-beac-cce56282d28b/**
+data/rag/stores/chromadb_trends/*
+!data/rag/stores/chromadb_trends/chroma.sqlite3
+!data/rag/stores/chromadb_trends/3a5b742c-0720-407d-9087-6f43c908ec51/
+!data/rag/stores/chromadb_trends/3a5b742c-0720-407d-9087-6f43c908ec51/**
+!data/rag/stores/chromadb_trends/7270be50-695c-4a8c-9cc2-ad11f46a9af8/
+!data/rag/stores/chromadb_trends/7270be50-695c-4a8c-9cc2-ad11f46a9af8/**
+
 # Security and keys
 *.pem
 *.key
@@ -122,6 +137,7 @@ review/
 detect_encoding.py
 choi_sample/
 architecture.txt
+.playwright-cli/
 
 # Front feedback working folders
 front_feedback/**/past/

@@ -7,6 +7,7 @@
 
   const AUTO_CAPTURE_SECONDS = 3;
   const AUTO_CONFIRM_DELAY_MS = 900;
+  const UPLOAD_TIMEOUT_MS = 15000;
   const DETECTION_INTERVAL_MS = 140;
   const STABLE_ALIGNMENT_THRESHOLD = 3;
   const MISALIGNMENT_THRESHOLD = 2;
@@ -143,6 +144,9 @@
   let currentStatusType = "idle";
   let currentHintMessage = autoHintEl ? String(autoHintEl.textContent || "").trim() : "";
   let currentHintTone = "idle";
+  let lastChecklistState = null;
+  let lastDetectionResult = null;
+  let lastCaptureContext = null;
   let audioContext = null;
   let analysisCanvas = null;
   let analysisCanvasContext = null;
@@ -867,6 +871,7 @@
 
   function updateChecklist(checklist) {
     if (!checklist) return;
+    lastChecklistState = checklist;
 
     if (conditionSummaryEl) {
       conditionSummaryEl.textContent = checklist.summary;
@@ -1737,6 +1742,7 @@
   }
 
   function applyDetectionResult(result) {
+    lastDetectionResult = result;
     isCaptureReady = Boolean(result && result.allValid);
     updateChecklist(result.checklist);
 
@@ -1859,6 +1865,10 @@
           }
 
           capturedBlob = blob;
+          lastCaptureContext = buildFrontCaptureContext({
+            captured: true,
+            source: options.source || "manual"
+          });
           isCaptureReady = false;
           cleanupPreviewUrl();
           previewUrl = URL.createObjectURL(blob);
@@ -1866,6 +1876,7 @@
           previewImg.src = previewUrl;
           previewContainer.classList.remove("is-hidden");
           previewControls.classList.remove("is-hidden");
+          previewControls.setAttribute("aria-hidden", "false");
 
           videoEl.classList.add("is-hidden");
           cameraGuide.classList.add("is-hidden");
@@ -1896,6 +1907,7 @@
     cleanupPreviewUrl();
     previewImg.src = "";
     capturedBlob = null;
+    lastCaptureContext = null;
     isCaptureReady = false;
 
     confirmBtn.disabled = false;
@@ -1906,6 +1918,7 @@
     cameraControls.classList.remove("is-hidden");
     previewContainer.classList.add("is-hidden");
     previewControls.classList.add("is-hidden");
+    previewControls.setAttribute("aria-hidden", "true");
 
     updateStatus(
       autoCaptureSupported
@@ -1928,6 +1941,37 @@
     }
 
     startDetectionLoop();
+  }
+
+  function buildFrontCaptureContext(extra = {}) {
+    return {
+      all_valid: Boolean(lastDetectionResult && lastDetectionResult.allValid),
+      message_key: lastDetectionResult ? lastDetectionResult.messageKey : lastGuidanceKey || null,
+      checklist_summary: lastChecklistState ? lastChecklistState.summary : null,
+      auto_capture_supported: autoCaptureSupported,
+      ...extra
+    };
+  }
+
+  async function parseResponsePayload(response) {
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+
+    if (contentType.includes("application/json")) {
+      try {
+        return await response.json();
+      } catch (error) {
+        console.warn("Failed to parse JSON response payload.", error);
+        return null;
+      }
+    }
+
+    try {
+      const text = await response.text();
+      return text ? { message: text } : null;
+    } catch (error) {
+      console.warn("Failed to read response payload.", error);
+      return null;
+    }
   }
 
   async function handleConfirm(options = {}) {
@@ -1978,29 +2022,53 @@
     const formData = new FormData();
     formData.append("customer_id", customerId);
     formData.append("file", capturedBlob, "capture.jpg");
+    formData.append(
+      "front_capture_context",
+      JSON.stringify(lastCaptureContext || buildFrontCaptureContext({ captured: true }))
+    );
 
+    let timeoutId = null;
     try {
+      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      timeoutId = controller
+        ? window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
+        : null;
       const response = await fetch("/api/v1/capture/upload/", {
         method: "POST",
         body: formData,
         headers: {
           "X-CSRFToken": csrfToken
-        }
+        },
+        signal: controller ? controller.signal : undefined
       });
-
-      if (!response.ok) {
-        throw new Error("Upload failed");
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
       }
 
-      const data = await response.json();
-      const nextAction = data.nextAction || data.next_action;
-      const uploadStatus = String(data.status || "").toLowerCase();
+      const data = await parseResponsePayload(response);
+
+      if (!response.ok) {
+        const message =
+          (data && (data.message || data.detail)) ||
+          "업로드 요청이 실패했습니다. 다시 시도해 주세요.";
+        throw new Error(message);
+      }
+
+      const nextAction = data ? data.nextAction || data.next_action : null;
+      const uploadStatus = String((data && data.status) || "").toLowerCase();
 
       if (uploadStatus === "needs_retake" || nextAction === "capture") {
         uploadInFlight = false;
-        updateStatus(data.message || "사진을 다시 촬영해주세요.", "error");
-        updateAutoHint("사진을 다시 맞춘 뒤 재촬영해 주세요.", "error");
-        handleRetake();
+        updateStatus(
+          (data && (data.message || data.detail)) || "사진을 다시 촬영해 주세요.",
+          "error"
+        );
+        updateAutoHint(
+          "이번 사진은 분석 기준을 통과하지 못했습니다. '다시 촬영'으로 새 사진을 찍어 주세요.",
+          "error"
+        );
+        confirmBtn.disabled = true;
+        retakeBtn.disabled = false;
         return;
       }
 
@@ -2019,10 +2087,25 @@
     } catch (error) {
       console.error("Upload Error:", error);
       uploadInFlight = false;
-      updateStatus("업로드 중 오류가 발생했습니다. 다시 시도해주세요.", "error");
-      updateAutoHint("네트워크 상태를 확인한 뒤 다시 시도해 주세요.", "error");
+      const isAbortError = error && error.name === "AbortError";
+      updateStatus(
+        isAbortError
+          ? "업로드가 15초 안에 끝나지 않았습니다. 서버 응답이 지연되고 있습니다."
+          : (error && error.message) || "업로드 중 오류가 발생했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+      updateAutoHint(
+        isAbortError
+          ? "네트워크 또는 서버 상태를 확인한 뒤 '촬영 완료'를 다시 눌러 주세요."
+          : "네트워크 상태를 확인한 뒤 다시 시도해 주세요.",
+        "error"
+      );
       confirmBtn.disabled = false;
       retakeBtn.disabled = false;
+    } finally {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
     }
   }
 

@@ -687,8 +687,28 @@ def _survey_profile_dict(survey_data: dict | None) -> dict:
 
 
 def _survey_gender_branch(survey_data: dict | None) -> str:
+    survey_data = survey_data or {}
     survey_profile = _survey_profile_dict(survey_data)
-    return canonical_gender_branch(survey_profile.get("gender_branch"))
+    return canonical_gender_branch(
+        survey_data.get("gender_branch")
+        or survey_profile.get("gender_branch")
+    )
+
+
+def _resolved_survey_profile_payload(survey_data: dict | None) -> dict:
+    survey_data = survey_data or {}
+    survey_profile = dict(survey_data.get("survey_profile") or {})
+    question_answers = dict(
+        survey_data.get("question_answers")
+        or survey_profile.get("question_answers")
+        or {}
+    )
+    gender_branch = _survey_gender_branch(survey_data)
+    if question_answers:
+        survey_profile["question_answers"] = question_answers
+    if gender_branch:
+        survey_profile["gender_branch"] = gender_branch
+    return survey_profile
 
 
 def _survey_style_axes(survey_data: dict | None) -> dict:
@@ -864,6 +884,160 @@ def _build_hairstyle_text(survey_data: dict | None) -> str:
     return _build_female_hairstyle_text(survey_data)
 
 
+def _has_survey_answer_value(value) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, (list, tuple, set)):
+        return bool(value)
+    return value is not None
+
+
+def _count_survey_answers(question_answers: dict | None) -> int:
+    if not isinstance(question_answers, dict):
+        return 0
+    return sum(1 for value in question_answers.values() if _has_survey_answer_value(value))
+
+
+def _resolve_question_answer_count(survey_data: dict | None) -> tuple[int, str]:
+    survey_data = survey_data or {}
+
+    explicit_count = _count_survey_answers(survey_data.get("question_answers"))
+    if explicit_count:
+        return explicit_count, "explicit"
+
+    survey_profile = _survey_profile_dict(survey_data)
+    profile_count = _count_survey_answers(survey_profile.get("question_answers"))
+    if profile_count:
+        return profile_count, "survey_profile"
+
+    normalized_preference_count = sum(
+        1
+        for value in (
+            survey_data.get("target_length"),
+            survey_data.get("target_vibe"),
+            survey_data.get("scalp_type"),
+            survey_data.get("hair_colour"),
+            survey_data.get("budget_range"),
+        )
+        if _has_survey_answer_value(value)
+    )
+    if normalized_preference_count == 5:
+        # Current customer survey flow always derives these five fields from six required answers.
+        return 6, "inferred_from_normalized_preferences"
+
+    return 0, "missing"
+
+
+def _build_prompt_line(label: str, value) -> str | None:
+    if isinstance(value, dict):
+        if not value:
+            return None
+        return f"{label}={json.dumps(value, ensure_ascii=False, sort_keys=True)}"
+
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return None
+        return f"{label}={json.dumps(value, ensure_ascii=False)}"
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return f"{label}={text}"
+
+
+def _join_prompt_lines(*lines: str | None) -> str | None:
+    visible_lines = [line for line in lines if line]
+    if not visible_lines:
+        return None
+    return "\n".join(visible_lines)
+
+
+def _build_face_ratios_preview(analysis_data: dict | None) -> dict | None:
+    analysis_data = analysis_data or {}
+    snapshot = analysis_data.get("landmark_snapshot") or {}
+    face_bbox = snapshot.get("face_bbox") or {}
+    landmarks = snapshot.get("landmarks") or {}
+    required_keys = ("left_eye", "right_eye", "mouth_center", "chin_center")
+    if not face_bbox or not landmarks:
+        return None
+    if not all((landmarks.get(key) or {}).get("point") for key in required_keys):
+        return None
+    return _build_face_ratios(analysis_data)
+
+
+def _build_runpod_request_preview(survey_data: dict | None) -> dict:
+    survey_data = survey_data or {}
+    payload = {
+        "hairstyle_text": _build_hairstyle_text(survey_data),
+        "top_k": 5,
+        "return_base64": True,
+    }
+    color_text = str(survey_data.get("hair_colour") or "").strip()
+    preference = _build_runpod_preference_payload(survey_data)
+    preference_text = _build_preference_text(survey_data)
+    if color_text:
+        payload["color_text"] = color_text
+    if preference:
+        payload["preference"] = preference
+    if preference_text:
+        payload["preference_text"] = preference_text
+    return payload
+
+
+def _build_direct_runpod_request_preview(
+    *,
+    survey_data: dict | None,
+    analysis_data: dict | None,
+) -> dict:
+    survey_data = survey_data or {}
+    payload = {
+        "top_k": 5,
+        "return_base64": True,
+    }
+    face_ratios = _build_face_ratios_preview(analysis_data)
+    if face_ratios:
+        payload["face_ratios"] = face_ratios
+    else:
+        payload["face_ratios_available"] = False
+
+    preference = _build_runpod_preference_payload(survey_data)
+    preference_text = _build_preference_text(survey_data)
+    color_text = str(survey_data.get("hair_colour") or "").strip()
+    if preference:
+        payload["preference"] = preference
+    if preference_text:
+        payload["preference_text"] = preference_text
+    if color_text:
+        payload["color_text"] = color_text
+    return payload
+
+
+def _build_runpod_prompt_text(payload: dict | None) -> str | None:
+    payload = payload or {}
+    return _join_prompt_lines(
+        _build_prompt_line("hairstyle_text", payload.get("hairstyle_text")),
+        _build_prompt_line("color_text", payload.get("color_text")),
+        _build_prompt_line("preference_text", payload.get("preference_text")),
+    )
+
+
+def _build_direct_runpod_prompt_text(payload: dict | None) -> str | None:
+    payload = payload or {}
+    face_ratios = payload.get("face_ratios")
+    face_ratio_line = (
+        _build_prompt_line("face_ratios", face_ratios)
+        if isinstance(face_ratios, dict) and face_ratios
+        else "face_ratios=[unavailable in snapshot]"
+    )
+    return _join_prompt_lines(
+        face_ratio_line,
+        _build_prompt_line("color_text", payload.get("color_text")),
+        _build_prompt_line("preference_text", payload.get("preference_text")),
+    )
+
+
 def build_recommendation_debug_payload(
     *,
     survey_data: dict | None,
@@ -880,6 +1054,18 @@ def build_recommendation_debug_payload(
     preference_text = _build_preference_text(survey_data)
     resolved_stage = str(recommendation_stage or "initial").strip() or "initial"
     runtime_snapshot = get_ai_runtime_config_snapshot()
+    survey_profile = _resolved_survey_profile_payload(survey_data)
+    question_answers = dict(
+        survey_data.get("question_answers")
+        or survey_profile.get("question_answers")
+        or {}
+    )
+    question_answer_count, question_answer_count_source = _resolve_question_answer_count(survey_data)
+    runpod_request_preview = _build_runpod_request_preview(survey_data)
+    direct_runpod_request_preview = _build_direct_runpod_request_preview(
+        survey_data=survey_data,
+        analysis_data=analysis_data,
+    )
 
     return {
         "recommendation_stage": resolved_stage,
@@ -893,22 +1079,30 @@ def build_recommendation_debug_payload(
             "scalp_type": survey_data.get("scalp_type"),
             "hair_colour": survey_data.get("hair_colour"),
             "budget_range": survey_data.get("budget_range"),
-            "question_answers": dict(survey_data.get("question_answers") or {}),
-            "survey_profile": dict(survey_data.get("survey_profile") or {}),
+            "gender_branch": _survey_gender_branch(survey_data),
+            "question_answers": question_answers,
+            "survey_profile": survey_profile,
+            "question_answer_count": question_answer_count,
+            "question_answer_count_source": question_answer_count_source,
+            "question_answer_total": 6,
         },
         "analysis_summary": {
             "face_shape": analysis_data.get("face_shape"),
             "golden_ratio_score": analysis_data.get("golden_ratio_score"),
         },
         "runpod_payload": {
-            "hairstyle_text": _build_hairstyle_text(survey_data),
+            "hairstyle_text": runpod_request_preview.get("hairstyle_text"),
             "color_text": color_text,
-            "top_k": 5,
-            "return_base64": True,
+            "top_k": runpod_request_preview.get("top_k"),
+            "return_base64": runpod_request_preview.get("return_base64"),
+            "prompt_text": _build_runpod_prompt_text(runpod_request_preview),
+            "request_payload_preview": runpod_request_preview,
         },
         "direct_runpod_payload": {
             "preference": preference_payload or None,
             "preference_text": preference_text,
+            "prompt_text": _build_direct_runpod_prompt_text(direct_runpod_request_preview),
+            "request_payload_preview": direct_runpod_request_preview,
         },
         "match_score_basis": {
             "formula": "face_score + ratio_score + preference_score - penalty",

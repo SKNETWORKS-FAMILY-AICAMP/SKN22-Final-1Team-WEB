@@ -2,6 +2,7 @@
 
 import io
 
+from django.contrib.auth.hashers import check_password
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.management import call_command
 from django.db import connection
@@ -525,7 +526,7 @@ class LegacyModelSyncTests(TransactionTestCase):
         self.assertEqual(shop_row[1], "MirrAI Test Shop")
         self.assertEqual(shop_row[2], "1012345672")
         self.assertEqual(shop_row[3], "01080001000")
-        self.assertEqual(shop_row[4], "1000")
+        self.assertTrue(check_password("1000", shop_row[4]))
 
         client_row = self._fetch_one(
             "SELECT client_name, phone, gender FROM client WHERE phone = %s",

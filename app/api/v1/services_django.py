@@ -266,6 +266,7 @@ def _legacy_survey_namespace(*, survey_id: int, client: "Client", normalized_pay
         scalp_type=normalized_payload.get("scalp_type"),
         hair_colour=normalized_payload.get("hair_colour"),
         budget_range=normalized_payload.get("budget_range"),
+        gender_branch=normalized_payload.get("gender_branch"),
         preference_vector=preference_vector,
         question_answers=dict(normalized_payload.get("question_answers") or {}),
         survey_profile=dict(normalized_payload.get("survey_profile") or {}),
@@ -423,15 +424,17 @@ def _persist_legacy_generated_batch(
     result_id = _next_legacy_pk(LegacyClientResult, "result_id")
     next_detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
     analysis_id = getattr(analysis, "id", None) or getattr(analysis, "analysis_id", None) or 0
+    survey_payload = _build_generation_survey_payload(client=client, survey=survey)
     survey_snapshot = {
-        "target_length": getattr(survey, "target_length", None),
-        "target_vibe": getattr(survey, "target_vibe", None),
-        "scalp_type": getattr(survey, "scalp_type", None),
-        "hair_colour": getattr(survey, "hair_colour", None),
-        "budget_range": getattr(survey, "budget_range", None),
+        "target_length": survey_payload.get("target_length"),
+        "target_vibe": survey_payload.get("target_vibe"),
+        "scalp_type": survey_payload.get("scalp_type"),
+        "hair_colour": survey_payload.get("hair_colour"),
+        "budget_range": survey_payload.get("budget_range"),
         "preference_vector": getattr(survey, "preference_vector", None) or [],
-        "question_answers": dict(getattr(survey, "question_answers", None) or {}),
-        "survey_profile": dict(getattr(survey, "survey_profile", None) or {}),
+        "question_answers": dict(survey_payload.get("question_answers") or {}),
+        "survey_profile": dict(survey_payload.get("survey_profile") or {}),
+        "gender_branch": survey_payload.get("gender_branch"),
     }
     analysis_snapshot = {
         "face_shape": getattr(analysis, "face_shape", None),
@@ -701,11 +704,17 @@ def _normalize_text_value(value: object) -> str:
     return str(value or "").strip()
 
 
-def _normalized_gender_branch(value: object) -> str:
+def _explicit_gender_branch(value: object) -> str | None:
     normalized = _normalize_text_value(value).lower()
     if normalized in {"male", "m", "man", "남", "남성"}:
         return "male"
-    return "female"
+    if normalized in {"female", "f", "woman", "여", "여성"}:
+        return "female"
+    return None
+
+
+def _normalized_gender_branch(value: object) -> str:
+    return _explicit_gender_branch(value) or "female"
 
 
 def _question_answers_from_payload(payload: dict) -> dict[str, str]:
@@ -917,7 +926,11 @@ def _survey_payload_from_gender_questions(*, client: "Client", payload: dict) ->
     if not any(answers.values()):
         return None
 
-    gender_branch = _normalized_gender_branch(getattr(client, "gender", None))
+    gender_branch = (
+        _explicit_gender_branch(payload.get("gender_branch") or payload.get("gender"))
+        or _explicit_gender_branch(getattr(client, "gender", None))
+        or "female"
+    )
     survey_profile = (
         _male_survey_profile(answers=answers)
         if gender_branch == "male"
@@ -930,6 +943,7 @@ def _survey_payload_from_gender_questions(*, client: "Client", payload: dict) ->
         "scalp_type": derived_preferences.get("scalp_type") or "waved",
         "hair_colour": derived_preferences.get("hair_colour") or "brown",
         "budget_range": derived_preferences.get("budget_range") or "mid",
+        "gender_branch": gender_branch,
         "question_answers": answers,
         "survey_profile": survey_profile,
     }
@@ -948,6 +962,17 @@ def _survey_payload_from_gender_questions(*, client: "Client", payload: dict) ->
 
 
 def normalize_survey_payload(*, client: "Client", payload: dict) -> dict:
+    explicit_gender_branch = (
+        _explicit_gender_branch(payload.get("gender_branch") or payload.get("gender"))
+        or None
+    )
+    question_answers = dict(payload.get("question_answers") or {})
+    survey_profile = dict(payload.get("survey_profile") or {})
+    if question_answers:
+        survey_profile["question_answers"] = question_answers
+    if explicit_gender_branch:
+        survey_profile["gender_branch"] = explicit_gender_branch
+
     if any(payload.get(field) for field in ("target_length", "target_vibe", "scalp_type", "hair_colour", "budget_range")):
         return {
             "target_length": payload.get("target_length"),
@@ -955,6 +980,9 @@ def normalize_survey_payload(*, client: "Client", payload: dict) -> dict:
             "scalp_type": payload.get("scalp_type"),
             "hair_colour": payload.get("hair_colour"),
             "budget_range": payload.get("budget_range"),
+            "gender_branch": explicit_gender_branch,
+            "question_answers": question_answers,
+            "survey_profile": survey_profile,
         }
 
     mapped_payload = _survey_payload_from_gender_questions(client=client, payload=payload)
@@ -967,7 +995,69 @@ def normalize_survey_payload(*, client: "Client", payload: dict) -> dict:
         "scalp_type": payload.get("scalp_type"),
         "hair_colour": payload.get("hair_colour"),
         "budget_range": payload.get("budget_range"),
+        "gender_branch": explicit_gender_branch,
+        "question_answers": question_answers,
+        "survey_profile": survey_profile,
     }
+
+
+def _resolved_survey_profile(*, client: "Client", survey) -> dict:
+    survey_profile = dict(getattr(survey, "survey_profile", None) or {})
+    question_answers = dict(
+        getattr(survey, "question_answers", None)
+        or survey_profile.get("question_answers")
+        or {}
+    )
+    gender_branch = _normalized_gender_branch(
+        getattr(survey, "gender_branch", None)
+        or survey_profile.get("gender_branch")
+        or getattr(client, "gender", None)
+    )
+    survey_profile["gender_branch"] = gender_branch
+    if question_answers:
+        survey_profile["question_answers"] = question_answers
+    return survey_profile
+
+
+def _build_generation_survey_payload(*, client: "Client", survey) -> dict:
+    survey_profile = _resolved_survey_profile(client=client, survey=survey)
+    question_answers = dict(
+        getattr(survey, "question_answers", None)
+        or survey_profile.get("question_answers")
+        or {}
+    )
+    return {
+        "target_length": getattr(survey, "target_length", None),
+        "target_vibe": getattr(survey, "target_vibe", None),
+        "scalp_type": getattr(survey, "scalp_type", None),
+        "hair_colour": getattr(survey, "hair_colour", None),
+        "budget_range": getattr(survey, "budget_range", None),
+        "question_answers": question_answers,
+        "survey_profile": survey_profile,
+        "gender_branch": survey_profile.get("gender_branch"),
+    }
+
+
+def _resolved_survey_snapshot(*, client: "Client", survey_snapshot: dict | None) -> dict:
+    snapshot = dict(survey_snapshot or {})
+    survey_profile = dict(snapshot.get("survey_profile") or {})
+    question_answers = dict(
+        snapshot.get("question_answers")
+        or survey_profile.get("question_answers")
+        or {}
+    )
+    gender_branch = _normalized_gender_branch(
+        snapshot.get("gender_branch")
+        or survey_profile.get("gender_branch")
+        or getattr(client, "gender", None)
+    )
+    snapshot["gender_branch"] = gender_branch
+    survey_profile["gender_branch"] = gender_branch
+    if question_answers:
+        snapshot["question_answers"] = question_answers
+        survey_profile["question_answers"] = question_answers
+    snapshot["survey_profile"] = survey_profile
+    return snapshot
 
 
 def get_latest_capture_attempt(client: "Client"):
@@ -982,22 +1072,23 @@ def build_survey_snapshot(client: "Client") -> dict | None:
     survey = get_latest_survey(client)
     if not survey:
         return None
+    generation_payload = _build_generation_survey_payload(client=client, survey=survey)
     snapshot = {
-        "target_length": survey.target_length,
-        "target_vibe": survey.target_vibe,
-        "scalp_type": survey.scalp_type,
-        "hair_colour": survey.hair_colour,
-        "budget_range": survey.budget_range,
+        "target_length": generation_payload.get("target_length"),
+        "target_vibe": generation_payload.get("target_vibe"),
+        "scalp_type": generation_payload.get("scalp_type"),
+        "hair_colour": generation_payload.get("hair_colour"),
+        "budget_range": generation_payload.get("budget_range"),
         "preference_vector": survey.preference_vector or [],
         "age_profile": build_client_age_profile(client),
         "created_at": survey.created_at.isoformat(),
+        "gender_branch": generation_payload.get("gender_branch"),
     }
-    question_answers = getattr(survey, "question_answers", None)
-    survey_profile = getattr(survey, "survey_profile", None)
+    question_answers = generation_payload.get("question_answers")
+    survey_profile = generation_payload.get("survey_profile")
     if question_answers:
         snapshot["question_answers"] = dict(question_answers)
-    if survey_profile:
-        snapshot["survey_profile"] = dict(survey_profile)
+    snapshot["survey_profile"] = dict(survey_profile or {})
     return snapshot
 
 
@@ -1010,6 +1101,7 @@ def build_recommendation_regeneration_snapshot(
     capture_record: "CaptureRecord | None" = None,
     recommendation_stage: str = "initial",
 ) -> dict:
+    survey_payload = _build_generation_survey_payload(client=client, survey=survey)
     return {
         "version": "vector-only-v1",
         "source": source,
@@ -1021,15 +1113,16 @@ def build_recommendation_regeneration_snapshot(
             "analysis_id": (analysis.id if analysis else None),
         },
         "survey_data": {
-            "target_length": getattr(survey, "target_length", None),
-            "target_vibe": getattr(survey, "target_vibe", None),
-            "scalp_type": getattr(survey, "scalp_type", None),
-            "hair_colour": getattr(survey, "hair_colour", None),
-            "budget_range": getattr(survey, "budget_range", None),
+            "target_length": survey_payload.get("target_length"),
+            "target_vibe": survey_payload.get("target_vibe"),
+            "scalp_type": survey_payload.get("scalp_type"),
+            "hair_colour": survey_payload.get("hair_colour"),
+            "budget_range": survey_payload.get("budget_range"),
             "preference_vector": getattr(survey, "preference_vector", None) or [],
             "age_profile": build_client_age_profile(client),
-            "question_answers": dict(getattr(survey, "question_answers", None) or {}),
-            "survey_profile": dict(getattr(survey, "survey_profile", None) or {}),
+            "question_answers": dict(survey_payload.get("question_answers") or {}),
+            "survey_profile": dict(survey_payload.get("survey_profile") or {}),
+            "gender_branch": survey_payload.get("gender_branch"),
         },
         "analysis_data": (
             {
@@ -1078,13 +1171,7 @@ def persist_generated_batch(
     precomputed_items: list[dict] | None = None,
 ) -> tuple[str, list["FormerRecommendation"]]:
     styles_by_id = ensure_catalog_styles()
-    survey_payload = {
-        "target_length": getattr(survey, "target_length", None),
-        "target_vibe": getattr(survey, "target_vibe", None),
-        "scalp_type": getattr(survey, "scalp_type", None),
-        "hair_colour": getattr(survey, "hair_colour", None),
-        "budget_range": getattr(survey, "budget_range", None),
-    }
+    survey_payload = _build_generation_survey_payload(client=client, survey=survey)
     items = list(precomputed_items or [])
     if precomputed_items is None:
         items = generate_recommendation_batch(
@@ -1306,6 +1393,7 @@ def _build_recommendation_debug_prompt_payload_from_snapshot(
                 "scalp_type": survey_snapshot.get("scalp_type"),
                 "hair_colour": survey_snapshot.get("hair_colour"),
                 "budget_range": survey_snapshot.get("budget_range"),
+                "gender_branch": survey_snapshot.get("gender_branch"),
                 "question_answers": dict(survey_snapshot.get("question_answers") or {}),
                 "survey_profile": dict(survey_snapshot.get("survey_profile") or {}),
             }
@@ -1316,6 +1404,7 @@ def _build_recommendation_debug_prompt_payload_from_snapshot(
             {
                 "face_shape": analysis_snapshot.get("face_shape"),
                 "golden_ratio_score": analysis_snapshot.get("golden_ratio_score"),
+                "landmark_snapshot": dict(analysis_snapshot.get("landmark_snapshot") or {}),
             }
             if analysis_snapshot.get("present")
             else None
@@ -2354,6 +2443,16 @@ def _build_recommendation_diagnostic_snapshot(
         if isinstance(candidate, dict) and candidate:
             result_survey_snapshot = dict(candidate)
             break
+    resolved_result_survey_snapshot = (
+        _resolved_survey_snapshot(client=client, survey_snapshot=result_survey_snapshot)
+        if result_survey_snapshot
+        else {}
+    )
+    latest_survey_payload = (
+        _build_generation_survey_payload(client=client, survey=latest_survey)
+        if latest_survey is not None
+        else {}
+    )
 
     return {
         "client": {
@@ -2364,21 +2463,22 @@ def _build_recommendation_diagnostic_snapshot(
         },
         "ai_runtime": get_ai_runtime_config_snapshot(),
         "survey": {
-            "present": bool(latest_survey or result_survey_snapshot),
+            "present": bool(latest_survey_payload or resolved_result_survey_snapshot),
             "created_at": (getattr(latest_survey, "created_at", None).isoformat() if getattr(latest_survey, "created_at", None) else None),
-            "target_length": result_survey_snapshot.get("target_length") or getattr(latest_survey, "target_length", None),
-            "target_vibe": result_survey_snapshot.get("target_vibe") or getattr(latest_survey, "target_vibe", None),
-            "scalp_type": result_survey_snapshot.get("scalp_type") or getattr(latest_survey, "scalp_type", None),
-            "hair_colour": result_survey_snapshot.get("hair_colour") or getattr(latest_survey, "hair_colour", None),
-            "budget_range": result_survey_snapshot.get("budget_range") or getattr(latest_survey, "budget_range", None),
+            "target_length": resolved_result_survey_snapshot.get("target_length") or latest_survey_payload.get("target_length"),
+            "target_vibe": resolved_result_survey_snapshot.get("target_vibe") or latest_survey_payload.get("target_vibe"),
+            "scalp_type": resolved_result_survey_snapshot.get("scalp_type") or latest_survey_payload.get("scalp_type"),
+            "hair_colour": resolved_result_survey_snapshot.get("hair_colour") or latest_survey_payload.get("hair_colour"),
+            "budget_range": resolved_result_survey_snapshot.get("budget_range") or latest_survey_payload.get("budget_range"),
+            "gender_branch": resolved_result_survey_snapshot.get("gender_branch") or latest_survey_payload.get("gender_branch"),
             "question_answers": dict(
-                result_survey_snapshot.get("question_answers")
-                or getattr(latest_survey, "question_answers", None)
+                resolved_result_survey_snapshot.get("question_answers")
+                or latest_survey_payload.get("question_answers")
                 or {}
             ),
             "survey_profile": dict(
-                result_survey_snapshot.get("survey_profile")
-                or getattr(latest_survey, "survey_profile", None)
+                resolved_result_survey_snapshot.get("survey_profile")
+                or latest_survey_payload.get("survey_profile")
                 or {}
             ),
         },
@@ -2404,6 +2504,7 @@ def _build_recommendation_diagnostic_snapshot(
             "analysis_id": getattr(latest_analysis, "id", None) or getattr(latest_analysis, "analysis_id", None),
             "face_shape": getattr(latest_analysis, "face_shape", None),
             "golden_ratio_score": getattr(latest_analysis, "golden_ratio_score", None),
+            "landmark_snapshot": dict(getattr(latest_analysis, "landmark_snapshot", None) or {}),
             "created_at": (getattr(latest_analysis, "created_at", None).isoformat() if getattr(latest_analysis, "created_at", None) else None),
         },
         "legacy_recommendations": {
@@ -2703,22 +2804,28 @@ def get_current_recommendations(client: "Client") -> dict:
     snapshot["legacy_recommendations"]["latest_batch_id"] = batch_id
     snapshot["predicted_response"]["decision"] = "generated_current_batch"
     latest_row_survey_snapshot = dict(rows[0].get("survey_snapshot") or {}) if rows else {}
-    if latest_row_survey_snapshot:
+    resolved_latest_row_survey_snapshot = (
+        _resolved_survey_snapshot(client=client, survey_snapshot=latest_row_survey_snapshot)
+        if latest_row_survey_snapshot
+        else {}
+    )
+    if resolved_latest_row_survey_snapshot:
         snapshot["survey"] = {
             **dict(snapshot.get("survey") or {}),
             "present": True,
-            "target_length": latest_row_survey_snapshot.get("target_length") or (snapshot.get("survey") or {}).get("target_length"),
-            "target_vibe": latest_row_survey_snapshot.get("target_vibe") or (snapshot.get("survey") or {}).get("target_vibe"),
-            "scalp_type": latest_row_survey_snapshot.get("scalp_type") or (snapshot.get("survey") or {}).get("scalp_type"),
-            "hair_colour": latest_row_survey_snapshot.get("hair_colour") or (snapshot.get("survey") or {}).get("hair_colour"),
-            "budget_range": latest_row_survey_snapshot.get("budget_range") or (snapshot.get("survey") or {}).get("budget_range"),
+            "target_length": resolved_latest_row_survey_snapshot.get("target_length") or (snapshot.get("survey") or {}).get("target_length"),
+            "target_vibe": resolved_latest_row_survey_snapshot.get("target_vibe") or (snapshot.get("survey") or {}).get("target_vibe"),
+            "scalp_type": resolved_latest_row_survey_snapshot.get("scalp_type") or (snapshot.get("survey") or {}).get("scalp_type"),
+            "hair_colour": resolved_latest_row_survey_snapshot.get("hair_colour") or (snapshot.get("survey") or {}).get("hair_colour"),
+            "budget_range": resolved_latest_row_survey_snapshot.get("budget_range") or (snapshot.get("survey") or {}).get("budget_range"),
+            "gender_branch": resolved_latest_row_survey_snapshot.get("gender_branch") or (snapshot.get("survey") or {}).get("gender_branch"),
             "question_answers": dict(
-                latest_row_survey_snapshot.get("question_answers")
+                resolved_latest_row_survey_snapshot.get("question_answers")
                 or (snapshot.get("survey") or {}).get("question_answers")
                 or {}
             ),
             "survey_profile": dict(
-                latest_row_survey_snapshot.get("survey_profile")
+                resolved_latest_row_survey_snapshot.get("survey_profile")
                 or (snapshot.get("survey") or {}).get("survey_profile")
                 or {}
             ),
@@ -3585,13 +3692,7 @@ def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
             "image_url": image_url,
             "landmark_snapshot": analysis.landmark_snapshot,
         }
-        survey_data = {
-            "target_length": getattr(survey, "target_length", None),
-            "target_vibe": getattr(survey, "target_vibe", None),
-            "scalp_type": getattr(survey, "scalp_type", None),
-            "hair_colour": getattr(survey, "hair_colour", None),
-            "budget_range": getattr(survey, "budget_range", None),
-        }
+        survey_data = _build_generation_survey_payload(client=client, survey=survey)
         logger.info(
             "[HAIRSTYLE PIPELINE] client_id=%s calling RunPod. face_shape=%s image_url_set=%s survey_data=%s",
             client_id,

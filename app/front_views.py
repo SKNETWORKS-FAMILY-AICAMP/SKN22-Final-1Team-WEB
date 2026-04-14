@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.hashers import check_password, identify_hasher, make_password
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -36,13 +36,16 @@ from app.services.runtime_cache import (
 )
 from app.session_state import (
     allow_owner_dashboard,
+    allow_owner_mypage,
     can_access_owner_dashboard,
+    can_access_owner_mypage,
     clear_admin_session,
     clear_customer_session,
     clear_designer_session,
     get_session_admin,
     get_session_customer,
     get_session_designer,
+    revoke_all_owner_scopes,
     revoke_owner_dashboard,
     set_admin_session,
     set_customer_session,
@@ -59,6 +62,82 @@ def _normalize_phone(value: str) -> str:
 
 def _normalize_business_number(value: str) -> str:
     return re.sub(r"\D", "", value or "")
+
+
+def _is_hashed_secret(value: str | None) -> bool:
+    normalized = (value or "").strip()
+    if not normalized:
+        return False
+    try:
+        identify_hasher(normalized)
+    except ValueError:
+        return False
+    return True
+
+
+def _hash_admin_pin(value: str) -> str:
+    return make_password(value)
+
+
+def _matches_admin_pin(*, raw_pin: str, stored_pin: str | None) -> bool:
+    normalized_pin = (raw_pin or "").strip()
+    normalized_stored_pin = (stored_pin or "").strip() or "0000"
+    if _is_hashed_secret(normalized_stored_pin):
+        return check_password(normalized_pin, normalized_stored_pin)
+    return normalized_pin == normalized_stored_pin
+
+
+def _is_default_admin_pin(stored_pin: str | None) -> bool:
+    return _matches_admin_pin(raw_pin="0000", stored_pin=stored_pin)
+
+
+def _get_admin_account_for_runtime_admin(admin):
+    from app.models_django import AdminAccount
+
+    runtime_id = str(getattr(admin, "id", "") or "").strip()
+    if runtime_id:
+        if runtime_id.isdigit():
+            admin_obj = AdminAccount.objects.filter(backend_admin_id=int(runtime_id)).first()
+            if admin_obj is not None:
+                return admin_obj
+        else:
+            admin_obj = AdminAccount.objects.filter(id=runtime_id).first()
+            if admin_obj is not None:
+                return admin_obj
+
+    backend_admin_id = getattr(admin, "backend_admin_id", None)
+    if backend_admin_id not in (None, ""):
+        admin_obj = AdminAccount.objects.filter(backend_admin_id=backend_admin_id).first()
+        if admin_obj is not None:
+            return admin_obj
+
+    phone = _normalize_phone(getattr(admin, "phone", ""))
+    if phone:
+        return AdminAccount.objects.filter(phone=phone).order_by("-backend_admin_id").first()
+    return None
+
+
+def _sync_admin_account_state(*, request: HttpRequest, admin_obj) -> None:
+    try:
+        from app.services.model_team_bridge import sync_model_team_admin_state
+
+        sync_model_team_admin_state(admin=admin_obj)
+    except Exception:
+        pass
+    set_admin_session(request=request, admin=admin_obj)
+
+
+def _upgrade_plain_admin_pin_if_needed(*, request: HttpRequest, admin_obj, raw_pin: str) -> bool:
+    stored_pin = (getattr(admin_obj, "admin_pin", "") or "").strip() or "0000"
+    if _is_hashed_secret(stored_pin):
+        return False
+    if stored_pin != raw_pin:
+        return False
+
+    admin_obj.admin_pin = _hash_admin_pin(stored_pin)
+    admin_obj.save(update_fields=["admin_pin"])
+    _sync_admin_account_state(request=request, admin_obj=admin_obj)
+    return True
 
 
 def _birth_year_from_age(age_value: str) -> int | None:
@@ -170,7 +249,11 @@ def health_check(request):
     return JsonResponse({"status": "django_running", "framework": "Django"})
 
 
+@never_cache
 def home_page(request):
+    # 홈으로 나가면 파트너센터/내 페이지 PIN 인증 세션을 revoke
+    # → 다시 진입할 때 PIN 재인증 필요
+    revoke_all_owner_scopes(request=request)
     return render(request, "index.html", {"start_url": "/customer/", "partner_url": "/partner/login/"})
 
 
@@ -456,7 +539,7 @@ def admin_signup_page(request):
             clear_designer_session(request=request)
             set_admin_session(request=request, admin=admin)
             allow_owner_dashboard(request=request)
-        return redirect("partner_dashboard")
+        return redirect("index")
 
     return render(request, "admin/signup.html")
 
@@ -598,56 +681,59 @@ def admin_mypage_page(request):
         return redirect("partner_index")
 
     if request.method == "POST":
+        action = (request.POST.get("action") or "change_pin").strip()
+        admin_obj = _get_admin_account_for_runtime_admin(admin)
+        if admin_obj is None:
+            return JsonResponse({"status": "error", "message": "관리자 정보를 찾을 수 없습니다."}, status=404)
+
+        current_pin = (request.POST.get("current_pin") or "").strip()
+        if not re.fullmatch(r"\d{4}", current_pin):
+            return JsonResponse({"status": "error", "message": "현재 보안키 4자리를 입력해 주세요."}, status=400)
+
+        if not _matches_admin_pin(raw_pin=current_pin, stored_pin=admin_obj.admin_pin):
+            return JsonResponse({"status": "error", "message": "현재 보안키가 일치하지 않습니다."}, status=401)
+
+        _upgrade_plain_admin_pin_if_needed(request=request, admin_obj=admin_obj, raw_pin=current_pin)
+
+        if action == "verify_current_pin":
+            allow_owner_mypage(request=request)
+            return JsonResponse({"status": "success"})
+
+        if action != "change_pin":
+            return JsonResponse({"status": "error", "message": "지원하지 않는 요청입니다."}, status=400)
+
         new_pin = (request.POST.get("admin_pin") or "").strip()
         if not re.fullmatch(r"\d{4}", new_pin):
-            return render(
-                request,
-                "admin/mypage.html",
-                {
-                    "active_shop": admin,
-                    "form_error": "PIN 번호는 4자리 숫자로 입력해 주세요.",
-                },
+            return JsonResponse({"status": "error", "message": "새 보안키는 4자리 숫자로 입력해 주세요."}, status=400)
+
+        if _matches_admin_pin(raw_pin=new_pin, stored_pin=admin_obj.admin_pin):
+            return JsonResponse(
+                {"status": "error", "message": "현재 사용 중인 보안키와 동일합니다. 다른 번호를 입력해 주세요."},
                 status=400,
             )
 
-        # 실제 모델 객체 가져오기 (세션의 SimpleNamespace는 저장 기능이 없음)
-        from app.models_django import AdminAccount
-        try:
-            # backend_admin_id 필드를 사용하여 기존 정수형 ID로 조회
-            admin_obj = AdminAccount.objects.get(backend_admin_id=admin.id)
+        admin_obj.admin_pin = _hash_admin_pin(new_pin)
+        admin_obj.save(update_fields=["admin_pin"])
+        _sync_admin_account_state(request=request, admin_obj=admin_obj)
+        allow_owner_mypage(request=request)
+        return JsonResponse(
+            {
+                "status": "success",
+                "message": "보안키가 성공적으로 변경되었습니다.",
+                "is_default_admin_pin": False,
+            }
+        )
 
-            # 기존 보안키와 동일한지 체크
-            if admin_obj.admin_pin == new_pin:
-                return render(
-                    request,
-                    "admin/mypage.html",
-                    {
-                        "active_shop": admin,
-                        "form_error": "현재 사용 중인 보안키와 동일합니다. 다른 번호를 입력해 주세요.",
-                    },
-                    status=400,
-                )
-
-            admin_obj.admin_pin = new_pin
-            admin_obj.save()
-
-            # 레거시 테이블 동기화 (이미 shop 테이블에 저장했으므로 추가 동기화 시 에러 방지 처리)
-            try:
-                from app.services.model_team_bridge import sync_model_team_admin_state
-                sync_model_team_admin_state(admin=admin_obj)
-            except Exception:
-                # 동기화 중 에러가 나더라도 메인 저장은 성공했으므로 무시
-                pass
-
-            # 세션 정보 갱신
-            set_admin_session(request=request, admin=admin_obj)
-            return JsonResponse(
-                {"status": "success", "message": "보안키가 성공적으로 변경되었습니다."}
-            )
-        except AdminAccount.DoesNotExist:
-            return JsonResponse({"status": "error", "message": "관리자 정보를 찾을 수 없습니다."}, status=404)
-
-    return render(request, "admin/mypage.html", {"active_shop": admin})
+    admin_obj = _get_admin_account_for_runtime_admin(admin)
+    return render(
+        request,
+        "admin/mypage.html",
+        {
+            "active_shop": admin,
+            "is_mypage_owner": can_access_owner_mypage(request=request),
+            "is_default_admin_pin": _is_default_admin_pin(getattr(admin_obj, "admin_pin", None)) if admin_obj else False,
+        },
+    )
 
 
 @never_cache
@@ -725,12 +811,11 @@ def partner_verify(request):
         clear_customer_session(request=request)
         clear_designer_session(request=request)
         set_admin_session(request=request, admin=admin)
-        # 매장 로그인 성공 시 대시보드 기본 접근은 허용하되,
-        # 디자이너 관리 등 민감 페이지는 별도 비밀번호 확인 절차를 거침
+        # 매장 로그인 성공 시 메인 페이지로 랜딩
         return JsonResponse(
             {
                 "status": "success",
-                "redirect": "/partner/dashboard/",
+                "redirect": "/",
                 "session_type": "admin",
                 "next_step": "index",
                 "shop_id": admin.id,
@@ -771,12 +856,19 @@ def partner_verify(request):
 
         # UUID 또는 정수형 ID(backend_designer_id) 모두 지원하는 조회 로직
         try:
+            shop_uuid_str = get_legacy_admin_id(admin=admin)
             try:
                 d_uuid = uuid.UUID(str(designer_id))
-                designer = Designer.objects.get(id=d_uuid)
-            except (ValueError, Designer.DoesNotExist):
-                designer = Designer.objects.get(backend_designer_id=designer_id)
-        except (Designer.DoesNotExist, ValueError):
+                designer = Designer.objects.filter(id=d_uuid, shop_id=shop_uuid_str).first()
+            except ValueError:
+                designer = None
+                
+            if designer is None:
+                designer = Designer.objects.filter(backend_designer_id=designer_id, shop_id=shop_uuid_str).first()
+                
+            if designer is None:
+                raise Designer.DoesNotExist
+        except Designer.DoesNotExist:
             return JsonResponse(
                 {"status": "error", "message": "선택한 디자이너 정보를 찾을 수 없습니다."},
                 status=404,
@@ -904,14 +996,31 @@ def enter_partner_dashboard(request):
     if request.method != "POST":
         return redirect("partner_index")
 
-    password = (request.POST.get("password") or "").strip()
-    if not password:
-        return JsonResponse({"status": "error", "message": "매장 전체 대시보드 접근을 위해 비밀번호를 다시 입력해 주세요."}, status=400)
-    if not check_password(password, admin.password_hash):
-        return JsonResponse({"status": "error", "message": "비밀번호를 다시 확인해 주세요."}, status=401)
+    scope = (request.POST.get("scope") or "dashboard").strip().lower()
+    if scope not in {"dashboard", "mypage"}:
+        return JsonResponse({"status": "error", "message": "유효하지 않은 접근 범위입니다."}, status=400)
 
+    pin = (request.POST.get("pin") or request.POST.get("password") or "").strip()
+    if not pin:
+        return JsonResponse({"status": "error", "message": "관리자 보안키를 입력해 주세요."}, status=400)
+
+    admin_obj = _get_admin_account_for_runtime_admin(admin)
+    stored_pin = getattr(admin_obj or admin, "admin_pin", None)
+    if not _matches_admin_pin(raw_pin=pin, stored_pin=stored_pin):
+        return JsonResponse({"status": "error", "message": "보안키가 일치하지 않습니다."}, status=401)
+
+    if admin_obj is not None:
+        _upgrade_plain_admin_pin_if_needed(request=request, admin_obj=admin_obj, raw_pin=pin)
+
+    # PIN 인증 성공 시 dashboard + mypage 모두 허용
+    # → 파트너센터 PIN으로 내 페이지 접근 가능 (재인증 불필요)
     allow_owner_dashboard(request=request)
-    return JsonResponse({"status": "success", "redirect": "/partner/designers/"})
+    allow_owner_mypage(request=request)
+    if scope == "mypage":
+        redirect_url = "/partner/mypage/"
+    else:
+        redirect_url = "/partner/dashboard/"
+    return JsonResponse({"status": "success", "redirect": redirect_url})
 
 
 @never_cache

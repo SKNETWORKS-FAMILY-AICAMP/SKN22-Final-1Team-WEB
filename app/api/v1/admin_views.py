@@ -232,7 +232,7 @@ class AdminRegisterView(CompatEnvelopeAPIView):
         admin = _resolve_payload_admin(payload)
         if admin is not None:
             set_admin_session(request=request, admin=admin)
-            payload["redirect"] = "/partner/dashboard/"
+            payload["redirect"] = "/"
             payload["session_type"] = "admin"
         return Response(payload, status=status.HTTP_201_CREATED)
 
@@ -255,7 +255,7 @@ class AdminLoginView(CompatEnvelopeAPIView):
         admin = _resolve_payload_admin(payload)
         if admin is not None:
             set_admin_session(request=request, admin=admin)
-            payload["redirect"] = "/partner/dashboard/"
+            payload["redirect"] = "/"
             payload["session_type"] = "admin"
         return Response(payload)
 
@@ -680,15 +680,15 @@ class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
         admin, designer = staff
 
         days = int(request.query_params.get("days", 7))
-        # Trend reporting is store-wide even when a designer session is active.
-        trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=None)
-        clients_payload = get_all_clients(admin=admin, designer=None)
+        # Trend reporting now respects designer context if active.
+        trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=designer)
+        clients_payload = get_all_clients(admin=admin, designer=designer)
         start_date = timezone.localdate() - timezone.timedelta(days=days - 1)
         activity_by_day = get_legacy_activity_client_map_by_day(
             start_date=start_date,
             days=days,
             admin=admin,
-            designer=None,
+            designer=designer,
         )
         if activity_by_day is None:
             activity_by_day = {
