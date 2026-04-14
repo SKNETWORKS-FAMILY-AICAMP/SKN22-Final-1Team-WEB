@@ -30,6 +30,10 @@ class CurrentFlowNavigationMiddleware:
 
     def process_view(self, request, view_func, view_args, view_kwargs):
         view_name = getattr(getattr(request, "resolver_match", None), "url_name", None)
+
+        # 관리자 인증 세션 자동 해제 로직: 보호된 영역을 벗어날 때만 실행
+        self._handle_admin_session_revocation(request, view_name)
+
         if view_name == "index":
             return self._handle_home(request)
         if view_name == "customer_trend":
@@ -43,6 +47,35 @@ class CurrentFlowNavigationMiddleware:
         if view_name == "partner_dashboard_enter":
             return self._handle_partner_dashboard_enter(request)
         return None
+
+    def _handle_admin_session_revocation(self, request, view_name):
+        if not view_name:
+            return
+
+        # 명시적으로 관리자 영역을 '벗어나는' 뷰 리스트
+        # 이 페이지들로 이동할 때만 admin-pin 인증을 해제합니다.
+        exit_views = {
+            "index",                            # 메인 랜딩
+            "partner_index",                    # 매장 로그인 페이지
+            "partner_designer_select",          # 디자이너 선택 화면
+            "customer_index",                   # 고객 분석 시작
+            "customer_camera",                  # 카메라
+            "customer_menu",                    # 고객 메뉴
+            "customer_survey",                  # 설문
+            "customer_recommendation",          # 결과
+            "customer_history",                 # 히스토리
+            "customer_trend",                   # 트렌드
+            "customer_consultation_complete",   # 상담 완료
+            "customer_logout",                  # 고객 로그아웃
+            "designer_logout",                  # 디자이너 로그아웃
+            "logout",                           # 전체 로그아웃
+        }
+
+        # 나가는 페이지로 이동할 때만 인증 해제
+        if view_name in exit_views:
+            if request.session.get("owner_dashboard_allowed"):
+                revoke_owner_dashboard(request=request)
+                request.session.modified = True
 
     def _resolve_current_main_route(self, *, request: HttpRequest, include_customer: bool = True) -> str | None:
         if include_customer and get_session_customer(request=request) is not None:
@@ -60,9 +93,13 @@ class CurrentFlowNavigationMiddleware:
         return redirect(route_name)
 
     def _handle_home(self, request):
-        current_main_route = self._resolve_current_main_route(request=request)
-        if current_main_route is not None:
-            return redirect(current_main_route)
+        # 고객이나 디자이너 세션이 있는 경우에만 각자의 메인 대시보드로 강제 이동
+        if get_session_customer(request=request) is not None:
+            return redirect("customer_menu")
+        if get_session_designer(request=request) is not None:
+            return redirect("partner_staff_dashboard")
+        
+        # 매장 관리자(Owner)는 메인 페이지(landing)를 볼 수 있도록 허용 (인증 해제를 유도하기 위함)
         return None
 
     def _handle_customer_trend(self, request):

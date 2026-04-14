@@ -232,7 +232,7 @@ class AdminRegisterView(CompatEnvelopeAPIView):
         admin = _resolve_payload_admin(payload)
         if admin is not None:
             set_admin_session(request=request, admin=admin)
-            payload["redirect"] = "/partner/dashboard/"
+            payload["redirect"] = "/"
             payload["session_type"] = "admin"
         return Response(payload, status=status.HTTP_201_CREATED)
 
@@ -255,7 +255,7 @@ class AdminLoginView(CompatEnvelopeAPIView):
         admin = _resolve_payload_admin(payload)
         if admin is not None:
             set_admin_session(request=request, admin=admin)
-            payload["redirect"] = "/partner/dashboard/"
+            payload["redirect"] = "/"
             payload["session_type"] = "admin"
         return Response(payload)
 

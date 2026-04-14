@@ -170,6 +170,7 @@ def health_check(request):
     return JsonResponse({"status": "django_running", "framework": "Django"})
 
 
+@never_cache
 def home_page(request):
     return render(request, "index.html", {"start_url": "/customer/", "partner_url": "/partner/login/"})
 
@@ -456,7 +457,7 @@ def admin_signup_page(request):
             clear_designer_session(request=request)
             set_admin_session(request=request, admin=admin)
             allow_owner_dashboard(request=request)
-        return redirect("partner_dashboard")
+        return redirect("index")
 
     return render(request, "admin/signup.html")
 
@@ -725,12 +726,11 @@ def partner_verify(request):
         clear_customer_session(request=request)
         clear_designer_session(request=request)
         set_admin_session(request=request, admin=admin)
-        # 매장 로그인 성공 시 대시보드 기본 접근은 허용하되,
-        # 디자이너 관리 등 민감 페이지는 별도 비밀번호 확인 절차를 거침
+        # 매장 로그인 성공 시 메인 페이지로 랜딩
         return JsonResponse(
             {
                 "status": "success",
-                "redirect": "/partner/dashboard/",
+                "redirect": "/",
                 "session_type": "admin",
                 "next_step": "index",
                 "shop_id": admin.id,
@@ -906,12 +906,16 @@ def enter_partner_dashboard(request):
 
     password = (request.POST.get("password") or "").strip()
     if not password:
-        return JsonResponse({"status": "error", "message": "매장 전체 대시보드 접근을 위해 비밀번호를 다시 입력해 주세요."}, status=400)
-    if not check_password(password, admin.password_hash):
-        return JsonResponse({"status": "error", "message": "비밀번호를 다시 확인해 주세요."}, status=401)
+        return JsonResponse({"status": "error", "message": "관리자 보안키를 입력해 주세요."}, status=400)
+    
+    # admin_pin 필드를 사용하여 보안키 검증 (비밀번호 대신 4자리 PIN 사용)
+    # 핀 번호가 설정되어 있지 않으면 기본값 '0000' 사용
+    correct_pin = admin.admin_pin or "0000"
+    if password != correct_pin:
+        return JsonResponse({"status": "error", "message": "보안키가 일치하지 않습니다."}, status=401)
 
     allow_owner_dashboard(request=request)
-    return JsonResponse({"status": "success", "redirect": "/partner/designers/"})
+    return JsonResponse({"status": "success", "redirect": "/partner/dashboard/"})
 
 
 @never_cache

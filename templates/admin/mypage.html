@@ -5,8 +5,8 @@
 
 {% block extra_head %}
 <style>
-  /* Keypad Modal Styles */
-  .keypad-overlay {
+  /* Admin PIN Change Modal Styles */
+  .pin-change-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -22,11 +22,11 @@
     visibility: hidden;
     transition: all 0.3s ease;
   }
-  .keypad-overlay.is-active {
+  .pin-change-overlay.is-active {
     opacity: 1;
     visibility: visible;
   }
-  .keypad-container {
+  .pin-change-container {
     width: 320px;
     background: var(--bg-dark);
     border: 1px solid var(--line);
@@ -35,40 +35,40 @@
     text-align: center;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
   }
-  .keypad-title {
+  .pin-change-title {
     font-size: 18px;
     font-weight: 700;
     color: #fff;
     margin-bottom: 8px;
   }
-  .keypad-subtitle {
+  .pin-change-subtitle {
     font-size: 13px;
     color: rgba(255, 255, 255, 0.5);
     margin-bottom: 24px;
   }
-  .keypad-display {
+  .pin-change-display {
     display: flex;
     justify-content: center;
     gap: 12px;
     margin-bottom: 32px;
   }
-  .keypad-dot {
+  .pin-change-dot {
     width: 16px;
     height: 16px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.1);
     transition: all 0.2s ease;
   }
-  .keypad-dot.is-filled {
+  .pin-change-dot.is-filled {
     background: var(--accent-neon);
     box-shadow: 0 0 10px var(--accent-neon);
   }
-  .keypad-grid {
+  .pin-change-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 12px;
   }
-  .keypad-btn {
+  .pin-change-btn {
     aspect-ratio: 1;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.05);
@@ -82,20 +82,20 @@
     justify-content: center;
     transition: all 0.15s ease;
   }
-  .keypad-btn:active {
+  .pin-change-btn:active {
     background: rgba(255, 255, 255, 0.2);
     transform: scale(0.92);
   }
-  .keypad-btn.btn-empty {
+  .pin-change-btn.btn-empty {
     background: transparent;
     border: none;
     cursor: default;
   }
-  .keypad-btn.btn-back {
+  .pin-change-btn.btn-back {
     font-size: 14px;
     color: var(--status-red);
   }
-  .keypad-close {
+  .pin-change-close {
     margin-top: 24px;
     font-size: 14px;
     color: rgba(255, 255, 255, 0.4);
@@ -104,6 +104,35 @@
     cursor: pointer;
     text-decoration: underline;
   }
+    color: rgba(255, 255, 255, 0.4);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  /* Warning Popup Styles */
+  #warningOverlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 2100; opacity: 0; visibility: hidden; transition: all 0.3s ease;
+  }
+  #warningOverlay.is-active { opacity: 1; visibility: visible; }
+  .warning-container {
+    width: 340px; background: var(--bg-dark); border: 1px solid var(--line);
+    border-radius: 24px; padding: 40px 32px; text-align: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  }
+  .warning-icon { font-size: 40px; margin-bottom: 20px; display: block; }
+  .warning-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 12px; line-height: 1.4; }
+  .warning-text { font-size: 14px; color: rgba(255, 255, 255, 0.6); margin-bottom: 32px; line-height: 1.6; }
+  .warning-btn {
+    width: 100%; height: 52px; border-radius: 14px; border: none;
+    background: var(--accent-neon); color: var(--bg-dark);
+    font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+  }
+  .warning-btn:active { transform: scale(0.96); }
 </style>
 {% endblock %}
 
@@ -157,35 +186,45 @@
   </div>
 </div>
 
-<!-- Keypad Modal -->
-<div id="keypadOverlay" class="keypad-overlay">
-  <div class="keypad-container">
-    <div id="keypadStepTitle" class="keypad-title">보안키 확인</div>
-    <div id="keypadStepSub" class="keypad-subtitle">현재 보안키 4자리를 입력해 주세요.</div>
+<!-- PIN Change Modal -->
+<div id="pinChangeOverlay" class="pin-change-overlay">
+  <div class="pin-change-container">
+    <div id="pinChangeStepTitle" class="pin-change-title">보안키 확인</div>
+    <div id="pinChangeStepSub" class="pin-change-subtitle">현재 보안키 4자리를 입력해 주세요.</div>
 
-    <div class="keypad-display">
-      <div class="keypad-dot"></div>
-      <div class="keypad-dot"></div>
-      <div class="keypad-dot"></div>
-      <div class="keypad-dot"></div>
+    <div class="pin-change-display">
+      <div class="pin-change-dot"></div>
+      <div class="pin-change-dot"></div>
+      <div class="pin-change-dot"></div>
+      <div class="pin-change-dot"></div>
     </div>
 
-    <div class="keypad-grid">
-      <button class="keypad-btn" data-val="1">1</button>
-      <button class="keypad-btn" data-val="2">2</button>
-      <button class="keypad-btn" data-val="3">3</button>
-      <button class="keypad-btn" data-val="4">4</button>
-      <button class="keypad-btn" data-val="5">5</button>
-      <button class="keypad-btn" data-val="6">6</button>
-      <button class="keypad-btn" data-val="7">7</button>
-      <button class="keypad-btn" data-val="8">8</button>
-      <button class="keypad-btn" data-val="9">9</button>
-      <div class="keypad-btn btn-empty"></div>
-      <button class="keypad-btn" data-val="0">0</button>
-      <button class="keypad-btn btn-back" id="keypadBack">삭제</button>
+    <div class="pin-change-grid">
+      <button class="pin-change-btn" data-val="1">1</button>
+      <button class="pin-change-btn" data-val="2">2</button>
+      <button class="pin-change-btn" data-val="3">3</button>
+      <button class="pin-change-btn" data-val="4">4</button>
+      <button class="pin-change-btn" data-val="5">5</button>
+      <button class="pin-change-btn" data-val="6">6</button>
+      <button class="pin-change-btn" data-val="7">7</button>
+      <button class="pin-change-btn" data-val="8">8</button>
+      <button class="pin-change-btn" data-val="9">9</button>
+      <div class="pin-change-btn btn-empty"></div>
+      <button class="pin-change-btn" data-val="0">0</button>
+      <button class="pin-change-btn btn-back" id="pinChangeBack">삭제</button>
     </div>
 
-    <button id="closeKeypadBtn" class="keypad-close">닫기</button>
+    <button id="closePinChangeBtn" class="pin-change-close">닫기</button>
+  </div>
+</div>
+
+<!-- Initial PIN Warning Popup -->
+<div id="warningOverlay">
+  <div class="warning-container">
+    <span class="warning-icon">⚠️</span>
+    <div class="warning-title">보안 위험 알림</div>
+    <p class="warning-text">현재 보안키가 0000으로 셋팅 되어 있습니다.<br>보안이 취약하오니 보안키를 변경해주세요!</p>
+    <button id="goToChangePinBtn" class="warning-btn">보안키 변경하기</button>
   </div>
 </div>
 {% endblock %}
@@ -197,26 +236,33 @@
 
     const currentPin = "{{ active_shop.admin_pin|default:'' }}";
     console.log("[MyPage] Loaded admin PIN:", currentPin);
-    const overlay = document.getElementById('keypadOverlay');
+    const overlay = document.getElementById('pinChangeOverlay');
+    const warningOverlay = document.getElementById('warningOverlay');
+    const goToChangePinBtn = document.getElementById('goToChangePinBtn');
     const openBtn = document.getElementById('openKeypadBtn');
-    const closeBtn = document.getElementById('closeKeypadBtn');
-    const dots = document.querySelectorAll('.keypad-dot');
-    const titleEl = document.getElementById('keypadStepTitle');
-    const subEl = document.getElementById('keypadStepSub');
+    const closeBtn = document.getElementById('closePinChangeBtn');
+    const dots = document.querySelectorAll('.pin-change-dot');
+    const titleEl = document.getElementById('pinChangeStepTitle');
+    const subEl = document.getElementById('pinChangeStepSub');
     const statusAlert = document.getElementById('statusAlert');
 
     let state = 'VERIFY_CURRENT'; // VERIFY_CURRENT -> ENTER_NEW -> CONFIRM_NEW
     let inputBuffer = '';
     let newPinBuffer = '';
 
-    // 초기 방문 체크 (0000인 경우)
+    // 초기 방문 체크 (0000인 경우 커스텀 팝업 노출)
     window.addEventListener('load', () => {
       if (currentPin === '0000') {
-        if (confirm('관리자 보안키가 0000으로 설정 되어 있습니다. 보안키를 변경하시겠습니까?')) {
-          openKeypad();
-        }
+        if (warningOverlay) warningOverlay.classList.add('is-active');
       }
     });
+
+    if (goToChangePinBtn) {
+      goToChangePinBtn.onclick = () => {
+        if (warningOverlay) warningOverlay.classList.remove('is-active');
+        openKeypad();
+      };
+    }
 
     function openKeypad() {
       resetKeypad();
@@ -337,10 +383,10 @@
     // Events
     openBtn.addEventListener('click', openKeypad);
     closeBtn.addEventListener('click', closeKeypad);
-    document.querySelectorAll('.keypad-btn[data-val]').forEach(btn => {
+    document.querySelectorAll('.pin-change-btn[data-val]').forEach(btn => {
       btn.addEventListener('click', () => handleInput(btn.dataset.val));
     });
-    document.getElementById('keypadBack').addEventListener('click', handleBack);
+    document.getElementById('pinChangeBack').addEventListener('click', handleBack);
 
   })();
 </script>
