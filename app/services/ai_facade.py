@@ -687,8 +687,28 @@ def _survey_profile_dict(survey_data: dict | None) -> dict:
 
 
 def _survey_gender_branch(survey_data: dict | None) -> str:
+    survey_data = survey_data or {}
     survey_profile = _survey_profile_dict(survey_data)
-    return canonical_gender_branch(survey_profile.get("gender_branch"))
+    return canonical_gender_branch(
+        survey_data.get("gender_branch")
+        or survey_profile.get("gender_branch")
+    )
+
+
+def _resolved_survey_profile_payload(survey_data: dict | None) -> dict:
+    survey_data = survey_data or {}
+    survey_profile = dict(survey_data.get("survey_profile") or {})
+    question_answers = dict(
+        survey_data.get("question_answers")
+        or survey_profile.get("question_answers")
+        or {}
+    )
+    gender_branch = _survey_gender_branch(survey_data)
+    if question_answers:
+        survey_profile["question_answers"] = question_answers
+    if gender_branch:
+        survey_profile["gender_branch"] = gender_branch
+    return survey_profile
 
 
 def _survey_style_axes(survey_data: dict | None) -> dict:
@@ -1034,7 +1054,7 @@ def build_recommendation_debug_payload(
     preference_text = _build_preference_text(survey_data)
     resolved_stage = str(recommendation_stage or "initial").strip() or "initial"
     runtime_snapshot = get_ai_runtime_config_snapshot()
-    survey_profile = dict(survey_data.get("survey_profile") or {})
+    survey_profile = _resolved_survey_profile_payload(survey_data)
     question_answers = dict(
         survey_data.get("question_answers")
         or survey_profile.get("question_answers")
@@ -1059,6 +1079,7 @@ def build_recommendation_debug_payload(
             "scalp_type": survey_data.get("scalp_type"),
             "hair_colour": survey_data.get("hair_colour"),
             "budget_range": survey_data.get("budget_range"),
+            "gender_branch": _survey_gender_branch(survey_data),
             "question_answers": question_answers,
             "survey_profile": survey_profile,
             "question_answer_count": question_answer_count,

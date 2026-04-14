@@ -163,6 +163,7 @@
   <form id="surveyForm" action="/api/v1/survey/" method="post" novalidate>
     {% csrf_token %}
     <input type="hidden" name="customer" value="{{ request.session.customer_id }}">
+    <input type="hidden" name="gender_branch" value="{{ display_gender }}">
     
     <div class="survey-container">
       {% if display_gender == 'male' %}

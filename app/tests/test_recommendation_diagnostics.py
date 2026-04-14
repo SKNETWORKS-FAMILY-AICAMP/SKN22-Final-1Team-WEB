@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from app.api.v1 import services_django
 
@@ -223,6 +224,52 @@ class RecommendationDiagnosticSnapshotTests(SimpleTestCase):
         self.assertEqual(payload["status"], "needs_capture")
         self.assertEqual(payload["items"], [])
 
+
+
+class RecommendationSurveySnapshotTests(SimpleTestCase):
+    def test_normalize_survey_payload_prefers_explicit_gender_branch(self):
+        client = SimpleNamespace(id=17, gender="female")
+
+        payload = services_django.normalize_survey_payload(
+            client=client,
+            payload={
+                "gender_branch": "male",
+                "q1": "아주 짧고 깔끔하게",
+                "q2": "확실한 투블럭",
+                "q3": "올리는 스타일",
+                "q4": "가르마 스타일 선호",
+                "q5": "펌 없이 깔끔하게",
+                "q6": "세련된",
+            },
+        )
+
+        self.assertEqual(payload["gender_branch"], "male")
+        self.assertEqual(payload["survey_profile"]["gender_branch"], "male")
+        self.assertEqual(payload["target_length"], "short")
+
+    def test_build_survey_snapshot_prefers_survey_gender_branch(self):
+        client = SimpleNamespace(id=17, gender="female")
+        survey = SimpleNamespace(
+            target_length="short",
+            target_vibe="chic",
+            scalp_type="straight",
+            hair_colour="black",
+            budget_range="mid",
+            gender_branch="male",
+            preference_vector=[0.1, 0.2],
+            survey_profile={"gender_branch": "female"},
+            created_at=timezone.now(),
+        )
+
+        with patch.object(services_django, "get_latest_survey", return_value=survey), patch.object(
+            services_django,
+            "build_client_age_profile",
+            return_value={},
+        ):
+            snapshot = services_django.build_survey_snapshot(client)
+
+        self.assertEqual(snapshot["gender_branch"], "male")
+        self.assertEqual(snapshot["survey_profile"]["gender_branch"], "male")
 
 
 class RecommendationDiagnosticCommandTests(SimpleTestCase):

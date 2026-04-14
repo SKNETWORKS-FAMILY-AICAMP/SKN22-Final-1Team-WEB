@@ -400,8 +400,8 @@ def _survey_profile_dict(survey) -> dict:
 def _survey_gender_branch(survey) -> str:
     survey_profile = _survey_profile_dict(survey)
     return canonical_gender_branch(
-        survey_profile.get("gender_branch")
-        or _field_value(survey, "gender_branch")
+        _field_value(survey, "gender_branch")
+        or survey_profile.get("gender_branch")
     )
 
 

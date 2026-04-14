@@ -113,6 +113,43 @@ class AiFacadeContractTests(SimpleTestCase):
             payload["direct_runpod_payload"]["prompt_text"],
         )
 
+    def test_build_recommendation_debug_payload_prefers_top_level_gender_branch(self):
+        payload = build_recommendation_debug_payload(
+            survey_data={
+                "gender_branch": "male",
+                "target_length": "short",
+                "target_vibe": "chic",
+                "survey_profile": {"gender_branch": "female"},
+            },
+            analysis_data={},
+        )
+
+        self.assertEqual(payload["survey_data"]["gender_branch"], "male")
+        self.assertEqual(payload["survey_data"]["survey_profile"]["gender_branch"], "male")
+        self.assertEqual(
+            payload["runpod_payload"]["request_payload_preview"]["preference"]["gender_branch"],
+            "male",
+        )
+        self.assertIn(
+            "male haircut",
+            payload["runpod_payload"]["request_payload_preview"]["hairstyle_text"],
+        )
+
+    def test_generate_recommendation_batch_prefers_top_level_gender_branch_for_scoring(self):
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={
+                "gender_branch": "male",
+                "target_length": "short",
+                "target_vibe": "chic",
+                "survey_profile": {"gender_branch": "female"},
+            },
+            analysis_data={"face_shape": "Oval", "golden_ratio_score": 0.91},
+        )
+
+        self.assertTrue(items)
+        self.assertEqual(items[0]["reasoning_snapshot"]["gender_branch"], "male")
+
     @patch.dict(
         os.environ,
         {
