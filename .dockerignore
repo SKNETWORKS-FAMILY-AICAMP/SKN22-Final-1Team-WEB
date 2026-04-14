@@ -12,8 +12,14 @@ staticfiles/
 server_log.txt
 backend/
 data/rag/*
+!data/rag/processed/
+data/rag/processed/*
+!data/rag/processed/trends/
+!data/rag/processed/trends/**
+!data/rag/processed/ncs/
+!data/rag/processed/ncs/**
 !data/rag/stores/
-data/rag/stores/**
+data/rag/stores/*
 !data/rag/stores/chromadb_trends/
 !data/rag/stores/chromadb_trends/**
 !data/rag/stores/chromadb_ncs/
