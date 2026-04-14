@@ -10,6 +10,7 @@ from urllib import error, request
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import IntegrityError, OperationalError, ProgrammingError, connection
 from django.db.models import Count, Q
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
 from app.api.v1.admin_auth import issue_admin_token_pair
@@ -22,7 +23,7 @@ from app.api.v1.services_django import (
     get_latest_survey,
     serialize_recommendation_row,
 )
-from app.models_model_team import LegacyClient, LegacyClientResult, LegacyDesigner
+from app.models_model_team import LegacyClient, LegacyClientResult, LegacyDesigner, LegacyHairstyle
 from app.services.age_profile import build_client_age_profile
 from app.services.ai_facade import get_ai_health
 from app.services.model_team_bridge import (
@@ -32,10 +33,13 @@ from app.services.model_team_bridge import (
     admin_exists_by_phone,
     create_admin_record,
     get_admin_by_identifier,
+    get_backend_admin_id,
+    get_backend_designer_id,
     get_client_by_identifier,
     get_admin_by_phone,
     get_designer_by_identifier,
     get_designer_for_admin,
+    get_legacy_active_consultation_count,
     get_legacy_active_consultation_items,
     get_legacy_admin_id,
     get_legacy_activity_client_map_by_day,
@@ -82,6 +86,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+STYLE_PROFILE_BY_ID = {profile.style_id: profile for profile in STYLE_CATALOG}
 
 
 def _partner_lookup_cache_key(
@@ -587,10 +592,62 @@ def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict 
     }
 
 
-def _style_snapshot(style_id: int) -> dict:
-    styles_by_id = ensure_catalog_styles()
-    style = styles_by_id.get(style_id) or get_style_record(style_id=style_id)
-    if not style:
+def _report_image_url(reference: str | None) -> str | None:
+    text = str(reference or "").strip()
+    if not text:
+        return None
+    if text.startswith(("http://", "https://", "/", "data:image/")):
+        return text
+    return None
+
+
+def _style_record_map(style_ids) -> dict[int, object]:
+    normalized_ids: set[int] = set()
+    for style_id in style_ids or []:
+        try:
+            normalized_ids.add(int(style_id))
+        except (TypeError, ValueError):
+            continue
+
+    if not normalized_ids:
+        return {}
+
+    rows = (
+        LegacyHairstyle.objects.filter(
+            Q(hairstyle_id__in=normalized_ids) | Q(backend_style_id__in=normalized_ids)
+        )
+        .only(
+            "hairstyle_id",
+            "backend_style_id",
+            "style_name",
+            "name",
+            "image_url",
+            "description",
+            "vibe",
+        )
+        .order_by("-backend_style_id", "-hairstyle_id")
+    )
+    records: dict[int, object] = {}
+    for row in rows:
+        candidate_ids = []
+        for candidate in (getattr(row, "backend_style_id", None), getattr(row, "hairstyle_id", None)):
+            if candidate in (None, ""):
+                continue
+            try:
+                candidate_ids.append(int(candidate))
+            except (TypeError, ValueError):
+                continue
+        for candidate_id in candidate_ids:
+            if candidate_id in normalized_ids and candidate_id not in records:
+                records[candidate_id] = row
+    return records
+
+
+def _style_snapshot(style_id: int, *, resolve_image: bool = True, style=None) -> dict:
+    profile = STYLE_PROFILE_BY_ID.get(style_id)
+    style = style or get_style_record(style_id=style_id)
+
+    if not style and not profile:
         return {
             "style_id": style_id,
             "style_name": f"Style {style_id}",
@@ -599,10 +656,14 @@ def _style_snapshot(style_id: int) -> dict:
             "keywords": [],
         }
 
-    profile = next((item for item in STYLE_CATALOG if item.style_id == style_id), None)
-    style_name = getattr(style, "name", None) or getattr(style, "style_name", None) or f"Style {style_id}"
-    style_image_url = getattr(style, "image_url", None)
-    style_description = getattr(style, "description", None) or ""
+    style_name = (
+        getattr(style, "name", None)
+        or getattr(style, "style_name", None)
+        or (profile.fallback_name if profile else None)
+        or f"Style {style_id}"
+    )
+    style_image_url = getattr(style, "image_url", None) or (profile.fallback_sample_image_url if profile else None)
+    style_description = getattr(style, "description", None) or (profile.fallback_description if profile else "") or ""
     style_vibe = getattr(style, "vibe", None)
     normalized_style_id = (
         getattr(style, "backend_style_id", None)
@@ -614,7 +675,11 @@ def _style_snapshot(style_id: int) -> dict:
     return {
         "style_id": normalized_style_id,
         "style_name": style_name,
-        "image_url": resolve_storage_reference(style_image_url),
+        "image_url": (
+            resolve_storage_reference(style_image_url)
+            if resolve_image
+            else _report_image_url(style_image_url)
+        ),
         "description": style_description,
         "keywords": keywords,
     }
@@ -850,18 +915,24 @@ def _prime_scope_caches(
     designer_cache: dict[str, object] = {}
 
     if admin is not None:
-        admin_cache[f"backend:{admin.id}"] = admin
+        backend_admin_id = get_backend_admin_id(admin=admin)
+        if backend_admin_id is not None:
+            admin_cache[f"backend:{backend_admin_id}"] = admin
         legacy_admin_id = get_legacy_admin_id(admin=admin)
         if legacy_admin_id:
             admin_cache[f"legacy:{legacy_admin_id}"] = admin
 
     if designer is not None:
-        designer_cache[f"backend:{designer.id}"] = designer
+        backend_designer_id = get_backend_designer_id(designer=designer)
+        if backend_designer_id is not None:
+            designer_cache[f"backend:{backend_designer_id}"] = designer
         legacy_designer_id = get_legacy_designer_id(designer=designer)
         if legacy_designer_id:
             designer_cache[f"legacy:{legacy_designer_id}"] = designer
         if getattr(designer, "shop", None) is not None:
-            admin_cache[f"backend:{designer.shop.id}"] = designer.shop
+            designer_shop_backend_id = get_backend_admin_id(admin=designer.shop)
+            if designer_shop_backend_id is not None:
+                admin_cache[f"backend:{designer_shop_backend_id}"] = designer.shop
             legacy_admin_id = get_legacy_admin_id(admin=designer.shop)
             if legacy_admin_id:
                 admin_cache[f"legacy:{legacy_admin_id}"] = designer.shop
@@ -876,9 +947,11 @@ def _client_is_in_scope(
     designer: "Designer | None" = None,
 ) -> bool:
     if designer is not None:
-        return getattr(client, "designer_id", None) == designer.id
+        backend_designer_id = get_backend_designer_id(designer=designer)
+        return backend_designer_id is not None and getattr(client, "designer_id", None) == backend_designer_id
     if admin is not None:
-        return getattr(client, "shop_id", None) == admin.id
+        backend_admin_id = get_backend_admin_id(admin=admin)
+        return backend_admin_id is not None and getattr(client, "shop_id", None) == backend_admin_id
     return True
 
 
@@ -907,9 +980,21 @@ def _scoped_client_records(
     limit: int | None = None,
 ) -> list["Client"]:
     if designer is not None:
-        rows = LegacyClient.objects.filter(backend_designer_ref_id=designer.id)
+        backend_designer_id = get_backend_designer_id(designer=designer)
+        rows = (
+            LegacyClient.objects.filter(backend_designer_ref_id=backend_designer_id)
+            if backend_designer_id is not None
+            else LegacyClient.objects.none()
+        )
     elif admin is not None:
-        rows = LegacyClient.objects.filter(backend_shop_ref_id=admin.id)
+        backend_admin_id = get_backend_admin_id(admin=admin)
+        legacy_admin_id = get_legacy_admin_id(admin=admin)
+        scope_filter = Q()
+        if backend_admin_id is not None:
+            scope_filter |= Q(backend_shop_ref_id=backend_admin_id)
+        if legacy_admin_id:
+            scope_filter |= Q(shop_id=legacy_admin_id)
+        rows = LegacyClient.objects.filter(scope_filter) if scope_filter else LegacyClient.objects.none()
     else:
         rows = LegacyClient.objects.all()
 
@@ -2035,6 +2120,279 @@ def _build_style_report_snapshot(*, style_id: int, days: int, admin: "AdminAccou
     }
 
 
+_AGE_DECADE_SORT_ORDER = {
+    f"{decade}대": index
+    for index, decade in enumerate(range(10, 100, 10), start=1)
+}
+_AGE_GROUP_SORT_ORDER = {
+    f"{decade}대 {segment}": index
+    for index, (decade, segment) in enumerate(
+        (
+            (10, "초반"),
+            (10, "중반"),
+            (10, "후반"),
+            (20, "초반"),
+            (20, "중반"),
+            (20, "후반"),
+            (30, "초반"),
+            (30, "중반"),
+            (30, "후반"),
+            (40, "초반"),
+            (40, "중반"),
+            (40, "후반"),
+            (50, "초반"),
+            (50, "중반"),
+            (50, "후반"),
+            (60, "초반"),
+            (60, "중반"),
+            (60, "후반"),
+            (70, "초반"),
+            (70, "중반"),
+            (70, "후반"),
+            (80, "초반"),
+            (80, "중반"),
+            (80, "후반"),
+            (90, "초반"),
+            (90, "중반"),
+            (90, "후반"),
+        ),
+        start=1,
+    )
+}
+
+
+def _sort_distribution_rows(rows: list[dict], *, label_key: str) -> list[dict]:
+    order_map = _AGE_GROUP_SORT_ORDER if label_key == "age_group" else _AGE_DECADE_SORT_ORDER
+    return sorted(
+        [row for row in rows if row.get(label_key)],
+        key=lambda row: (
+            order_map.get(str(row.get(label_key) or "").strip(), 999),
+            str(row.get(label_key) or "").strip(),
+        ),
+    )
+
+
+def _build_designer_customer_distribution(*, items: list[dict]) -> list[dict]:
+    counter = Counter()
+    for item in items:
+        designer_name = str(item.get("designer_name") or "").strip() or "미배정"
+        counter[designer_name] += 1
+
+    return [
+        {"designer_name": name, "customer_count": count}
+        for name, count in sorted(counter.items(), key=lambda entry: (-entry[1], entry[0]))
+    ]
+
+
+def _local_date_from_value(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        parsed = parse_datetime(value)
+        if parsed is None:
+            try:
+                parsed = timezone.datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        value = parsed
+    if hasattr(value, "date"):
+        if not hasattr(value, "tzinfo"):
+            return value.date()
+        if timezone.is_naive(value):
+            return value.date()
+        return timezone.localtime(value).date()
+    return None
+
+
+def _legacy_dashboard_client_queryset(
+    *,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+):
+    if designer is not None:
+        backend_designer_id = get_backend_designer_id(designer=designer)
+        if backend_designer_id is None:
+            return LegacyClient.objects.none()
+        return LegacyClient.objects.filter(backend_designer_ref_id=backend_designer_id)
+
+    if admin is not None:
+        backend_admin_id = get_backend_admin_id(admin=admin)
+        legacy_admin_id = get_legacy_admin_id(admin=admin)
+        scope_filter = Q()
+        if backend_admin_id is not None:
+            scope_filter |= Q(backend_shop_ref_id=backend_admin_id)
+        if legacy_admin_id:
+            scope_filter |= Q(shop_id=legacy_admin_id)
+        if not scope_filter:
+            return LegacyClient.objects.none()
+        return LegacyClient.objects.filter(scope_filter)
+
+    return LegacyClient.objects.all()
+
+
+def _build_legacy_dashboard_client_metrics(
+    *,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> dict:
+    rows = list(
+        _legacy_dashboard_client_queryset(admin=admin, designer=designer).only(
+            "client_id",
+            "backend_client_id",
+            "created_at",
+            "backend_designer_ref_id",
+        )
+    )
+    if not rows:
+        return {
+            "total_customers": 0,
+            "new_today": 0,
+            "designer_customer_distribution": [],
+        }
+
+    today = timezone.localdate()
+    new_today = 0
+    designer_counter: Counter[str] = Counter()
+    designer_ids: set[int] = set()
+    for row in rows:
+        if _local_date_from_value(getattr(row, "created_at", None)) == today:
+            new_today += 1
+        if designer is not None:
+            continue
+        backend_designer_ref_id = getattr(row, "backend_designer_ref_id", None)
+        if backend_designer_ref_id:
+            try:
+                numeric_designer_id = int(backend_designer_ref_id)
+            except (TypeError, ValueError):
+                designer_counter["미배정"] += 1
+                continue
+            designer_ids.add(numeric_designer_id)
+            designer_counter[f"backend:{numeric_designer_id}"] += 1
+        else:
+            designer_counter["미배정"] += 1
+
+    designer_customer_distribution: list[dict] = []
+    if designer is None:
+        designer_name_map = {
+            f"backend:{int(row.backend_designer_id)}": (
+                row.name or row.designer_name or f"디자이너 {row.backend_designer_id}"
+            )
+            for row in LegacyDesigner.objects.filter(backend_designer_id__in=designer_ids).only(
+                "backend_designer_id",
+                "name",
+                "designer_name",
+            )
+            if row.backend_designer_id
+        }
+        designer_customer_distribution = [
+            {
+                "designer_name": designer_name_map.get(
+                    key,
+                    "미배정" if key == "미배정" else key.replace("backend:", "디자이너 "),
+                ),
+                "customer_count": count,
+            }
+            for key, count in sorted(
+                designer_counter.items(),
+                key=lambda entry: (-entry[1], "zzz" if entry[0] == "미배정" else entry[0]),
+            )
+        ]
+
+    return {
+        "total_customers": len(rows),
+        "new_today": new_today,
+        "designer_customer_distribution": designer_customer_distribution,
+    }
+
+
+def get_legacy_dashboard_trend_report(
+    *,
+    days: int = 7,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> dict:
+    days = max(1, int(days or 7))
+    cache_key = _partner_lookup_cache_key(
+        "partner-legacy-dashboard-report",
+        admin=admin,
+        designer=designer,
+        days=days,
+    )
+    cached_payload = _partner_cache_get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
+    trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=designer)
+    client_metrics = _build_legacy_dashboard_client_metrics(admin=admin, designer=designer)
+
+    start_date = timezone.localdate() - timezone.timedelta(days=days - 1)
+    activity_by_day = get_legacy_activity_client_map_by_day(
+        start_date=start_date,
+        days=days,
+        admin=admin,
+        designer=designer,
+    )
+    if activity_by_day is None:
+        activity_by_day = {
+            (start_date + timezone.timedelta(days=offset)).isoformat(): set()
+            for offset in range(days)
+        }
+
+    total_customers = client_metrics["total_customers"]
+    new_today = client_metrics["new_today"]
+    unique_clients = trend_payload["kpi"]["unique_clients"]
+    conversion_rate = round(
+        (trend_payload["kpi"]["total_confirmations"] / unique_clients) * 100
+    ) if unique_clients else 0
+
+    payload = {
+        "summary": {
+            "total_customers": total_customers,
+            "new_today": new_today,
+            "conversion_rate": conversion_rate,
+        },
+        "kpi": trend_payload["kpi"],
+        "scope": {
+            "admin_scoped": admin is not None,
+            "designer_scoped": designer is not None,
+            "store_name": (
+                getattr(admin, "store_name", None)
+                or getattr(getattr(designer, "shop", None), "store_name", None)
+            ),
+            "designer_name": getattr(designer, "name", None),
+        },
+        "visitor_stats": [
+            {"date": date, "count": len(client_set)}
+            for date, client_set in activity_by_day.items()
+        ],
+        "style_distribution": [
+            {"name": item["style_name"], "value": item["selection_count"]}
+            for item in trend_payload["distribution"]
+        ],
+        "style_ranking": trend_payload["ranking"],
+        "age_group_distribution": _sort_distribution_rows(
+            trend_payload.get("age_group_distribution", []),
+            label_key="age_group",
+        ),
+        "age_decade_distribution": _sort_distribution_rows(
+            trend_payload.get("age_decade_distribution", []),
+            label_key="age_decade",
+        ),
+        "designer_customer_distribution": (
+            client_metrics["designer_customer_distribution"]
+            if designer is None
+            else []
+        ),
+        "report_snapshot": trend_payload.get("report_snapshot", {}),
+    }
+    return _partner_cache_set(
+        cache_key,
+        payload,
+        timeout_setting="PARTNER_REPORT_CACHE_SECONDS",
+        default_timeout=90,
+    )
+
+
 def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
     filters = filters or {}
     normalized_filters = {
@@ -2058,6 +2416,7 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         since=cutoff,
         admin=admin,
         designer=designer,
+        compact=True,
     ) or []
     selections = legacy_items
     filtered = [
@@ -2073,16 +2432,22 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
     representative = {}
     for row in filtered:
         representative.setdefault(row["style_id"], row)
+    top_style_ids = [style_id for style_id, _ in counter.most_common(10)]
+    style_records = _style_record_map(top_style_ids)
     ranking = []
     for rank, (style_id, count) in enumerate(counter.most_common(10), start=1):
         row = representative.get(style_id, {})
-        style_data = _style_snapshot(style_id)
+        style_data = _style_snapshot(
+            style_id,
+            resolve_image=False,
+            style=style_records.get(style_id),
+        )
         ranking.append(
             {
                 "rank": rank,
                 "style_id": style_id,
                 "style_name": row.get("style_name") or style_data["style_name"],
-                "image_url": resolve_storage_reference(row.get("image_url") or style_data["image_url"]),
+                "image_url": _report_image_url(row.get("image_url")) or style_data["image_url"],
                 "selection_count": count,
                 "keywords": row.get("keywords") or style_data["keywords"],
             }
@@ -2130,7 +2495,7 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         admin is not None,
         designer is not None,
     )
-    legacy_active_items = get_legacy_active_consultation_items(admin=admin, designer=designer)
+    active_consultation_count = get_legacy_active_consultation_count(admin=admin, designer=designer)
     payload = {
         "status": "ready",
         "days": days,
@@ -2138,7 +2503,7 @@ def get_admin_trend_report(*, days: int = 7, filters: dict | None = None, admin:
         "kpi": {
             "unique_clients": unique_clients,
             "total_confirmations": len(filtered),
-            "active_consultations": len(legacy_active_items),
+            "active_consultations": active_consultation_count,
         },
         "ranking": ranking,
         "distribution": distribution,

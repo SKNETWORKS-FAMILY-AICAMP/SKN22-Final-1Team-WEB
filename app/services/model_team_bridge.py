@@ -495,18 +495,31 @@ def _client_from_legacy_row(
 
 def get_designers_for_admin(*, admin: AdminAccount) -> list[Designer]:
     if _has_columns("designer", LEGACY_DESIGNER_MODEL_COLUMNS):
+        backend_admin_id = get_backend_admin_id(admin=admin)
         legacy_id = get_legacy_admin_id(admin=admin)
-        # UUID(shop_id) 또는 정수형(backend_shop_ref_id) 중 하나라도 일치하는 활성 디자이너 조회
-        queryset = LegacyDesigner.objects.filter(is_active=True)
+        scope_filter = Q()
         if legacy_id:
-            queryset = queryset.filter(Q(shop_id=legacy_id) | Q(backend_shop_ref_id=admin.id))
-        else:
-            queryset = queryset.filter(backend_shop_ref_id=admin.id)
-            
-        rows = list(queryset.order_by("backend_designer_id", "designer_id"))
-        admin_cache = {f"backend:{admin.id}": admin}
+            scope_filter |= Q(shop_id=legacy_id)
+        if backend_admin_id is not None:
+            scope_filter |= Q(backend_shop_ref_id=backend_admin_id)
+        if not scope_filter:
+            return []
+
+        rows = list(
+            LegacyDesigner.objects.filter(scope_filter, is_active=True)
+            .order_by("backend_designer_id", "designer_id")
+        )
+        resolved_admin = (
+            get_admin_by_identifier(identifier=backend_admin_id)
+            if backend_admin_id is not None
+            else None
+        ) or admin
+        admin_cache: dict[str, object] = {}
+        resolved_backend_admin_id = get_backend_admin_id(admin=resolved_admin)
+        if resolved_backend_admin_id is not None:
+            admin_cache[f"backend:{resolved_backend_admin_id}"] = resolved_admin
         if legacy_id:
-            admin_cache[f"legacy:{legacy_id}"] = admin
+            admin_cache[f"legacy:{legacy_id}"] = resolved_admin
         return [
             designer
             for designer in (
@@ -545,20 +558,65 @@ def get_designer_by_identifier(*, identifier: str | int | None) -> Designer | No
     return get_designer_by_legacy_id(legacy_designer_id=text)
 
 
+def get_backend_admin_id(*, admin: AdminAccount | None) -> int | None:
+    if admin is None:
+        return None
+
+    for attr_name in ("backend_admin_id", "id"):
+        value = getattr(admin, attr_name, None)
+        if value in (None, ""):
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def get_backend_designer_id(*, designer: Designer | None) -> int | None:
+    if designer is None:
+        return None
+
+    for attr_name in ("backend_designer_id", "id"):
+        value = getattr(designer, attr_name, None)
+        if value in (None, ""):
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def get_designer_for_admin(*, admin: AdminAccount, designer_id: int | str) -> Designer | None:
+    backend_admin_id = get_backend_admin_id(admin=admin)
+    legacy_admin_id = get_legacy_admin_id(admin=admin)
+
     try:
         designer_id = int(designer_id)
     except (TypeError, ValueError):
         designer = get_designer_by_legacy_id(legacy_designer_id=str(designer_id))
-        if designer is not None and designer.shop_id == admin.id and designer.is_active:
+        if designer is None or not designer.is_active:
+            return None
+        if backend_admin_id is not None and designer.shop_id == backend_admin_id:
+            return designer
+        if legacy_admin_id and get_legacy_admin_id(admin=getattr(designer, "shop", None)) == legacy_admin_id:
             return designer
         return None
 
     if _has_columns("designer", LEGACY_DESIGNER_MODEL_COLUMNS):
+        scope_filter = Q()
+        if backend_admin_id is not None:
+            scope_filter |= Q(backend_shop_ref_id=backend_admin_id)
+        if legacy_admin_id:
+            scope_filter |= Q(shop_id=legacy_admin_id)
+        if not scope_filter:
+            return None
+
         legacy_designer = (
             LegacyDesigner.objects.filter(
+                scope_filter,
                 backend_designer_id=designer_id,
-                backend_shop_ref_id=admin.id,
                 is_active=True,
             )
             .first()
@@ -662,11 +720,23 @@ def get_scoped_client_ids(
         return None
 
     if designer is not None:
-        rows = LegacyClient.objects.filter(backend_designer_ref_id=designer.id).order_by("backend_client_id")
+        backend_designer_id = get_backend_designer_id(designer=designer)
+        if backend_designer_id is None:
+            return []
+        rows = LegacyClient.objects.filter(backend_designer_ref_id=backend_designer_id).order_by("backend_client_id")
         return [int(row.backend_client_id) for row in rows if row.backend_client_id]
 
     if admin is not None:
-        rows = LegacyClient.objects.filter(backend_shop_ref_id=admin.id).order_by("backend_client_id")
+        backend_admin_id = get_backend_admin_id(admin=admin)
+        legacy_admin_id = get_legacy_admin_id(admin=admin)
+        scope_filter = Q()
+        if backend_admin_id is not None:
+            scope_filter |= Q(backend_shop_ref_id=backend_admin_id)
+        if legacy_admin_id:
+            scope_filter |= Q(shop_id=legacy_admin_id)
+        if not scope_filter:
+            return []
+        rows = LegacyClient.objects.filter(scope_filter).order_by("backend_client_id")
         return [int(row.backend_client_id) for row in rows if row.backend_client_id]
 
     return None
@@ -823,17 +893,38 @@ def _legacy_result_queryset(
     if client is not None:
         queryset = queryset.filter(_legacy_client_q(client=client))
     if admin is not None:
-        queryset = queryset.filter(
-            Q(backend_admin_ref_id=admin.id)
-            | Q(backend_client_ref_id__in=LegacyClient.objects.filter(backend_shop_ref_id=admin.id).values("backend_client_id"))
-            | Q(client_id__in=LegacyClient.objects.filter(backend_shop_ref_id=admin.id).values("client_id"))
-        )
+        backend_admin_id = get_backend_admin_id(admin=admin)
+        legacy_admin_id = get_legacy_admin_id(admin=admin)
+        client_scope = Q()
+        if backend_admin_id is not None:
+            client_scope |= Q(backend_shop_ref_id=backend_admin_id)
+        if legacy_admin_id:
+            client_scope |= Q(shop_id=legacy_admin_id)
+
+        admin_filter = Q()
+        if backend_admin_id is not None:
+            admin_filter |= Q(backend_admin_ref_id=backend_admin_id)
+        if client_scope:
+            scoped_clients = LegacyClient.objects.filter(client_scope)
+            admin_filter |= Q(backend_client_ref_id__in=scoped_clients.values("backend_client_id"))
+            admin_filter |= Q(client_id__in=scoped_clients.values("client_id"))
+        if admin_filter:
+            queryset = queryset.filter(admin_filter)
     if designer is not None:
-        queryset = queryset.filter(
-            Q(backend_designer_ref_id=designer.id)
-            | Q(backend_client_ref_id__in=LegacyClient.objects.filter(backend_designer_ref_id=designer.id).values("backend_client_id"))
-            | Q(client_id__in=LegacyClient.objects.filter(backend_designer_ref_id=designer.id).values("client_id"))
-        )
+        backend_designer_id = get_backend_designer_id(designer=designer)
+        legacy_designer_id = get_legacy_designer_id(designer=designer)
+        designer_filter = Q()
+        if backend_designer_id is not None:
+            scoped_clients = LegacyClient.objects.filter(backend_designer_ref_id=backend_designer_id)
+            designer_filter |= Q(backend_designer_ref_id=backend_designer_id)
+            designer_filter |= Q(backend_client_ref_id__in=scoped_clients.values("backend_client_id"))
+            designer_filter |= Q(client_id__in=scoped_clients.values("client_id"))
+        if legacy_designer_id:
+            designer_filter |= Q(
+                analysis_id__in=LegacyClientAnalysis.objects.filter(designer_id=legacy_designer_id).values("analysis_id")
+            )
+        if designer_filter:
+            queryset = queryset.filter(designer_filter)
     return queryset
 
 
@@ -1280,6 +1371,10 @@ def _legacy_scope_sql(
 ) -> tuple[list[str], list]:
     conditions: list[str] = []
     params: list = []
+    backend_admin_id = get_backend_admin_id(admin=admin)
+    legacy_admin_id = get_legacy_admin_id(admin=admin)
+    backend_designer_id = get_backend_designer_id(designer=designer)
+    legacy_designer_id = get_legacy_designer_id(designer=designer)
 
     if client is not None:
         if "backend_client_ref_id" in result_columns:
@@ -1290,23 +1385,23 @@ def _legacy_scope_sql(
             params.append(str(_legacy_uuid("client", client.id)))
 
     if admin is not None:
-        if "backend_shop_ref_id" in client_columns:
+        if "backend_shop_ref_id" in client_columns and backend_admin_id is not None:
             conditions.append("c.backend_shop_ref_id = %s")
-            params.append(admin.id)
-        else:
+            params.append(backend_admin_id)
+        elif legacy_admin_id:
             conditions.append("c.shop_id = %s")
-            params.append(str(_legacy_uuid("shop", admin.id)))
+            params.append(legacy_admin_id)
 
     if designer is not None:
-        if "backend_designer_ref_id" in result_columns:
+        if "backend_designer_ref_id" in result_columns and backend_designer_id is not None:
             conditions.append("r.backend_designer_ref_id = %s")
-            params.append(designer.id)
-        elif "backend_designer_ref_id" in client_columns:
+            params.append(backend_designer_id)
+        elif "backend_designer_ref_id" in client_columns and backend_designer_id is not None:
             conditions.append("c.backend_designer_ref_id = %s")
-            params.append(designer.id)
-        else:
+            params.append(backend_designer_id)
+        elif legacy_designer_id:
             conditions.append("a.designer_id = %s")
-            params.append(str(_legacy_uuid("designer", designer.id)))
+            params.append(legacy_designer_id)
 
     return conditions, params
 
@@ -1514,12 +1609,45 @@ def get_legacy_active_consultation_items(
     return items
 
 
+def get_legacy_active_consultation_count(
+    *,
+    admin: AdminAccount | None = None,
+    designer: Designer | None = None,
+    client: Client | None = None,
+) -> int:
+    if not _has_columns("client_result", LEGACY_RESULT_MODEL_COLUMNS):
+        return 0
+
+    queryset = _legacy_result_queryset(admin=admin, designer=designer, client=client).only(
+        "client_id",
+        "backend_client_ref_id",
+        "status",
+        "is_active",
+        "is_confirmed",
+    )
+
+    active_clients: set[str] = set()
+    for row in queryset:
+        status_text = str(row.status or "").upper()
+        is_active = bool(row.is_active) or (
+            bool(row.is_confirmed)
+            and status_text not in {"CLOSED", "CANCELLED"}
+        )
+        if not is_active:
+            continue
+        client_key = str(row.backend_client_ref_id or row.client_id or "").strip()
+        if client_key:
+            active_clients.add(client_key)
+    return len(active_clients)
+
+
 def get_legacy_confirmed_selection_items(
     *,
     since=None,
     admin: AdminAccount | None = None,
     designer: Designer | None = None,
     client: Client | None = None,
+    compact: bool = False,
 ) -> list[dict] | None:
     if not (
         _has_columns("client_result", LEGACY_RESULT_MODEL_COLUMNS)
@@ -1528,28 +1656,80 @@ def get_legacy_confirmed_selection_items(
     ):
         return None
 
-    result_rows = list(_legacy_result_queryset(admin=admin, designer=designer, client=client))
+    result_rows = list(
+        _legacy_result_queryset(admin=admin, designer=designer, client=client).only(
+            "result_id",
+            "analysis_id",
+            "client_id",
+            "backend_client_ref_id",
+            "backend_designer_ref_id",
+            "selected_hairstyle_id",
+            "updated_at",
+            "created_at",
+            "survey_snapshot",
+            "source",
+        )
+    )
     result_map = {row.result_id: row for row in result_rows}
     if not result_map:
         return []
     detail_rows = list(
-        LegacyClientResultDetail.objects.filter(result_id__in=result_map.keys()).order_by("-created_at_ts", "-detail_id")
+        LegacyClientResultDetail.objects.filter(result_id__in=result_map.keys())
+        .only(
+            "detail_id",
+            "result_id",
+            "hairstyle_id",
+            "final_score",
+            "similarity_score",
+            "backend_recommendation_id",
+            "source",
+            "style_name_snapshot",
+            "style_description_snapshot",
+            "keywords_json",
+            "sample_image_url",
+            "is_chosen",
+            "created_at_ts",
+        )
+        .order_by("-created_at_ts", "-detail_id")
     )
     legacy_client_ids = {row.client_id for row in result_rows}
     client_map = {
         item.client_id: item
-        for item in LegacyClient.objects.filter(client_id__in=legacy_client_ids)
+        for item in LegacyClient.objects.filter(client_id__in=legacy_client_ids).only(
+            "client_id",
+            "client_name",
+            "phone",
+            "age_input",
+            "birth_year_estimate",
+        )
     }
     analysis_ids = {row.analysis_id for row in result_rows if row.analysis_id is not None}
-    analysis_map = {
-        item.analysis_id: item
-        for item in LegacyClientAnalysis.objects.filter(analysis_id__in=analysis_ids)
-    } if _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS) else {}
+    analysis_map = (
+        {
+            item.analysis_id: item
+            for item in LegacyClientAnalysis.objects.filter(analysis_id__in=analysis_ids).only(
+                "analysis_id",
+                "designer_id",
+            )
+        }
+        if (not compact and _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS))
+        else {}
+    )
     style_ids = {row.hairstyle_id for row in detail_rows}
-    style_map = {
-        item.hairstyle_id: item
-        for item in LegacyHairstyle.objects.filter(hairstyle_id__in=style_ids)
-    } if _has_columns("hairstyle", LEGACY_HAIRSTYLE_MODEL_COLUMNS) else {}
+    style_map = (
+        {
+            item.hairstyle_id: item
+            for item in LegacyHairstyle.objects.filter(hairstyle_id__in=style_ids).only(
+                "hairstyle_id",
+                "name",
+                "style_name",
+                "description",
+                "image_url",
+            )
+        }
+        if (not compact and _has_columns("hairstyle", LEGACY_HAIRSTYLE_MODEL_COLUMNS))
+        else {}
+    )
 
     items: list[dict] = []
     for detail in detail_rows:
@@ -1578,28 +1758,32 @@ def get_legacy_confirmed_selection_items(
         except (TypeError, ValueError):
             score = 0.0
 
-        items.append(
-            {
-                "recommendation_id": detail.backend_recommendation_id or detail.detail_id,
-                "result_id": result_row.result_id,
-                "client_id": result_row.backend_client_ref_id,
-                "legacy_client_id": result_row.client_id,
-                "designer_id": result_row.backend_designer_ref_id,
-                "legacy_designer_id": (legacy_analysis.designer_id if legacy_analysis else None),
-                "style_id": int(detail.hairstyle_id),
-                "style_name": detail.style_name_snapshot or getattr(legacy_style, "name", None) or getattr(legacy_style, "style_name", None) or f"Style {detail.hairstyle_id}",
-                "style_description": detail.style_description_snapshot or getattr(legacy_style, "description", None) or "",
-                "image_url": detail.sample_image_url or getattr(legacy_style, "image_url", None),
-                "keywords": _parse_jsonish(detail.keywords_json, fallback=[]),
-                "match_score": score,
-                "created_at": created_at,
-                "survey_snapshot": _parse_jsonish(result_row.survey_snapshot, fallback={}),
-                "age_profile": age_profile,
-                "client_name": (legacy_client.client_name if legacy_client else None),
-                "phone": (legacy_client.phone if legacy_client else None),
-                "source": detail.source or result_row.source or "legacy_result",
-            }
-        )
+        item = {
+            "recommendation_id": detail.backend_recommendation_id or detail.detail_id,
+            "result_id": result_row.result_id,
+            "client_id": result_row.backend_client_ref_id,
+            "legacy_client_id": result_row.client_id,
+            "designer_id": result_row.backend_designer_ref_id,
+            "legacy_designer_id": (legacy_analysis.designer_id if legacy_analysis else None),
+            "style_id": int(detail.hairstyle_id),
+            "style_name": detail.style_name_snapshot or getattr(legacy_style, "name", None) or getattr(legacy_style, "style_name", None) or f"Style {detail.hairstyle_id}",
+            "match_score": score,
+            "created_at": created_at,
+            "survey_snapshot": _parse_jsonish(result_row.survey_snapshot, fallback={}),
+            "age_profile": age_profile,
+            "client_name": (legacy_client.client_name if legacy_client else None),
+            "phone": (legacy_client.phone if legacy_client else None),
+            "source": detail.source or result_row.source or "legacy_result",
+        }
+        if not compact:
+            item.update(
+                {
+                    "style_description": detail.style_description_snapshot or getattr(legacy_style, "description", None) or "",
+                    "image_url": detail.sample_image_url or getattr(legacy_style, "image_url", None),
+                    "keywords": _parse_jsonish(detail.keywords_json, fallback=[]),
+                }
+            )
+        items.append(item)
 
     return items
 
@@ -1620,15 +1804,33 @@ def get_legacy_activity_client_map_by_day(
         for offset in range(days)
     }
     if _has_columns("client_analysis", LEGACY_ANALYSIS_MODEL_COLUMNS):
+        backend_admin_id = get_backend_admin_id(admin=admin)
+        backend_designer_id = get_backend_designer_id(designer=designer)
+        legacy_designer_id = get_legacy_designer_id(designer=designer)
         analysis_rows = list(LegacyClientAnalysis.objects.all())
         if client is not None:
             analysis_rows = [row for row in analysis_rows if row.backend_client_ref_id == client.id or row.client_id == str(_legacy_uuid("client", client.id))]
         if admin is not None:
-            allowed_backend = set(LegacyClient.objects.filter(backend_shop_ref_id=admin.id).values_list("backend_client_id", flat=True))
-            allowed_legacy = set(LegacyClient.objects.filter(backend_shop_ref_id=admin.id).values_list("client_id", flat=True))
+            client_scope = Q()
+            if backend_admin_id is not None:
+                client_scope |= Q(backend_shop_ref_id=backend_admin_id)
+            legacy_admin_id = get_legacy_admin_id(admin=admin)
+            if legacy_admin_id:
+                client_scope |= Q(shop_id=legacy_admin_id)
+            if not client_scope:
+                return activity_by_day
+            allowed_backend = set(LegacyClient.objects.filter(client_scope).values_list("backend_client_id", flat=True))
+            allowed_legacy = set(LegacyClient.objects.filter(client_scope).values_list("client_id", flat=True))
             analysis_rows = [row for row in analysis_rows if row.backend_client_ref_id in allowed_backend or row.client_id in allowed_legacy]
         if designer is not None:
-            analysis_rows = [row for row in analysis_rows if row.backend_designer_ref_id == designer.id or row.designer_id == str(_legacy_uuid("designer", designer.id))]
+            analysis_rows = [
+                row
+                for row in analysis_rows
+                if (
+                    (backend_designer_id is not None and row.backend_designer_ref_id == backend_designer_id)
+                    or (legacy_designer_id and row.designer_id == legacy_designer_id)
+                )
+            ]
         for row in analysis_rows:
             dt = row.updated_at_ts or _coerce_datetime(row.created_at)
             if dt is None or dt.date() < start_date:

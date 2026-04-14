@@ -367,13 +367,18 @@
     const enterOwnerDashboardBtn = document.getElementById('enterOwnerDashboardBtn');
     const listView = document.getElementById('listViewContainer');
     const reportView = document.getElementById('reportViewContainer');
+    const chartLoadingContainer = document.getElementById('chartLoadingContainer');
+    const chartCanvasContainer = document.getElementById('chartCanvasContainer');
     const isDashboard = "{{ is_dashboard }}" === "True";
     const isDesignerSession = "{{ is_designer_session }}" === "True";
     const DASHBOARD_CACHE_TTL_MS = 60 * 1000;
     const DASHBOARD_SCOPE = ['partner-dashboard', '{{ request.session.admin_id|default:"" }}', '{{ request.session.designer_id|default:"" }}'].join(':');
     const DASHBOARD_CUSTOMERS_CACHE_KEY = `${DASHBOARD_SCOPE}:customers`;
     const DASHBOARD_DESIGNERS_CACHE_KEY = `${DASHBOARD_SCOPE}:designers`;
+    const DASHBOARD_REPORT_CACHE_KEY_BASE = `${DASHBOARD_SCOPE}:trend-report`;
     let chartJsPromise = null;
+    const trendReportRequestMap = new Map();
+    let activeReportType = 'styleTop10';
 
     function nextFrame() {
       return new Promise(resolve => window.requestAnimationFrame(() => resolve()));
@@ -391,7 +396,7 @@
         if (!raw) return null;
 
         const parsed = JSON.parse(raw);
-        if (!parsed || !Array.isArray(parsed.data)) return null;
+        if (!parsed || !Object.prototype.hasOwnProperty.call(parsed, 'data')) return null;
 
         if ((Date.now() - parsed.cachedAt) > DASHBOARD_CACHE_TTL_MS) {
           window.sessionStorage.removeItem(key);
@@ -424,6 +429,99 @@
         throw new Error(`Request failed: ${response.status}`);
       }
       return response.json();
+    }
+
+    function getTrendReportCacheKey(days) {
+      return `${DASHBOARD_REPORT_CACHE_KEY_BASE}:${days}`;
+    }
+
+    function normalizeTrendReportPayload(payload) {
+      if (!payload || typeof payload !== 'object') {
+        return {
+          summary: {},
+          visitor_stats: [],
+          style_distribution: [],
+          style_ranking: [],
+          age_group_distribution: [],
+          age_decade_distribution: [],
+          designer_customer_distribution: [],
+          scope: {},
+          kpi: {},
+        };
+      }
+
+      return {
+        summary: payload.summary || {},
+        visitor_stats: Array.isArray(payload.visitor_stats) ? payload.visitor_stats : [],
+        style_distribution: Array.isArray(payload.style_distribution) ? payload.style_distribution : [],
+        style_ranking: Array.isArray(payload.style_ranking) ? payload.style_ranking : [],
+        age_group_distribution: Array.isArray(payload.age_group_distribution) ? payload.age_group_distribution : [],
+        age_decade_distribution: Array.isArray(payload.age_decade_distribution) ? payload.age_decade_distribution : [],
+        designer_customer_distribution: Array.isArray(payload.designer_customer_distribution) ? payload.designer_customer_distribution : [],
+        scope: payload.scope || {},
+        kpi: payload.kpi || {},
+      };
+    }
+
+    function setTrendChartLoading(isLoading) {
+      if (chartLoadingContainer) {
+        chartLoadingContainer.style.display = isLoading ? 'flex' : 'none';
+      }
+      if (chartCanvasContainer) {
+        chartCanvasContainer.style.display = isLoading ? 'none' : 'block';
+      }
+    }
+
+    function destroyTrendChart() {
+      if (window.myChart) {
+        window.myChart.destroy();
+        window.myChart = null;
+      }
+    }
+
+    function buildChartSeries(labels, values, fallbackLabel = 'No data') {
+      if (Array.isArray(labels) && labels.length && Array.isArray(values) && values.length) {
+        return { labels, values };
+      }
+      return { labels: [fallbackLabel], values: [0] };
+    }
+
+    function formatTrendDateLabel(value) {
+      if (!value) return '';
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return String(value);
+      }
+      return `${parsed.getMonth() + 1}/${parsed.getDate()}`;
+    }
+
+    async function requestTrendReport(days = 14) {
+      const requestKey = getTrendReportCacheKey(days);
+      if (trendReportRequestMap.has(requestKey)) {
+        return trendReportRequestMap.get(requestKey);
+      }
+
+      const requestPromise = fetchJson(`/api/v1/analysis/report/?days=${encodeURIComponent(days)}`)
+        .then(payload => normalizeTrendReportPayload(payload))
+        .finally(() => {
+          trendReportRequestMap.delete(requestKey);
+        });
+
+      trendReportRequestMap.set(requestKey, requestPromise);
+      return requestPromise;
+    }
+
+    async function fetchTrendReport(days = 14, options = {}) {
+      const { useCache = true } = options;
+      const cacheKey = getTrendReportCacheKey(days);
+      const cachedPayload = useCache ? readDashboardCache(cacheKey) : null;
+      if (cachedPayload) {
+        return normalizeTrendReportPayload(cachedPayload);
+      }
+
+      const payload = await requestTrendReport(days);
+      writeDashboardCache(cacheKey, payload);
+      return payload;
     }
 
     function populateDesignerSelect(designers) {
@@ -464,11 +562,14 @@
     async function fetchDashboardDesigners(options = {}) {
       if (!designerSelect) return [];
 
-      const { useCache = true } = options;
+      const { useCache = true, forceRefresh = false } = options;
       const cachedDesigners = useCache ? readDashboardCache(DASHBOARD_DESIGNERS_CACHE_KEY) : null;
 
       if (cachedDesigners) {
         populateDesignerSelect(cachedDesigners);
+        if (!forceRefresh) {
+          return cachedDesigners;
+        }
       }
 
       try {
@@ -487,12 +588,15 @@
     async function fetchCustomers(query = '', options = {}) {
       if (!customerListBody) return [];
 
-      const { useCache = true } = options;
+      const { useCache = true, forceRefresh = false } = options;
       const shouldUseCache = useCache && !query;
       const cachedCustomers = shouldUseCache ? readDashboardCache(DASHBOARD_CUSTOMERS_CACHE_KEY) : null;
 
       if (cachedCustomers) {
         setCustomers(cachedCustomers);
+        if (!forceRefresh) {
+          return cachedCustomers;
+        }
       } else {
         renderCustomersLoading();
       }
@@ -510,20 +614,6 @@
         }
         return cachedCustomers || [];
       }
-    }
-
-    async function prefetchPartnerDashboardData() {
-      const tasks = [
-        requestCustomers().then(customers => writeDashboardCache(DASHBOARD_CUSTOMERS_CACHE_KEY, customers)),
-      ];
-
-      if (!isDesignerSession) {
-        tasks.push(
-          requestDashboardDesigners().then(designers => writeDashboardCache(DASHBOARD_DESIGNERS_CACHE_KEY, designers))
-        );
-      }
-
-      await Promise.allSettled(tasks);
     }
 
     async function loadChartJs() {
@@ -777,9 +867,9 @@
       showReportBtn.onclick = async () => {
         listView.style.display = 'none';
         reportView.style.display = 'block';
+        setTrendChartLoading(true);
         try {
-          await loadChartJs();
-          initTrendChart();
+          await initTrendChart();
         } catch (error) {
           console.error('Failed to initialize trend chart:', error);
         }
@@ -830,242 +920,313 @@
     reportTabBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         const reportType = btn.dataset.reportType;
+        activeReportType = reportType || 'styleTop10';
         
         // 탭 활성화 상태 변경
         reportTabBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
-        // 메뉴 노출 여부 제어
-        if (reportPeriodSelect) {
-          reportPeriodSelect.style.display = reportType === 'dailyVisitors' ? 'block' : 'none';
-        }
-        if (reportMonthSelect) {
-          reportMonthSelect.style.display = reportType === 'ageVisitors' ? 'block' : 'none';
-        }
-        
-        // 그래프 데이터 업데이트
+        syncTrendReportFilters(activeReportType);
         updateTrendChart(reportType);
       });
     });
 
     if (reportPeriodSelect) {
       reportPeriodSelect.addEventListener('change', () => {
-        updateTrendChart('dailyVisitors');
+        updateTrendChart(activeReportType);
       });
     }
     
     if (reportMonthSelect) {
       reportMonthSelect.addEventListener('change', () => {
-        updateTrendChart('ageVisitors');
+        updateTrendChart(activeReportType);
       });
     }
 
-    // 날짜 생성 헬퍼 함수
-    function getDates(days) {
-      const dates = [];
-      const today = new Date();
-      for (let i = days - 1; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        dates.push(`${d.getMonth() + 1}/${d.getDate()}`);
+    const trendChartPalette = [
+      'rgba(173, 216, 230, 0.82)',
+      'rgba(180, 238, 180, 0.82)',
+      'rgba(255, 182, 193, 0.82)',
+      'rgba(255, 218, 185, 0.82)',
+      'rgba(221, 160, 221, 0.82)',
+      'rgba(180, 238, 220, 0.82)',
+      'rgba(230, 190, 255, 0.82)',
+      'rgba(255, 200, 170, 0.82)',
+      'rgba(255, 250, 205, 0.82)',
+      'rgba(220, 220, 220, 0.82)',
+    ];
+    const trendChartBorderPalette = [
+      'rgba(135, 206, 235, 1)',
+      'rgba(144, 238, 144, 1)',
+      'rgba(255, 105, 180, 1)',
+      'rgba(255, 160, 122, 1)',
+      'rgba(186, 104, 200, 1)',
+      'rgba(140, 220, 200, 1)',
+      'rgba(200, 160, 240, 1)',
+      'rgba(255, 170, 140, 1)',
+      'rgba(221, 200, 120, 1)',
+      'rgba(180, 180, 180, 1)',
+    ];
+
+    function syncTrendReportFilters(type = activeReportType) {
+      if (reportPeriodSelect) {
+        reportPeriodSelect.style.display = type === 'dailyVisitors' ? 'block' : 'none';
       }
-      return dates;
+      if (reportMonthSelect) {
+        reportMonthSelect.style.display = 'none';
+      }
     }
 
-    async function updateTrendChart(type = 'styleTop10') {
+    function buildTrendChartDataset(labels, values, fallbackLabel = 'No data') {
+      return buildChartSeries(labels, values, fallbackLabel);
+    }
+
+    function buildStyleTopChartConfigFromReport(reportData) {
+      const rows = (reportData.style_distribution || []).slice(0, 10);
+      const series = buildTrendChartDataset(
+        rows.map(item => item.name || 'Style'),
+        rows.map(item => Number(item.value) || 0),
+      );
+
+      return {
+        type: 'bar',
+        data: {
+          labels: series.labels,
+          datasets: [{
+            label: isDesignerSession ? '디자이너 고객 선택 수' : '매장 고객 선택 수',
+            data: series.values,
+            backgroundColor: series.labels.map((_, index) => trendChartPalette[index % trendChartPalette.length]),
+            borderColor: series.labels.map((_, index) => trendChartBorderPalette[index % trendChartBorderPalette.length]),
+            borderWidth: 1.5,
+            borderRadius: 6,
+          }],
+        },
+      };
+    }
+
+    function buildDailyVisitorChartConfigFromReport(reportData) {
+      const rows = reportData.visitor_stats || [];
+      const values = rows.map(item => Number(item.count) || 0);
+      let runningTotal = 0;
+      const cumulativeValues = values.map(value => {
+        runningTotal += value;
+        return runningTotal;
+      });
+      const series = buildTrendChartDataset(
+        rows.map(item => formatTrendDateLabel(item.date)),
+        values,
+      );
+      const cumulativeSeries = buildTrendChartDataset(series.labels, cumulativeValues);
+
+      return {
+        type: 'bar',
+        data: {
+          labels: series.labels,
+          datasets: [
+            {
+              label: '일별 방문 고객 수',
+              data: series.values,
+              backgroundColor: trendChartPalette[1],
+              borderColor: trendChartBorderPalette[1],
+              borderWidth: 1.5,
+              borderRadius: 6,
+              order: 2,
+            },
+            {
+              type: 'line',
+              label: '누적 방문 고객 수',
+              data: cumulativeSeries.values,
+              borderColor: trendChartBorderPalette[0],
+              backgroundColor: 'transparent',
+              borderWidth: 3,
+              tension: 0.35,
+              fill: false,
+              order: 1,
+            },
+          ],
+        },
+      };
+    }
+
+    function buildAgeChartConfigFromReport(reportData) {
+      const groupedRows = (reportData.age_group_distribution || []).length
+        ? reportData.age_group_distribution.map(item => ({
+            label: item.age_group,
+            count: Number(item.selection_count) || 0,
+          }))
+        : (reportData.age_decade_distribution || []).map(item => ({
+            label: item.age_decade,
+            count: Number(item.selection_count) || 0,
+          }));
+      const series = buildTrendChartDataset(
+        groupedRows.map(item => item.label || 'Age'),
+        groupedRows.map(item => item.count),
+      );
+
+      return {
+        type: 'doughnut',
+        data: {
+          labels: series.labels,
+          datasets: [{
+            label: '연령대별 선택 비중',
+            data: series.values,
+            backgroundColor: series.labels.map((_, index) => trendChartPalette[index % trendChartPalette.length]),
+            borderColor: '#fff',
+            borderWidth: 2,
+          }],
+        },
+      };
+    }
+
+    function buildDesignerCustomerChartConfigFromReport(reportData) {
+      const rows = reportData.designer_customer_distribution || [];
+      const series = buildTrendChartDataset(
+        rows.map(item => item.designer_name || '미배정'),
+        rows.map(item => Number(item.customer_count) || 0),
+      );
+
+      return {
+        type: 'bar',
+        data: {
+          labels: series.labels,
+          datasets: [{
+            label: '디자이너별 고객 수',
+            data: series.values,
+            backgroundColor: series.labels.map((_, index) => trendChartPalette[index % trendChartPalette.length]),
+            borderColor: series.labels.map((_, index) => trendChartBorderPalette[index % trendChartBorderPalette.length]),
+            borderWidth: 1.5,
+            borderRadius: 6,
+          }],
+        },
+      };
+    }
+
+    function buildTrendChartConfigFromReport(type, reportData) {
+      if (type === 'dailyVisitors') {
+        return buildDailyVisitorChartConfigFromReport(reportData);
+      }
+      if (type === 'ageVisitors') {
+        return buildAgeChartConfigFromReport(reportData);
+      }
+      if (type === 'designerCustomers') {
+        return buildDesignerCustomerChartConfigFromReport(reportData);
+      }
+      return buildStyleTopChartConfigFromReport(reportData);
+    }
+
+    async function updateTrendChart(type = activeReportType, options = {}) {
       const ctx = document.getElementById('trendChart');
       if (!ctx || !window.Chart) return;
 
-      const period = reportPeriodSelect ? parseInt(reportPeriodSelect.value) : 14;
+      activeReportType = type || 'styleTop10';
+      syncTrendReportFilters(activeReportType);
 
-      // 차트가 이미 있으면 확실하게 삭제
-      if (window.myChart) {
-        window.myChart.destroy();
-        window.myChart = null;
-      }
+      const period = reportPeriodSelect ? parseInt(reportPeriodSelect.value || '14', 10) : 14;
+      const prefetchedReportData = options.reportData || null;
+      destroyTrendChart();
+      setTrendChartLoading(true);
 
-      // 파스텔톤 컬러 팔레트 정의
-      const pastelColors = {
-        blue: 'rgba(173, 216, 230, 0.8)',
-        green: 'rgba(180, 238, 180, 0.8)',
-        pink: 'rgba(255, 182, 193, 0.8)',
-        orange: 'rgba(255, 218, 185, 0.8)',
-        purple: 'rgba(221, 160, 221, 0.8)',
-        yellow: 'rgba(255, 250, 205, 0.8)',
-        mint: 'rgba(180, 238, 220, 0.8)',
-        lavender: 'rgba(230, 190, 255, 0.8)',
-        apricot: 'rgba(255, 200, 170, 0.8)',
-        gray: 'rgba(220, 220, 220, 0.8)',
-        border: {
-          blue: 'rgba(135, 206, 235, 1)',
-          green: 'rgba(144, 238, 144, 1)',
-          pink: 'rgba(255, 105, 180, 1)',
-          orange: 'rgba(255, 160, 122, 1)',
-          purple: 'rgba(186, 104, 200, 1)',
-          mint: 'rgba(140, 220, 200, 1)',
-          lavender: 'rgba(200, 160, 240, 1)',
-          apricot: 'rgba(255, 170, 140, 1)',
-          gray: 'rgba(180, 180, 180, 1)'
+      try {
+        const reportData = prefetchedReportData || await fetchTrendReport(period);
+        const chartConfig = buildTrendChartConfigFromReport(activeReportType, reportData);
+        const commonOptions = {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: { usePointStyle: true, padding: 20, font: { size: 12, weight: '600' } },
+            },
+            tooltip: {
+              backgroundColor: 'rgba(255, 255, 255, 0.96)',
+              titleColor: '#111827',
+              bodyColor: '#4b5563',
+              borderColor: '#e5e7eb',
+              borderWidth: 1,
+              padding: 12,
+              usePointStyle: true,
+              mode: 'index',
+              intersect: false,
+            },
+          },
+        };
+
+        if (chartConfig.type !== 'doughnut') {
+          commonOptions.scales = {
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(0,0,0,0.03)', drawBorder: false },
+              ticks: { color: '#999', font: { size: 11 } },
+            },
+            x: {
+              grid: { display: false },
+              ticks: { color: '#666', font: { size: 12, weight: '600' } },
+            },
+          };
         }
-      };
 
-      let chartConfig = {};
+        const chartOptions = chartConfig.options || {};
+        const finalOptions = {
+          ...commonOptions,
+          ...chartOptions,
+          plugins: {
+            ...commonOptions.plugins,
+            ...(chartOptions.plugins || {}),
+          },
+        };
 
-      if (type === 'styleTop10') {
-        chartConfig = {
+        if (commonOptions.scales || chartOptions.scales) {
+          finalOptions.scales = {
+            ...(commonOptions.scales || {}),
+            ...(chartOptions.scales || {}),
+          };
+        }
+
+        window.myChart = new Chart(ctx, {
+          ...chartConfig,
+          options: finalOptions,
+        });
+      } catch (error) {
+        console.error('Failed to render trend chart:', error);
+        window.myChart = new Chart(ctx, {
           type: 'bar',
           data: {
-            labels: ['레이어드 컷', '허쉬 컷', '발레아쥬', '슬릭 펌', '리프 컷', '단발 C컬', '볼륨 매직', '시스루 뱅', '가일 컷', '히피 펌'],
+            labels: ['No data'],
             datasets: [{
-              label: '인기 스타일 선정 수',
-              data: [45, 38, 32, 28, 24, 21, 18, 15, 12, 10],
-              backgroundColor: [
-                pastelColors.blue, pastelColors.green, pastelColors.pink, pastelColors.orange, pastelColors.purple,
-                pastelColors.mint, pastelColors.lavender, pastelColors.apricot, pastelColors.yellow, pastelColors.gray
-              ],
-              borderColor: [
-                pastelColors.border.blue, pastelColors.border.green, pastelColors.border.pink, pastelColors.border.orange, pastelColors.border.purple,
-                pastelColors.border.mint, pastelColors.border.lavender, pastelColors.border.apricot, pastelColors.border.blue, pastelColors.border.gray
-              ],
+              label: 'No data',
+              data: [0],
+              backgroundColor: [trendChartPalette[9]],
+              borderColor: [trendChartBorderPalette[9]],
               borderWidth: 1.5,
-              borderRadius: 6
-            }]
-          }
-        };
-      } else if (type === 'dailyVisitors') {
-        const labels = getDates(period);
-        // 기간에 따른 랜덤 데이터 생성 (실제 API 연동 전까지)
-        const generateData = (max) => labels.map(() => Math.floor(Math.random() * max) + 5);
-
-        chartConfig = {
-          type: 'bar',
-          data: {
-            labels: labels,
-            datasets: [
-              {
-                type: 'line',
-                label: '전체 방문자',
-                data: labels.map((_, i) => (Math.floor(Math.random() * 20) + 30)),
-                borderColor: pastelColors.border.blue,
-                backgroundColor: 'transparent',
-                borderWidth: 3,
-                tension: 0.4,
-                fill: false,
-                order: 1
-              },
-              {
-                label: '남자',
-                data: labels.map(() => Math.floor(Math.random() * 15)),
-                backgroundColor: pastelColors.green,
-                borderRadius: 6,
-                order: 2
-              },
-              {
-                label: '여자',
-                data: labels.map(() => Math.floor(Math.random() * 20)),
-                backgroundColor: pastelColors.pink,
-                borderRadius: 6,
-                order: 2
-              }
-            ]
-          }
-        };
-      } else if (type === 'ageVisitors') {
-        // 선택된 월에 따라 가변 데이터 생성 (시각적 변화용)
-        const generateAgeData = () => [
-          Math.floor(Math.random() * 10) + 5,  // 10대
-          Math.floor(Math.random() * 30) + 20, // 20대
-          Math.floor(Math.random() * 25) + 15, // 30대
-          Math.floor(Math.random() * 15) + 10, // 40대
-          Math.floor(Math.random() * 10) + 5   // 50대 이상
-        ];
-
-        chartConfig = {
-          type: 'doughnut',
-          data: {
-            labels: ['10대', '20대', '30대', '40대', '50대 이상'],
-            datasets: [{
-              label: '연령대별 방문 비율',
-              data: generateAgeData(),
-              backgroundColor: [pastelColors.pink, pastelColors.blue, pastelColors.green, pastelColors.orange, pastelColors.purple],
-              borderColor: '#fff',
-              borderWidth: 2
-            }]
-          }
-        };
-      }
- else if (type === 'designerCustomers') {
-        chartConfig = {
-          type: 'bar',
-          data: {
-            labels: ['김준호', '이미연', '박서진', '최수아', '정민우'],
-            datasets: [
-              {
-                label: '남자 고객',
-                data: [18, 25, 15, 12, 20],
-                backgroundColor: pastelColors.green,
-                borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 6, bottomRight: 6 }
-              },
-              {
-                label: '여자 고객',
-                data: [32, 45, 28, 22, 35],
-                backgroundColor: pastelColors.pink,
-                borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 }
-              }
-            ]
+              borderRadius: 6,
+            }],
           },
           options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
             scales: {
-              x: { stacked: true },
-              y: { stacked: true, beginAtZero: true }
-            }
-          }
-        };
+              y: { beginAtZero: true },
+            },
+          },
+        });
+      } finally {
+        setTrendChartLoading(false);
       }
-
-      // 공통 옵션 설정
-      const commonOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: true,
-            position: 'bottom',
-            labels: { usePointStyle: true, padding: 20, font: { size: 12, weight: '600' } }
-          },
-          tooltip: {
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-            titleColor: '#000',
-            bodyColor: '#666',
-            borderColor: '#eee',
-            borderWidth: 1,
-            padding: 12,
-            usePointStyle: true,
-            mode: 'index',
-            intersect: false
-          }
-        },
-        scales: chartConfig.type !== 'doughnut' ? {
-          y: { 
-            beginAtZero: true, 
-            grid: { color: 'rgba(0,0,0,0.03)', drawBorder: false },
-            ticks: { color: '#999', font: { size: 11 } }
-          },
-          x: { 
-            grid: { display: false },
-            ticks: { color: '#666', font: { size: 12, weight: '600' } }
-          }
-        } : {}
-      };
-
-      window.myChart = new Chart(ctx, {
-        ...chartConfig,
-        options: commonOptions
-      });
     }
 
-    function initTrendChart() {
-      updateTrendChart('styleTop10');
+    async function initTrendChart() {
+      const period = reportPeriodSelect ? parseInt(reportPeriodSelect.value || '14', 10) : 14;
+      const reportPromise = fetchTrendReport(period);
+      await loadChartJs();
+      await updateTrendChart(activeReportType, { reportData: await reportPromise });
+    }
+
+    function primeTrendReportCacheOnIdle() {
+      const period = reportPeriodSelect ? parseInt(reportPeriodSelect.value || '14', 10) : 14;
+      fetchTrendReport(period).catch(() => {});
     }
 
     if (enterOwnerDashboardBtn) {
@@ -1079,7 +1240,25 @@
     };
 
     document.addEventListener('DOMContentLoaded', () => {
-      if (isDashboard) { fetchDashboardDesigners(); fetchCustomers(); }
+      if (isDashboard) {
+        fetchDashboardDesigners();
+        fetchCustomers();
+        if (window.requestIdleCallback) {
+          window.requestIdleCallback(() => {
+            loadChartJs().catch(() => {});
+            window.setTimeout(() => {
+              primeTrendReportCacheOnIdle();
+            }, 1800);
+          }, { timeout: 1200 });
+        } else {
+          window.setTimeout(() => {
+            loadChartJs().catch(() => {});
+            window.setTimeout(() => {
+              primeTrendReportCacheOnIdle();
+            }, 1800);
+          }, 1200);
+        }
+      }
       if (authSection) setTimeout(() => authSection.classList.add('ready'), 100);
     });
   })();

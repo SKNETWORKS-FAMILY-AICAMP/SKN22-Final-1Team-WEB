@@ -2298,6 +2298,6 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(len(payload), 1)
         self.assertEqual({item["id"] for item in payload}, {own_client.id})
         self.assertEqual(report_response.status_code, 200)
-        self.assertEqual(report_response.json()["summary"]["total_customers"], 2)
+        self.assertEqual(report_response.json()["summary"]["total_customers"], 1)
 
 

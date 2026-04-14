@@ -850,25 +850,8 @@ def partner_verify(request):
                 status=400,
             )
 
-        from app.models_django import Designer
-        import uuid
-        designer = None
-
-        # UUID 또는 정수형 ID(backend_designer_id) 모두 지원하는 조회 로직
-        try:
-            shop_uuid_str = get_legacy_admin_id(admin=admin)
-            try:
-                d_uuid = uuid.UUID(str(designer_id))
-                designer = Designer.objects.filter(id=d_uuid, shop_id=shop_uuid_str).first()
-            except ValueError:
-                designer = None
-                
-            if designer is None:
-                designer = Designer.objects.filter(backend_designer_id=designer_id, shop_id=shop_uuid_str).first()
-                
-            if designer is None:
-                raise Designer.DoesNotExist
-        except Designer.DoesNotExist:
+        designer = get_designer_for_admin(admin=admin, designer_id=designer_id)
+        if designer is None:
             return JsonResponse(
                 {"status": "error", "message": "선택한 디자이너 정보를 찾을 수 없습니다."},
                 status=404,
@@ -881,7 +864,8 @@ def partner_verify(request):
             )
 
         clear_customer_session(request=request)
-        set_admin_session(request=request, admin=designer.shop)
+        active_shop = getattr(designer, "shop", None) or admin
+        set_admin_session(request=request, admin=active_shop)
         set_designer_session(request=request, designer=designer)
         revoke_owner_dashboard(request=request)
         return JsonResponse(
@@ -889,9 +873,9 @@ def partner_verify(request):
                 "status": "success",
                 "redirect": "/partner/staff/",
                 "session_type": "designer",
-                "shop_id": designer.shop_id,
+                "shop_id": active_shop.id,
                 "designer_id": designer.id,
-                "legacy_shop_id": get_legacy_admin_id(admin=designer.shop),
+                "legacy_shop_id": get_legacy_admin_id(admin=active_shop),
                 "legacy_designer_id": get_legacy_designer_id(designer=designer),
             }
         )

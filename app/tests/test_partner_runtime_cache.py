@@ -87,12 +87,13 @@ class PartnerRuntimeCacheTests(SimpleTestCase):
         client = SimpleNamespace(id=1)
         with (
             patch.object(admin_services, "get_legacy_confirmed_selection_items", return_value=[selection_row]) as confirmed_items,
+            patch.object(admin_services, "_style_record_map", return_value={}),
             patch.object(
                 admin_services,
                 "_style_snapshot",
                 return_value={"style_id": 7, "style_name": "Soft Layer", "image_url": "/media/style-7.jpg", "keywords": ["soft"]},
             ),
-            patch.object(admin_services, "get_legacy_active_consultation_items", return_value=[]),
+            patch.object(admin_services, "get_legacy_active_consultation_count", return_value=0),
             patch.object(admin_services, "resolve_storage_reference", side_effect=lambda value: value),
         ):
             first = admin_services.get_admin_trend_report(

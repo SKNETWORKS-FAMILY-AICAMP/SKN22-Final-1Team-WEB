@@ -126,7 +126,7 @@ class LegacyClientAnalysis(models.Model):
 
 
 class LegacyClientResult(models.Model):
-    result_id = models.IntegerField(primary_key=True)
+    result_id = models.AutoField(primary_key=True)
     analysis_id = models.IntegerField()
     client_id = models.CharField(max_length=255)
     selected_hairstyle_id = models.IntegerField(null=True, blank=True)
@@ -154,7 +154,7 @@ class LegacyClientResult(models.Model):
 
 
 class LegacyClientResultDetail(models.Model):
-    detail_id = models.IntegerField(primary_key=True)
+    detail_id = models.AutoField(primary_key=True)
     result_id = models.IntegerField()
     hairstyle_id = models.IntegerField()
     rank = models.IntegerField()

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import connection, transaction, IntegrityError
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
@@ -421,8 +421,6 @@ def _persist_legacy_generated_batch(
 
     created_at = timezone.now()
     batch_id = uuid.uuid4()
-    result_id = _next_legacy_pk(LegacyClientResult, "result_id")
-    next_detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
     analysis_id = getattr(analysis, "id", None) or getattr(analysis, "analysis_id", None) or 0
     survey_payload = _build_generation_survey_payload(client=client, survey=survey)
     survey_snapshot = {
@@ -452,8 +450,7 @@ def _persist_legacy_generated_batch(
         analysis_snapshot=analysis_snapshot,
     )
 
-    LegacyClientResult.objects.create(
-        result_id=result_id,
+    result_obj = LegacyClientResult.objects.create(
         analysis_id=analysis_id,
         client_id=legacy_client_id,
         selected_hairstyle_id=None,
@@ -478,17 +475,14 @@ def _persist_legacy_generated_batch(
 
     rows: list[SimpleNamespace] = []
     for item in normalized_items:
-        detail_id = next_detail_id
-        next_detail_id += 1
         reasoning_snapshot = dict(item.get("reasoning_snapshot") or {})
         reasoning_snapshot["recommendation_stage"] = recommendation_stage
         persisted_simulation_image_reference = _resolve_persistable_display_image_reference(
             simulation_image_url=item.get("simulation_image_url"),
             sample_image_url=item.get("sample_image_url"),
         )
-        LegacyClientResultDetail.objects.create(
-            detail_id=detail_id,
-            result_id=result_id,
+        detail_obj = LegacyClientResultDetail.objects.create(
+            result_id=result_obj.result_id,
             hairstyle_id=item["style_id"],
             rank=item.get("rank", 0),
             similarity_score=float(item.get("match_score") or 0.0),
@@ -526,7 +520,7 @@ def _persist_legacy_generated_batch(
                     "simulation_image_url": persisted_simulation_image_reference,
                     "sample_image_url": item.get("sample_image_url"),
                 },
-                detail_id=detail_id,
+                detail_id=detail_obj.detail_id,
             )
         )
 

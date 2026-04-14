@@ -35,6 +35,7 @@ from app.api.v1.admin_services import (
     get_client_designer_diagnosis,
     get_admin_profile,
     get_admin_dashboard_summary,
+    get_legacy_dashboard_trend_report,
     get_admin_trend_report,
     get_all_clients,
     get_client_detail,
@@ -53,7 +54,6 @@ from app.services.model_team_bridge import (
     get_admin_by_identifier,
     get_client_by_identifier,
     get_designers_for_admin,
-    get_legacy_activity_client_map_by_day,
     get_legacy_admin_id,
     get_legacy_designer_id,
 )
@@ -680,49 +680,12 @@ class LegacyAdminTrendReportView(CompatEnvelopeAPIView):
         admin, designer = staff
 
         days = int(request.query_params.get("days", 7))
-        # Trend reporting now respects designer context if active.
-        trend_payload = get_admin_trend_report(days=days, filters={}, admin=admin, designer=designer)
-        clients_payload = get_all_clients(admin=admin, designer=designer)
-        start_date = timezone.localdate() - timezone.timedelta(days=days - 1)
-        activity_by_day = get_legacy_activity_client_map_by_day(
-            start_date=start_date,
-            days=days,
-            admin=admin,
-            designer=designer,
-        )
-        if activity_by_day is None:
-            activity_by_day = {
-                (start_date + timezone.timedelta(days=offset)).isoformat(): set()
-                for offset in range(days)
-            }
-
-        total_customers = len(clients_payload["items"])
-        new_today = sum(
-            1
-            for item in clients_payload["items"]
-            if timezone.localtime(item["created_at"]).date() == timezone.localdate()
-        )
-        unique_clients = trend_payload["kpi"]["unique_clients"]
-        conversion_rate = round(
-            (trend_payload["kpi"]["total_confirmations"] / unique_clients) * 100
-        ) if unique_clients else 0
-
         return Response(
-            {
-                "summary": {
-                    "total_customers": total_customers,
-                    "new_today": new_today,
-                    "conversion_rate": conversion_rate,
-                },
-                "visitor_stats": [
-                    {"date": date, "count": len(client_set)}
-                    for date, client_set in activity_by_day.items()
-                ],
-                "style_distribution": [
-                    {"name": item["style_name"], "value": item["selection_count"]}
-                    for item in trend_payload["distribution"]
-                ],
-            }
+            get_legacy_dashboard_trend_report(
+                days=days,
+                admin=admin,
+                designer=designer,
+            )
         )
 
 
