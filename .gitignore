@@ -45,7 +45,13 @@ local_settings.py
 
 # Local runtime data
 *.sqlite3
+!data/rag/stores/chromadb_trends/**/*.sqlite3
+!data/rag/stores/chromadb_ncs/**/*.sqlite3
+!data/rag/stores/chromadb_chatbot/**/*.sqlite3
 *.db
+!data/rag/stores/chromadb_trends/**/*.db
+!data/rag/stores/chromadb_ncs/**/*.db
+!data/rag/stores/chromadb_chatbot/**/*.db
 mirrai.db
 storage/
 media/
@@ -57,7 +63,20 @@ backend/
 
 # Generated local RAG assets
 data/rag/*
-data/rag/stores/
+!data/rag/processed/
+data/rag/processed/*
+!data/rag/processed/trends/
+!data/rag/processed/trends/**
+!data/rag/processed/ncs/
+!data/rag/processed/ncs/**
+!data/rag/stores/
+data/rag/stores/*
+!data/rag/stores/chromadb_trends/
+!data/rag/stores/chromadb_trends/**
+!data/rag/stores/chromadb_ncs/
+!data/rag/stores/chromadb_ncs/**
+!data/rag/stores/chromadb_chatbot/
+!data/rag/stores/chromadb_chatbot/**
 
 # Security and keys
 *.pem
