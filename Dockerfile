@@ -6,21 +6,20 @@ ENV PYTHONPATH=/app
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
-    --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt requirements-deploy.txt requirements-trends.txt ./
 
 # Production image installs only runtime dependencies by default.
 # If trend-pipeline image is needed, build with:
 #   docker build --build-arg INSTALL_TRENDS_DEPS=1 -t <tag> .
 ARG INSTALL_TRENDS_DEPS=0
-RUN if [ "$INSTALL_TRENDS_DEPS" = "1" ]; then \
+RUN set -eux; \
+    if [ "$INSTALL_TRENDS_DEPS" = "1" ]; then \
+      apt-get update; \
+      apt-get install -y --no-install-recommends build-essential libpq-dev; \
       pip install --no-cache-dir -r requirements-trends.txt; \
-      python -m playwright install --with-deps chromium; \
+      python -m playwright install --with-deps --only-shell chromium; \
+      apt-get purge -y --auto-remove build-essential libpq-dev; \
+      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.cache/pip; \
     else \
       pip install --no-cache-dir -r requirements-deploy.txt; \
     fi
