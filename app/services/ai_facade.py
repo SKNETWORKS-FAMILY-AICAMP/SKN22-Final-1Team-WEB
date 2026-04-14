@@ -74,6 +74,30 @@ def _health_cache_seconds() -> int:
     return max(0, int(os.environ.get("MIRRAI_AI_HEALTH_CACHE_SECONDS", "15")))
 
 
+def _health_cache_key() -> str:
+    prefix = str(os.environ.get("REDIS_KEY_PREFIX", "mirrai")).strip() or "mirrai"
+    return f"{prefix}:cache:ai-health:v1:{_ai_provider()}"
+
+
+def _get_cached_health_payload() -> dict | None:
+    try:
+        from app.services.runtime_cache import get_cached_payload
+
+        payload = get_cached_payload(_health_cache_key())
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _set_cached_health_payload(payload: dict, timeout: int) -> None:
+    try:
+        from app.services.runtime_cache import set_cached_payload
+
+        set_cached_payload(_health_cache_key(), payload, timeout=timeout)
+    except Exception:
+        return
+
+
 def _runpod_enabled() -> bool:
     return bool(_runpod_api_key() and _runpod_endpoint_id())
 
@@ -612,6 +636,14 @@ def build_model_connection_validation_snapshot(*, attempts: int = 3, use_cache: 
 def get_ai_health(*, use_cache: bool = True) -> dict:
     cache_seconds = _health_cache_seconds()
     now = time.monotonic()
+
+    if use_cache and cache_seconds > 0:
+        redis_payload = _get_cached_health_payload()
+        if isinstance(redis_payload, dict):
+            payload = dict(redis_payload)
+            payload["cached"] = True
+            return payload
+
     cached_payload = _AI_HEALTH_CACHE.get("payload")
     expires_at = float(_AI_HEALTH_CACHE.get("expires_at") or 0.0)
 
@@ -623,6 +655,7 @@ def get_ai_health(*, use_cache: bool = True) -> dict:
     payload = _compute_ai_health()
     payload["cached"] = False
     if cache_seconds > 0:
+        _set_cached_health_payload(payload, cache_seconds)
         _AI_HEALTH_CACHE["payload"] = dict(payload)
         _AI_HEALTH_CACHE["expires_at"] = now + cache_seconds
     return payload

@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import json
 import logging
 import time
 import uuid
@@ -72,6 +74,7 @@ from app.services.storage_service import (
     persist_simulation_image_reference,
     resolve_storage_reference,
 )
+from app.services.runtime_cache import cache_timeout, get_cached_payload, set_cached_payload
 
 if TYPE_CHECKING:
     from app.models_django import (
@@ -114,6 +117,20 @@ CURRENT_RECOMMENDATION_WAIT_POLICY = RecommendationWaitPolicy(
     interval_seconds=3.0,
 )
 FAILED_RECOMMENDATION_INPUT_STATUSES = {"FAILED", "NEEDS_RETAKE", "ERROR"}
+
+
+def _trend_recommendation_cache_key(*, days: int, client: "Client | None" = None, age_profile: dict | None = None) -> str:
+    prefix = getattr(settings, "REDIS_KEY_PREFIX", "mirrai")
+    payload = {
+        "days": int(days),
+        "client_id": getattr(client, "id", None),
+        "legacy_client_id": (get_legacy_client_id(client=client) if client else None),
+        "age_profile": age_profile or {},
+    }
+    digest = hashlib.sha1(
+        json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+    return f"{prefix}:cache:trend-recommendations:v1:{digest}"
 
 
 def build_default_survey_context(client_id: int) -> SimpleNamespace:
@@ -2798,6 +2815,11 @@ def retry_current_recommendations(client: "Client") -> dict:
 def get_trend_recommendations(*, days: int = 30, client: "Client | None" = None) -> dict:
     cutoff = timezone.now() - timezone.timedelta(days=days)
     target_age_profile = build_client_age_profile(client) if client else None
+    cache_key = _trend_recommendation_cache_key(days=days, client=client, age_profile=target_age_profile)
+    cached_payload = get_cached_payload(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
     legacy_items = get_legacy_confirmed_selection_items(since=cutoff) or []
     selections = legacy_items
 
@@ -2921,7 +2943,11 @@ def get_trend_recommendations(*, days: int = 30, client: "Client | None" = None)
     if client is not None:
         payload["client_id"] = client.id
         payload["legacy_client_id"] = get_legacy_client_id(client=client)
-    return payload
+    return set_cached_payload(
+        cache_key,
+        payload,
+        timeout=cache_timeout("TREND_RECOMMENDATIONS_CACHE_SECONDS", 180),
+    )
 
 
 def _legacy_result_direct_write(
