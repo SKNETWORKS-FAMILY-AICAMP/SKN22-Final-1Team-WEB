@@ -4,13 +4,49 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
+from app.api.v1.django_serializers import SurveySerializer
 from app.api.v1 import services_django
+from app.front_views import client_recommendation_history_page
 
 
 class RecommendationDiagnosticSnapshotTests(SimpleTestCase):
+    def test_get_former_recommendations_normalizes_image_references_for_history(self):
+        client = SimpleNamespace(id=15, legacy_client_id="legacy-15", name="History", phone="01000001515")
+        legacy_items = [
+            {
+                "recommendation_id": 901,
+                "sample_image_url": "styles/301.jpg",
+                "simulation_image_url": "simulations/301.png",
+                "synthetic_image_url": "simulations/301.png",
+                "source": "generated",
+                "style_id": 301,
+                "style_name": "Clean Crop Two-Block",
+                "style_description": "history item",
+                "keywords": ["crop"],
+                "match_score": 82.0,
+                "rank": 1,
+            }
+        ]
+
+        def _resolve(reference):
+            mapping = {
+                "styles/301.jpg": "https://cdn.example.com/styles/301.jpg",
+                "simulations/301.png": "https://cdn.example.com/simulations/301.png",
+            }
+            return mapping.get(reference, reference)
+
+        with patch.object(services_django, "get_legacy_former_recommendation_items", return_value=legacy_items), patch.object(services_django, "resolve_storage_reference", side_effect=_resolve), patch.object(services_django, "get_legacy_client_id", return_value="legacy-15"):
+            payload = services_django.get_former_recommendations(client)
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["sample_image_url"], "https://cdn.example.com/styles/301.jpg")
+        self.assertEqual(payload["items"][0]["simulation_image_url"], "https://cdn.example.com/simulations/301.png")
+        self.assertEqual(payload["items"][0]["display_image_url"], "https://cdn.example.com/simulations/301.png")
+
     @override_settings(DEBUG=True, MIRRAI_LOCAL_MOCK_RESULTS=True)
     def test_build_snapshot_marks_local_mock_fallback_when_capture_exists_without_analysis(self):
         client = SimpleNamespace(id=7, legacy_client_id="legacy-7", name="Tester", phone="01012345678")
@@ -234,10 +270,10 @@ class RecommendationSurveySnapshotTests(SimpleTestCase):
             client=client,
             payload={
                 "gender_branch": "male",
-                "q1": "아주 짧고 깔끔하게",
+                "q1": "짧게",
                 "q2": "확실한 투블럭",
-                "q3": "올리는 스타일",
-                "q4": "가르마 스타일 선호",
+                "q3": "앞머리 올림",
+                "q4": "옆가르마",
                 "q5": "펌 없이 깔끔하게",
                 "q6": "세련된",
             },
@@ -246,6 +282,9 @@ class RecommendationSurveySnapshotTests(SimpleTestCase):
         self.assertEqual(payload["gender_branch"], "male")
         self.assertEqual(payload["survey_profile"]["gender_branch"], "male")
         self.assertEqual(payload["target_length"], "short")
+        self.assertTrue(payload["question_answers"])
+        self.assertEqual(payload["survey_profile"]["style_axes"]["front_styling"], "lifted")
+        self.assertEqual(payload["survey_profile"]["style_axes"]["parting"], "side_part")
 
     def test_build_survey_snapshot_prefers_survey_gender_branch(self):
         client = SimpleNamespace(id=17, gender="female")
@@ -270,6 +309,62 @@ class RecommendationSurveySnapshotTests(SimpleTestCase):
 
         self.assertEqual(snapshot["gender_branch"], "male")
         self.assertEqual(snapshot["survey_profile"]["gender_branch"], "male")
+
+
+class SurveySerializerContractTests(SimpleTestCase):
+    def test_survey_serializer_includes_normalized_metadata_fields(self):
+        payload = SurveySerializer(
+            instance=SimpleNamespace(
+                id=41,
+                client_id=17,
+                target_length="short",
+                target_vibe="chic",
+                scalp_type="straight",
+                hair_colour="brown",
+                budget_range="mid",
+                gender_branch="male",
+                question_answers={"q1": "짧게", "q3": "앞머리 올림", "q4": "옆가르마"},
+                survey_profile={
+                    "gender_branch": "male",
+                    "style_axes": {
+                        "front_styling": "lifted",
+                        "parting": "side_part",
+                    },
+                },
+                preference_vector=[0.1, 0.2],
+            )
+        ).data
+
+        self.assertEqual(payload["gender_branch"], "male")
+        self.assertTrue(payload["question_answers"])
+        self.assertEqual(payload["survey_profile"]["style_axes"]["front_styling"], "lifted")
+        self.assertEqual(payload["survey_profile"]["style_axes"]["parting"], "side_part")
+
+
+class RecommendationHistoryPageTests(SimpleTestCase):
+    @override_settings(ROOT_URLCONF="app.urls_front")
+    def test_history_page_renders_display_image_url_when_available(self):
+        request = RequestFactory().get("/customer/history/")
+        request.session = {"customer_id": 15}
+        client = SimpleNamespace(id=15, name="History", phone="01000001515")
+        history_payload = {
+            "items": [
+                {
+                    "recommendation_id": 901,
+                    "style_name": "Clean Crop Two-Block",
+                    "style_description": "history item",
+                    "display_image_url": "https://cdn.example.com/simulations/301.png",
+                    "sample_image_url": "https://cdn.example.com/styles/301.jpg",
+                    "match_score": 82.0,
+                }
+            ],
+            "message": "ok",
+        }
+
+        with patch("app.front_views.get_session_customer", return_value=client), patch("app.front_views.get_former_recommendations", return_value=history_payload):
+            response = client_recommendation_history_page(request)
+
+        self.assertIn('src="https://cdn.example.com/simulations/301.png"', response.content.decode("utf-8"))
 
 
 class RecommendationDiagnosticCommandTests(SimpleTestCase):

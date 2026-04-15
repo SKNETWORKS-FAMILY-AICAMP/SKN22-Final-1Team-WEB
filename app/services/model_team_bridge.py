@@ -67,6 +67,9 @@ LEGACY_SURVEY_MODEL_COLUMNS = {
     "target_length", "target_vibe", "scalp_type", "hair_colour", "budget_range",
     "preference_vector_json", "created_at_ts",
 }
+LEGACY_SURVEY_METADATA_COLUMNS = {
+    "question_answers", "survey_profile", "gender_branch",
+}
 LEGACY_ANALYSIS_MODEL_COLUMNS = {
     "analysis_id", "client_id", "designer_id", "original_image_url", "face_type",
     "face_ratio_vector", "golden_ratio_score", "landmark_data", "created_at",
@@ -161,6 +164,10 @@ def has_legacy_client_source() -> bool:
 
 def has_legacy_survey_source() -> bool:
     return _has_columns("client_survey", LEGACY_SURVEY_MODEL_COLUMNS)
+
+
+def has_legacy_survey_metadata() -> bool:
+    return _has_columns("client_survey", LEGACY_SURVEY_METADATA_COLUMNS)
 
 
 def has_legacy_analysis_source() -> bool:
@@ -861,6 +868,8 @@ def get_latest_legacy_survey(*, client: Client):
     if not row:
         return None
 
+    metadata = get_legacy_survey_metadata(survey_id=row.survey_id)
+
     return SimpleNamespace(
         id=row.backend_survey_id or row.survey_id,
         client=client,
@@ -874,8 +883,63 @@ def get_latest_legacy_survey(*, client: Client):
             row.preference_vector_json if row.preference_vector_json is not None else row.preference_vector,
             fallback=[],
         ),
+        question_answers=dict(metadata.get("question_answers") or {}),
+        survey_profile=dict(metadata.get("survey_profile") or {}),
+        gender_branch=metadata.get("gender_branch"),
         created_at=_coerce_datetime(row.created_at_ts or row.updated_at),
     )
+
+
+def get_legacy_survey_metadata(*, survey_id: int) -> dict:
+    if not has_legacy_survey_metadata():
+        return {}
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT question_answers, survey_profile, gender_branch
+            FROM client_survey
+            WHERE survey_id = %s
+            """,
+            [survey_id],
+        )
+        row = cursor.fetchone()
+
+    if not row:
+        return {}
+    return {
+        "question_answers": _parse_jsonish(row[0], fallback={}),
+        "survey_profile": _parse_jsonish(row[1], fallback={}),
+        "gender_branch": (str(row[2]).strip() if row[2] not in (None, "") else None),
+    }
+
+
+def update_legacy_survey_metadata(
+    *,
+    survey_id: int,
+    question_answers: dict | None,
+    survey_profile: dict | None,
+    gender_branch: str | None,
+) -> None:
+    if not has_legacy_survey_metadata():
+        return
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE client_survey
+            SET question_answers = %s,
+                survey_profile = %s,
+                gender_branch = %s
+            WHERE survey_id = %s
+            """,
+            [
+                json.dumps(dict(question_answers or {}), ensure_ascii=False),
+                json.dumps(dict(survey_profile or {}), ensure_ascii=False),
+                (str(gender_branch).strip() if gender_branch else None),
+                survey_id,
+            ],
+        )
 
 
 def _legacy_client_q(*, client: Client) -> Q:

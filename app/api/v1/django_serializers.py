@@ -137,6 +137,9 @@ class SurveySerializer(serializers.Serializer):
     scalp_type = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     hair_colour = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     budget_range = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    gender_branch = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    question_answers = serializers.JSONField(required=False)
+    survey_profile = serializers.JSONField(required=False)
     preference_vector = serializers.ListField(
         child=serializers.FloatField(),
         required=False,
@@ -154,6 +157,9 @@ class SurveySerializer(serializers.Serializer):
                 "scalp_type": _payload_value(instance, "scalp_type") or _payload_value(instance, "hair_condition"),
                 "hair_colour": _payload_value(instance, "hair_colour") or _payload_value(instance, "hair_color"),
                 "budget_range": _payload_value(instance, "budget_range") or _payload_value(instance, "budget"),
+                "gender_branch": _payload_value(instance, "gender_branch"),
+                "question_answers": _payload_value(instance, "question_answers") or {},
+                "survey_profile": _payload_value(instance, "survey_profile") or {},
                 "preference_vector": _payload_value(instance, "preference_vector") or _payload_value(instance, "preference_vector_json") or [],
                 "created_at": _payload_value(instance, "created_at") or _payload_value(instance, "created_at_ts"),
             }
@@ -165,6 +171,9 @@ class SurveySerializer(serializers.Serializer):
             "scalp_type": getattr(instance, "scalp_type", None),
             "hair_colour": getattr(instance, "hair_colour", None),
             "budget_range": getattr(instance, "budget_range", None),
+            "gender_branch": getattr(instance, "gender_branch", None),
+            "question_answers": getattr(instance, "question_answers", None) or {},
+            "survey_profile": getattr(instance, "survey_profile", None) or {},
             "preference_vector": getattr(instance, "preference_vector", None) or [],
             "created_at": getattr(instance, "created_at", None),
         }

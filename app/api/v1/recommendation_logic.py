@@ -184,7 +184,7 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         color_tags=("black", "brown"),
         budget_tags=("low", "mid"),
         gender_branches=("male",),
-        style_axes=("two_block:strong", "front_styling:up", "parting:non_parted"),
+        style_axes=("two_block:strong", "front_styling:lifted", "parting:non_parted"),
     ),
     StyleProfile(
         style_id=302,
@@ -216,7 +216,7 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         color_tags=("black", "brown", "ash"),
         budget_tags=("mid", "high"),
         gender_branches=("male",),
-        style_axes=("two_block:none", "front_styling:up", "parting:parted"),
+        style_axes=("two_block:none", "front_styling:lifted", "parting:side_part"),
     ),
     StyleProfile(
         style_id=304,
@@ -264,7 +264,7 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         color_tags=("black", "brown", "ash"),
         budget_tags=("mid", "high"),
         gender_branches=("male",),
-        style_axes=("two_block:none", "front_styling:up", "parting:parted"),
+        style_axes=("two_block:none", "front_styling:lifted", "parting:side_part"),
     ),
     StyleProfile(
         style_id=307,
@@ -280,7 +280,7 @@ STYLE_CATALOG: tuple[StyleProfile, ...] = (
         color_tags=("black", "brown", "ash"),
         budget_tags=("high",),
         gender_branches=("male",),
-        style_axes=("two_block:none", "front_styling:flexible", "parting:either"),
+        style_axes=("two_block:none", "front_styling:down", "parting:center_part"),
     ),
 )
 
@@ -297,13 +297,15 @@ def _contains_any(value: str, keywords: Iterable[str]) -> bool:
 
 def canonical_length(value: str | None) -> str:
     value = _normalize_text(value)
+    if _contains_any(value, ("짧",)):
+        return "short"
     if _contains_any(value, ("숏", "쇼트", "short")):
         return "short"
     if _contains_any(value, ("보브", "단발", "bob", "lob")):
         return "bob"
-    if _contains_any(value, ("중단발", "미디", "medium", "semilong", "semi")):
+    if _contains_any(value, ("유지", "중간", "중단발", "미디", "medium", "semilong", "semi")):
         return "medium"
-    if _contains_any(value, ("롱", "긴머리", "long")):
+    if _contains_any(value, ("길이감", "길게", "롱", "긴머리", "long")):
         return "long"
     return "unknown"
 
@@ -386,6 +388,77 @@ def canonical_gender_branch(value: str | None) -> str:
     return "female"
 
 
+def canonical_front_styling(value: str | None) -> str | None:
+    normalized = _normalize_text(value)
+    if not normalized:
+        return None
+    if _contains_any(
+        normalized,
+        (
+            "lifted",
+            "openforehead",
+            "up",
+            "업",
+            "올림",
+            "올리는",
+            "앞머리올림",
+            "이마보이게",
+            "앞머리까기",
+            "앞머리까",
+        ),
+    ):
+        return "lifted"
+    if _contains_any(normalized, ("down", "다운", "내림", "내리는", "앞머리내리기", "앞머리내림")):
+        return "down"
+    return None
+
+
+def canonical_parting(value: str | None) -> str | None:
+    normalized = _normalize_text(value)
+    if not normalized:
+        return None
+    if _contains_any(
+        normalized,
+        (
+            "centerpart",
+            "middlepart",
+            "센터파트",
+            "가운데가르마",
+            "55",
+        ),
+    ):
+        return "center_part"
+    if _contains_any(
+        normalized,
+        (
+            "nonparted",
+            "nonpart",
+            "비가르마",
+            "비가르마스타일선호",
+            "가르마없음",
+            "크롭",
+            "논파트",
+            "논파",
+        ),
+    ):
+        return "non_parted"
+    if _contains_any(
+        normalized,
+        (
+            "sidepart",
+            "사이드파트",
+            "옆가르마",
+            "64",
+            "73",
+            "parted",
+            "가르마스타일선호",
+            "가르마",
+        ),
+    ):
+        return "side_part"
+    return None
+
+
 def _field_value(source, key: str, default=None):
     if isinstance(source, dict):
         return source.get(key, default)
@@ -410,11 +483,27 @@ def _survey_style_signal_tags(survey) -> set[str]:
     style_axes = survey_profile.get("style_axes")
     if not isinstance(style_axes, dict):
         return set()
-    return {
-        f"{key}:{value}"
-        for key, value in style_axes.items()
-        if str(key).strip() and str(value).strip()
-    }
+    normalized_tags: set[str] = set()
+    for key, raw_value in style_axes.items():
+        key_text = str(key).strip()
+        if not key_text:
+            continue
+        value_text = str(raw_value).strip()
+        if key_text == "front_styling":
+            value_text = canonical_front_styling(raw_value) or ""
+        elif key_text == "parting":
+            value_text = canonical_parting(raw_value) or ""
+        if value_text:
+            normalized_tags.add(f"{key_text}:{value_text}")
+    return normalized_tags
+
+
+def _style_axis_value(style_axes: Iterable[str], key: str) -> str | None:
+    prefix = f"{key}:"
+    for tag in style_axes:
+        if str(tag).startswith(prefix):
+            return str(tag)[len(prefix):]
+    return None
 
 
 def build_preference_vector(
@@ -507,6 +596,7 @@ def score_recommendations(
             vibe_tag=vibe_tag,
             profile=profile,
             preference_score=preference_score,
+            style_signal_tags=style_signal_tags,
         )
         total = max(0.0, min(100.0, round(face_score + ratio_component + preference_score - penalty, 1)))
 
@@ -649,18 +739,33 @@ def _score_preference(
 
     matched_style_axes = sorted(tag for tag in style_signal_tags if tag in profile.style_axes)
     if matched_style_axes:
-        score += min(4.0, len(matched_style_axes) * 2.0) * weight_scale
+        score += min(10.0, len(matched_style_axes) * 5.0) * weight_scale
         labels.append("styling")
 
     return min(scoring_weights.preference_weight, round(score, 1)), labels, matched_style_axes
 
 
-def _score_penalty(*, length_tag: str, vibe_tag: str, profile: StyleProfile, preference_score: float) -> float:
+def _score_penalty(
+    *,
+    length_tag: str,
+    vibe_tag: str,
+    profile: StyleProfile,
+    preference_score: float,
+    style_signal_tags: set[str],
+) -> float:
     penalty = 0.0
     if length_tag != "unknown" and length_tag not in profile.length_tags:
-        penalty += 6.0
+        penalty += 18.0
     if vibe_tag != "unknown" and vibe_tag not in profile.vibe_tags:
         penalty += 4.0
+    preferred_front = _style_axis_value(style_signal_tags, "front_styling")
+    profile_front = _style_axis_value(profile.style_axes, "front_styling")
+    if preferred_front and profile_front and preferred_front != profile_front:
+        penalty += 16.0
+    preferred_parting = _style_axis_value(style_signal_tags, "parting")
+    profile_parting = _style_axis_value(profile.style_axes, "parting")
+    if preferred_parting and profile_parting and preferred_parting != profile_parting:
+        penalty += 16.0
     if preference_score < 10.0:
         penalty += 2.0
     return penalty

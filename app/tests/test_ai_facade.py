@@ -61,9 +61,18 @@ class AiFacadeContractTests(SimpleTestCase):
         self.assertEqual(payload["survey_data"]["question_answer_count"], 4)
         self.assertEqual(payload["survey_data"]["question_answer_count_source"], "explicit")
         self.assertEqual(payload["survey_data"]["question_answer_total"], 6)
-        self.assertEqual(payload["runpod_payload"]["request_payload_preview"]["hairstyle_text"], "medium natural")
-        self.assertIn("hairstyle_text=medium natural", payload["runpod_payload"]["prompt_text"])
-        self.assertIn("preference_text=medium, natural", payload["runpod_payload"]["prompt_text"])
+        self.assertEqual(
+            payload["runpod_payload"]["request_payload_preview"]["hairstyle_text"],
+            "medium natural layered silhouette",
+        )
+        self.assertIn(
+            "hairstyle_text=medium natural layered silhouette",
+            payload["runpod_payload"]["prompt_text"],
+        )
+        self.assertIn(
+            "preference_text=medium, natural, waved, brown, mid",
+            payload["runpod_payload"]["prompt_text"],
+        )
         self.assertIn(
             "face_ratios=[unavailable in snapshot]",
             payload["direct_runpod_payload"]["prompt_text"],
@@ -149,6 +158,59 @@ class AiFacadeContractTests(SimpleTestCase):
 
         self.assertTrue(items)
         self.assertEqual(items[0]["reasoning_snapshot"]["gender_branch"], "male")
+
+    def test_build_recommendation_debug_payload_normalizes_male_style_axes_into_runpod_preview(self):
+        payload = build_recommendation_debug_payload(
+            survey_data={
+                "gender_branch": "male",
+                "q1": "짧게",
+                "q2": "확실한 투블럭",
+                "q3": "이마 보이게",
+                "q4": "옆가르마",
+                "q5": "컬감이 느껴지는 스타일",
+                "q6": "세련된",
+            },
+            analysis_data={},
+        )
+
+        survey_data = payload["survey_data"]
+        style_axes = survey_data["survey_profile"]["style_axes"]
+        runpod_preview = payload["runpod_payload"]["request_payload_preview"]
+        direct_preview = payload["direct_runpod_payload"]["request_payload_preview"]
+
+        self.assertEqual(survey_data["target_length"], "short")
+        self.assertTrue(survey_data["question_answers"])
+        self.assertEqual(style_axes["front_styling"], "lifted")
+        self.assertEqual(style_axes["parting"], "side_part")
+        self.assertIn("short crop", runpod_preview["hairstyle_text"])
+        self.assertIn("lifted front", runpod_preview["hairstyle_text"])
+        self.assertIn("open forehead", runpod_preview["hairstyle_text"])
+        self.assertIn("side part", runpod_preview["hairstyle_text"])
+        self.assertIn("front=lifted", runpod_preview["preference_text"])
+        self.assertIn("parting=side_part", runpod_preview["preference_text"])
+        self.assertIn("front=lifted", direct_preview["preference_text"])
+        self.assertIn("parting=side_part", direct_preview["preference_text"])
+
+    def test_generate_recommendation_batch_applies_male_style_axis_penalties_to_ranking(self):
+        items = generate_recommendation_batch(
+            client_id=1,
+            survey_data={
+                "gender_branch": "male",
+                "q1": "짧게",
+                "q2": "확실한 투블럭",
+                "q3": "앞머리 올림",
+                "q4": "사이드 파트",
+                "q5": "펌 없이 깔끔하게",
+                "q6": "세련된",
+            },
+            analysis_data={"face_shape": "Oval", "golden_ratio_score": 0.91},
+        )
+
+        self.assertTrue(items)
+        self.assertEqual(items[0]["style_id"], 303)
+        self.assertIn("front_styling:lifted", items[0]["reasoning_snapshot"]["matched_style_axes"])
+        self.assertIn("parting:side_part", items[0]["reasoning_snapshot"]["matched_style_axes"])
+        self.assertLess(items[-1]["match_score"], items[0]["match_score"])
 
     @patch.dict(
         os.environ,

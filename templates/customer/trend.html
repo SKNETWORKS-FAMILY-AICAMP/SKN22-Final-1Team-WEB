@@ -38,10 +38,17 @@
     padding: 4px 8px 12px;
     overscroll-behavior-x: contain;
     touch-action: pan-x;
+    cursor: grab;
   }
 
   .trend-slider-track::-webkit-scrollbar {
     display: none;
+  }
+
+  .trend-slider-track.is-dragging {
+    cursor: grabbing;
+    scroll-snap-type: none;
+    user-select: none;
   }
 
   .trend-feed-card {
@@ -55,6 +62,10 @@
     text-decoration: none;
     color: inherit;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .trend-slider-track.is-dragging .trend-feed-card {
+    pointer-events: none;
   }
 
   .trend-feed-card:hover {
@@ -198,12 +209,135 @@
     const loading = document.getElementById("trendLoading");
     const sliderShell = document.getElementById("trendSliderShell");
     const track = document.getElementById("trendTrack");
+    const dragState = {
+      active: false,
+      dragging: false,
+      pointerId: null,
+      startX: 0,
+      startScrollLeft: 0,
+      suppressClick: false,
+      suppressClickTimer: null,
+    };
     const placeholderSvg = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480">' +
       '<rect width="640" height="480" fill="#f1f1f1"/>' +
       '<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#707070" font-family="Arial, sans-serif" font-size="28">No image</text>' +
       "</svg>"
     );
+    const DRAG_THRESHOLD_PX = 8;
+
+    function resetClickSuppression() {
+      window.clearTimeout(dragState.suppressClickTimer);
+      dragState.suppressClickTimer = window.setTimeout(() => {
+        dragState.suppressClick = false;
+      }, 80);
+    }
+
+    function snapTrackToNearestCard() {
+      const cards = Array.from(track.children);
+      if (!cards.length) {
+        return;
+      }
+
+      const paddingLeft = parseFloat(window.getComputedStyle(track).paddingLeft) || 0;
+      const currentScrollLeft = track.scrollLeft;
+      const nearestScrollLeft = cards.reduce((closest, card) => {
+        const candidate = Math.max(0, card.offsetLeft - paddingLeft);
+        return Math.abs(candidate - currentScrollLeft) < Math.abs(closest - currentScrollLeft)
+          ? candidate
+          : closest;
+      }, Math.max(0, cards[0].offsetLeft - paddingLeft));
+
+      track.scrollTo({
+        left: nearestScrollLeft,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    }
+
+    function endTrackDrag(event) {
+      if (!dragState.active) {
+        return;
+      }
+
+      if (event && dragState.pointerId !== null && event.pointerId !== dragState.pointerId) {
+        return;
+      }
+
+      if (dragState.pointerId !== null && track.hasPointerCapture?.(dragState.pointerId)) {
+        track.releasePointerCapture(dragState.pointerId);
+      }
+
+      track.classList.remove("is-dragging");
+      dragState.active = false;
+      dragState.pointerId = null;
+
+      if (dragState.dragging) {
+        dragState.dragging = false;
+        snapTrackToNearestCard();
+        resetClickSuppression();
+        return;
+      }
+
+      dragState.suppressClick = false;
+    }
+
+    function setupTrackDrag() {
+      track.addEventListener("dragstart", (event) => {
+        event.preventDefault();
+      });
+
+      track.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "touch" || event.button !== 0) {
+          return;
+        }
+
+        if (track.scrollWidth <= track.clientWidth + 1) {
+          return;
+        }
+
+        dragState.active = true;
+        dragState.dragging = false;
+        dragState.pointerId = event.pointerId;
+        dragState.startX = event.clientX;
+        dragState.startScrollLeft = track.scrollLeft;
+        window.clearTimeout(dragState.suppressClickTimer);
+        track.setPointerCapture?.(event.pointerId);
+      });
+
+      track.addEventListener("pointermove", (event) => {
+        if (!dragState.active || event.pointerId !== dragState.pointerId) {
+          return;
+        }
+
+        const deltaX = event.clientX - dragState.startX;
+        if (!dragState.dragging && Math.abs(deltaX) >= DRAG_THRESHOLD_PX) {
+          dragState.dragging = true;
+          dragState.suppressClick = true;
+          track.classList.add("is-dragging");
+        }
+
+        if (!dragState.dragging) {
+          return;
+        }
+
+        track.scrollLeft = dragState.startScrollLeft - deltaX;
+        event.preventDefault();
+      });
+
+      track.addEventListener("pointerup", endTrackDrag);
+      track.addEventListener("pointercancel", endTrackDrag);
+      track.addEventListener("lostpointercapture", endTrackDrag);
+
+      track.addEventListener("click", (event) => {
+        if (!dragState.suppressClick) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        dragState.suppressClick = false;
+      }, true);
+    }
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -259,7 +393,7 @@
           return `
             <a href="${articleUrl}" target="_blank" rel="noopener noreferrer" class="panel trend-feed-card" style="padding: 20px;">
               <div class="trend-feed-media">
-                <img src="${imageUrl}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.src='${placeholderSvg}'">
+                <img src="${imageUrl}" alt="${escapeHtml(title)}" loading="lazy" draggable="false" onerror="this.src='${placeholderSvg}'">
               </div>
               ${sourceMarkup}
               <h4 class="trend-feed-title">${escapeHtml(title)}</h4>
@@ -272,6 +406,7 @@
       }
     }
 
+    setupTrackDrag();
     fetchLatestTrends();
   })();
 </script>
