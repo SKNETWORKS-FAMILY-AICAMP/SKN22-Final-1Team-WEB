@@ -1,7 +1,12 @@
 from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
 
-from app.session_state import clear_customer_session, clear_designer_session
+from app.session_state import (
+    clear_customer_session,
+    clear_designer_session,
+    has_customer_session,
+    has_designer_session,
+)
 
 
 class ElasticBeanstalkHealthCheckMiddleware(MiddlewareMixin):
@@ -21,21 +26,51 @@ class ElasticBeanstalkHealthCheckMiddleware(MiddlewareMixin):
             return None
         return JsonResponse({"status": "django_running", "framework": "Django"})
 
+
 class BrowserSessionCleanupMiddleware(MiddlewareMixin):
     """
-    브라우저 종료 시 고객 및 디자이너 세션만 초기화하고, 
-    매장(Admin) 세션은 유지하는 미들웨어.
+    Clear customer/designer session state on a fresh browser session while
+    leaving the admin session intact.
     """
+
+    def _flush_stale_cached_session_if_needed(self, request):
+        session_key = getattr(request.session, "session_key", None)
+        if not session_key:
+            return False
+
+        try:
+            session_exists = request.session.exists(session_key)
+        except Exception:
+            return False
+
+        if session_exists:
+            return False
+
+        request.session.flush()
+        return True
+
     def process_request(self, request):
-        # 'browser_active' 쿠키가 없으면 브라우저가 새로 열린 것으로 간주
-        if not request.COOKIES.get('browser_active'):
-            # 매장 세션은 유지하되, 고객과 디자이너 세션만 삭제
-            # (clear_customer_session 등은 세션 키만 삭제함)
+        if self._flush_stale_cached_session_if_needed(request):
+            return None
+
+        if request.COOKIES.get("browser_active"):
+            return None
+
+        has_customer = has_customer_session(request=request)
+        has_designer = has_designer_session(request=request)
+
+        # Avoid touching anonymous sessions on the first visit. This prevents
+        # unnecessary session saves and stale cached-session update errors.
+        if not has_customer and not has_designer:
+            return None
+
+        if has_customer:
             clear_customer_session(request=request)
+        if has_designer:
             clear_designer_session(request=request)
+        return None
 
     def process_response(self, request, response):
-        # 브라우저 종료 시 만료되는 쿠키 설정 (max_age=None)
-        if not request.COOKIES.get('browser_active'):
-            response.set_cookie('browser_active', '1', max_age=None, httponly=True)
+        if not request.COOKIES.get("browser_active"):
+            response.set_cookie("browser_active", "1", max_age=None, httponly=True)
         return response

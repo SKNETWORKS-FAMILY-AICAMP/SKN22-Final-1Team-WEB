@@ -199,3 +199,32 @@ python manage.py run_trend_scheduler
 - 테스트 코드는 개발 및 회귀 검증을 위해 `app/tests/`에 유지합니다.
 - `.dockerignore`는 테스트 디렉터리를 운영 빌드 컨텍스트에서 제외합니다.
 - 일부 테스트는 현재 레포의 기존 모델 import 상태에 영향을 받을 수 있으므로, 리포트와 세션 검증은 `manage.py shell` 기반 확인을 함께 사용하는 것이 안전합니다.
+
+## 최근 반영 사항
+
+이번 변경에서는 기존 프로젝트 소개나 전체 개요는 유지하고, 최근에 수정한 운영/개발 포인트만 추가로 정리했습니다.
+
+- 캡처 업로드 후 백그라운드 분석 스레드에 `processed_bytes`를 항상 전달하도록 정리했습니다.
+- 분석/추천 파이프라인에서 저장된 이미지 참조를 다시 읽어 byte payload로 재사용할 수 있도록 보완했습니다.
+- 브라우저 첫 방문 시 불필요한 세션 저장을 막고, stale cached session 이 있으면 먼저 flush 하도록 세션 정리 로직을 보강했습니다.
+- `DEBUG=True` 환경에서는 세션 엔진이 자동으로 `cached_db`로 바뀌지 않도록 조정했습니다.
+- 최신 트렌드 피드에서 Chroma row 와 기사 메타데이터가 섞여 `title / summary / article_url`이 어긋나던 문제를 수정했습니다.
+- 로컬 `chromadb_trends` 스토어가 호환되지 않는 상태일 때 자동으로 리셋 후 재빌드하도록 안전장치를 추가했습니다.
+- 트렌드/NCS Chroma 저장소를 재빌드했고, 최신 번역 캐시와 로컬 Chroma 아티팩트도 함께 갱신했습니다.
+- Django migration state 와 현재 런타임 모델 구성이 어긋나던 부분을 state-only migration 으로 정리했습니다.
+
+관련 명령어:
+
+```bash
+python manage.py migrate mirrai_app 0016_sync_state_to_current_models
+python manage.py refresh_trends --mode local --steps vectorize,rebuild_ncs
+python manage.py makemigrations --check --dry-run --noinput
+```
+
+이번에 추가/보강된 핵심 파일:
+
+- `app/migrations/0016_sync_state_to_current_models.py`
+- `app/trend_pipeline/latest_feed.py`
+- `app/trend_pipeline/vectorize_chromadb.py`
+- `app/tests/test_latest_feed.py`
+- `app/tests/test_trend_refresh_service.py`

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import gc
 import json
 import re
+import shutil
 import sys
+import time
 from collections import defaultdict
 from typing import Any
 
@@ -382,6 +385,27 @@ def _print_safety_report(report: dict[str, Any]) -> None:
         print(f"  dropped: {example.get('title', '')} ({example.get('reason', '')})")
 
 
+def _should_reset_incompatible_store(exc: Exception) -> bool:
+    return isinstance(exc, KeyError) and exc.args == ("_type",)
+
+
+def _reset_trend_store(*, stale_client: Any | None = None) -> None:
+    if stale_client is not None:
+        close = getattr(stale_client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+    stale_client = None
+    gc.collect()
+    time.sleep(0.1)
+
+    if CHROMA_TRENDS_DIR.exists():
+        shutil.rmtree(CHROMA_TRENDS_DIR)
+    CHROMA_TRENDS_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def build_collection() -> chromadb.api.models.Collection.Collection:
     ensure_directories()
     data = load_data()
@@ -394,6 +418,17 @@ def build_collection() -> chromadb.api.models.Collection.Collection:
         print(f"Deleted existing collection '{COLLECTION_NAME}'.")
     except (ValueError, NotFoundError):
         pass
+    except Exception as exc:
+        if not _should_reset_incompatible_store(exc):
+            raise
+        print(
+            "[chroma] incompatible existing trend store detected; "
+            "resetting local store before rebuild."
+        )
+        stale_client = client
+        client = None
+        _reset_trend_store(stale_client=stale_client)
+        client = create_persistent_client(CHROMA_TRENDS_DIR)
 
     collection = client.create_collection(
         name=COLLECTION_NAME,

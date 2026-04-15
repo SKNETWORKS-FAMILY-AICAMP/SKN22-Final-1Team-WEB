@@ -202,7 +202,12 @@ SESSION_COOKIE_AGE = 86400 * 7
 SESSION_SAVE_EVERY_REQUEST = env.bool("SESSION_SAVE_EVERY_REQUEST", default=True)
 SESSION_ENGINE = env("SESSION_ENGINE", default="django.contrib.sessions.backends.db")
 SESSION_CACHE_ALIAS = env("SESSION_CACHE_ALIAS", default="default")
-if REDIS_CACHE_ACTIVE and REDIS_USE_FOR_SESSIONS and SESSION_ENGINE == "django.contrib.sessions.backends.db":
+if (
+    not DEBUG
+    and REDIS_CACHE_ACTIVE
+    and REDIS_USE_FOR_SESSIONS
+    and SESSION_ENGINE == "django.contrib.sessions.backends.db"
+):
     SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 
 if DEBUG:
