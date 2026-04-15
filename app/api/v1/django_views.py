@@ -392,9 +392,7 @@ class CaptureUploadView(CompatEnvelopeAPIView):
             )
 
         thread_args = (record.id,)
-        thread_kwargs = {}
-        if not settings.MIRRAI_PERSIST_CAPTURE_IMAGES:
-            thread_kwargs["processed_bytes"] = processed_bytes
+        thread_kwargs = {"processed_bytes": processed_bytes}
         threading.Thread(
             target=run_mirrai_analysis_pipeline,
             args=thread_args,

@@ -20,6 +20,7 @@ from app.services.trend_refresh import (
     trigger_runpod_trend_refresh_with_archive,
 )
 from app.trend_pipeline.style_collection import sync_seed_styles_to_db
+from app.trend_pipeline import vectorize_chromadb
 
 
 class TrendRefreshServiceTests(SimpleTestCase):
@@ -214,6 +215,66 @@ class TrendRefreshServiceTests(SimpleTestCase):
         parsed = json.loads(rendered)
         self.assertEqual(parsed["request_mode"], "runpod_archive")
         self.assertEqual(parsed["runpod_response"]["success"], True)
+
+
+class TrendVectorizeTests(SimpleTestCase):
+    def test_build_collection_resets_incompatible_store_before_rebuild(self):
+        with tempfile.TemporaryDirectory(prefix="mirrai-final-ai-") as tmpdir:
+            store_dir = Path(tmpdir) / "chromadb_trends"
+            store_dir.mkdir(parents=True, exist_ok=True)
+            legacy_marker = store_dir / "legacy.marker"
+            legacy_marker.write_text("legacy", encoding="utf-8")
+
+            legacy_client = Mock()
+            legacy_client.delete_collection.side_effect = KeyError("_type")
+
+            collection = Mock()
+            collection.count.return_value = 1
+
+            fresh_client = Mock()
+            fresh_client.create_collection.return_value = collection
+
+            sample_rows = [
+                {
+                    "canonical_name": "soft-bob",
+                    "display_title": "Soft Bob",
+                    "category": "style_trend",
+                    "style_tags": ["bob"],
+                    "color_tags": [],
+                    "summary": "A soft bob trend.",
+                    "search_text": "Soft Bob\nA soft bob trend.",
+                    "source": "Example",
+                    "year": "2026",
+                    "article_title": "Soft Bob for Spring",
+                    "article_url": "https://example.com/soft-bob",
+                    "image_url": "https://example.com/soft-bob.jpg",
+                    "published_at": "2026-04-01T00:00:00+00:00",
+                    "crawled_at": "2026-04-15T00:00:00+00:00",
+                    "title_ko": "소프트 보브",
+                    "summary_ko": "부드러운 보브 스타일입니다.",
+                }
+            ]
+
+            with (
+                patch.object(vectorize_chromadb, "CHROMA_TRENDS_DIR", store_dir),
+                patch.object(vectorize_chromadb, "ensure_directories"),
+                patch.object(vectorize_chromadb, "load_data", return_value=sample_rows),
+                patch.object(
+                    vectorize_chromadb,
+                    "create_persistent_client",
+                    side_effect=[legacy_client, fresh_client],
+                ) as mock_create_client,
+            ):
+                result = vectorize_chromadb.build_collection()
+
+        self.assertIs(result, collection)
+        self.assertEqual(mock_create_client.call_count, 2)
+        self.assertFalse(legacy_marker.exists())
+        fresh_client.create_collection.assert_called_once_with(
+            name=vectorize_chromadb.COLLECTION_NAME,
+            metadata={"description": "Hair trend RAG data maintained inside final_web backend"},
+        )
+        collection.add.assert_called_once()
 
 
 class TrendRefreshDatabaseSyncTests(TestCase):

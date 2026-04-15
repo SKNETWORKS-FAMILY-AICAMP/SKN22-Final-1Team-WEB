@@ -41,7 +41,7 @@ set "TARGET_NAME=%~2"
 set "FOUND_PID="
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%TARGET_PORT% .*LISTENING"') do (
     set "FOUND_PID=%%P"
-    echo [prep] Stopping !TARGET_NAME! process on port %TARGET_PORT% (PID !FOUND_PID!)...
+    echo [prep] Stopping !TARGET_NAME! process on port %TARGET_PORT% ^(PID !FOUND_PID!^)...
     taskkill /PID !FOUND_PID! /F >nul 2>&1
 )
 if not defined FOUND_PID (

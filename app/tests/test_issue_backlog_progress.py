@@ -207,9 +207,12 @@ class BackendIssueProgressTests(APITestCase):
         }
 
         class DummyThread:
+            instances = []
+
             def __init__(self, *args, **kwargs):
                 self.args = args
                 self.kwargs = kwargs
+                self.__class__.instances.append(self)
 
             def start(self):
                 return None
@@ -240,6 +243,8 @@ class BackendIssueProgressTests(APITestCase):
         self.assertEqual(response.data["next_action"], "survey")
         self.assertIn("survey", response.data["next_actions"])
         self.assertEqual(response.data["privacy_snapshot"]["method"], "pixelate_face_region")
+        self.assertEqual(len(DummyThread.instances), 1)
+        self.assertIsNotNone(DummyThread.instances[0].kwargs["kwargs"].get("processed_bytes"))
 
         record = CaptureRecord.objects.get(id=response.data["record_id"])
         self.assertEqual(record.landmark_snapshot["quality"]["detected_feature_count"], 5)
@@ -272,9 +277,12 @@ class BackendIssueProgressTests(APITestCase):
         }
 
         class DummyThread:
+            instances = []
+
             def __init__(self, *args, **kwargs):
                 self.args = args
                 self.kwargs = kwargs
+                self.__class__.instances.append(self)
 
             def start(self):
                 return None
@@ -300,6 +308,8 @@ class BackendIssueProgressTests(APITestCase):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(DummyThread.instances), 1)
+        self.assertIsNotNone(DummyThread.instances[0].kwargs["kwargs"].get("processed_bytes"))
         record = CaptureRecord.objects.get(id=response.data["record_id"])
         self.assertIsNone(record.original_path)
         self.assertIsNone(record.processed_path)
@@ -344,7 +354,8 @@ class BackendIssueProgressTests(APITestCase):
         self.assertEqual(record.status, "DONE")
         analysis = FaceAnalysis.objects.get(client=client)
         self.assertEqual(analysis.landmark_snapshot["version"], "coarse-v1")
-        self.assertIsNone(analysis.image_url)
+        self.assertTrue(analysis.image_url)
+        self.assertTrue(analysis.image_url.startswith("/media/analysis-inputs/"))
 
     def test_recommendations_and_admin_detail_include_reasoning_and_history(self):
         client = Client.objects.create(name="History Tester", phone="01098765432", gender="F")

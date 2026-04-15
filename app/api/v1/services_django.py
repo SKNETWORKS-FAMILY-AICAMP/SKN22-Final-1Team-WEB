@@ -72,6 +72,7 @@ from app.services.model_team_bridge import (
 from app.services.survey_contract import normalize_survey_contract
 from app.services.storage_service import (
     build_storage_snapshot,
+    load_storage_reference_bytes,
     persist_analysis_input_image_reference,
     persist_simulation_image_reference,
     resolve_storage_reference,
@@ -3547,6 +3548,58 @@ def cancel_style_selection(
     }
 
 
+def _build_pipeline_image_inputs(
+    *,
+    image_reference: str | None,
+    processed_bytes: bytes | None,
+) -> tuple[bytes | None, str | None, str | None]:
+    resolved_reference = resolve_storage_reference(image_reference) if image_reference else None
+    effective_processed_bytes = processed_bytes or load_storage_reference_bytes(
+        resolved_reference or image_reference
+    )
+
+    analysis_input_reference = None
+    if effective_processed_bytes:
+        analysis_input_reference = persist_analysis_input_image_reference(
+            effective_processed_bytes,
+            extension=".jpg",
+            mime_type="image/jpeg",
+        )
+    elif resolved_reference:
+        analysis_input_reference = resolved_reference
+    elif image_reference:
+        analysis_input_reference = image_reference
+
+    return effective_processed_bytes, analysis_input_reference, resolved_reference
+
+
+def _build_generation_analysis_data(analysis) -> tuple[dict, str | None, bool]:
+    raw_image_reference = getattr(analysis, "image_url", None)
+    resolved_image_reference = (
+        resolve_storage_reference(raw_image_reference) if raw_image_reference else None
+    )
+    analysis_image_bytes = load_storage_reference_bytes(
+        resolved_image_reference or raw_image_reference
+    )
+    image_url = (
+        resolved_image_reference
+        if str(resolved_image_reference or "").startswith(("http://", "https://"))
+        else None
+    )
+
+    analysis_data = {
+        "face_shape": analysis.face_shape,
+        "golden_ratio_score": analysis.golden_ratio_score,
+        "landmark_snapshot": analysis.landmark_snapshot,
+    }
+    if image_url:
+        analysis_data["image_url"] = image_url
+    if analysis_image_bytes:
+        analysis_data["image_base64"] = base64.b64encode(analysis_image_bytes).decode("ascii")
+
+    return analysis_data, image_url, bool(analysis_image_bytes)
+
+
 def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None = None):
     """Phase 1: Store image + call RunPod analyze_face → save face analysis to DB. No hairstyle generation."""
     logger.info("[PIPELINE THREAD] Record %s started. has_processed_bytes=%s", record_id, bool(processed_bytes))
@@ -3569,20 +3622,35 @@ def run_mirrai_analysis_pipeline(record_id: int, processed_bytes: bytes | None =
             storage_snapshot["path_count"],
         )
 
-        # Step 1: Store processed image to Supabase for later use at survey time
-        analysis_input_reference = persist_analysis_input_image_reference(
-            processed_bytes,
-            extension=".jpg",
-            mime_type="image/jpeg",
-        ) if processed_bytes else (record.processed_path or record.original_path)
+        # Step 1: Normalize the analysis input so both persisted and vector-only
+        # capture modes can reuse the same downstream image contract.
+        effective_processed_bytes, analysis_input_reference, resolved_image_reference = (
+            _build_pipeline_image_inputs(
+                image_reference=(record.processed_path or record.original_path),
+                processed_bytes=processed_bytes,
+            )
+        )
         logger.info(
-            "[PIPELINE] Record %s image stored. analysis_input_reference=%s",
+            (
+                "[PIPELINE] Record %s image prepared. analysis_input_reference=%s "
+                "has_processed_bytes=%s resolved_image_reference=%s"
+            ),
             record_id,
             bool(analysis_input_reference),
+            bool(effective_processed_bytes),
+            bool(resolved_image_reference),
         )
 
         # Step 2: Call RunPod action=analyze_face (warm up cold start + get face data)
-        face_result = analyze_face_with_runpod(image_bytes=processed_bytes)
+        face_result = analyze_face_with_runpod(
+            image_bytes=effective_processed_bytes,
+            image_url=(
+                resolved_image_reference
+                if not effective_processed_bytes
+                and str(resolved_image_reference or "").startswith(("http://", "https://"))
+                else None
+            ),
+        )
         if face_result:
             face_shape = face_result["face_shape"]
             golden_ratio_score = face_result["golden_ratio_score"]
@@ -3667,8 +3735,8 @@ def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
             logger.warning("[HAIRSTYLE PIPELINE] client_id=%s no face analysis found after %ss, skipping.", client_id, waited)
             return
 
-        image_url = resolve_storage_reference(analysis.image_url) if analysis.image_url else None
-        if not image_url:
+        analysis_data, image_url, has_image_bytes = _build_generation_analysis_data(analysis)
+        if not image_url and not has_image_bytes:
             logger.info(
                 "[HAIRSTYLE PIPELINE] client_id=%s analysis image is not ready yet (analysis_image_url=%s) after %ss, skipping.",
                 client_id,
@@ -3677,18 +3745,16 @@ def run_hairstyle_generation_pipeline(client: "Client", survey) -> None:
             )
             return
 
-        analysis_data = {
-            "face_shape": analysis.face_shape,
-            "golden_ratio_score": analysis.golden_ratio_score,
-            "image_url": image_url,
-            "landmark_snapshot": analysis.landmark_snapshot,
-        }
         survey_data = _build_generation_survey_payload(client=client, survey=survey)
         logger.info(
-            "[HAIRSTYLE PIPELINE] client_id=%s calling RunPod. face_shape=%s image_url_set=%s survey_data=%s",
+            (
+                "[HAIRSTYLE PIPELINE] client_id=%s calling RunPod. face_shape=%s "
+                "image_url_set=%s image_bytes_set=%s survey_data=%s"
+            ),
             client_id,
             analysis_data.get("face_shape"),
             bool(image_url),
+            has_image_bytes,
             {k: v for k, v in survey_data.items() if v},
         )
 

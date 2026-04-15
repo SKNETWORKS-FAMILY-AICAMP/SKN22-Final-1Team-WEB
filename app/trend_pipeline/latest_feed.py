@@ -4,6 +4,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -300,6 +301,17 @@ def _iter_raw_items() -> list[dict[str, Any]]:
     return items
 
 
+@lru_cache(maxsize=1)
+def _load_refined_article_lookup() -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+    for item in _load_json_list(REFINED_TRENDS_FILE):
+        article_url = str(item.get("article_url") or "").strip()
+        if not article_url or article_url in lookup:
+            continue
+        lookup[article_url] = dict(item)
+    return lookup
+
+
 def _iter_chroma_items() -> list[dict[str, Any]]:
     if not CHROMA_TRENDS_DIR.exists():
         return []
@@ -367,7 +379,7 @@ def _latest_trends_cache_key(limit: int) -> str:
     prefix = os.environ.get("REDIS_KEY_PREFIX") or _get_django_setting("REDIS_KEY_PREFIX", "mirrai")
     normalized_prefix = str(prefix or "mirrai").strip() or "mirrai"
     remote_enabled = "1" if _runpod_latest_enabled() else "0"
-    return f"{normalized_prefix}:cache:latest-trends:v1:limit:{int(limit)}:remote-enabled:{remote_enabled}"
+    return f"{normalized_prefix}:cache:latest-trends:v2:limit:{int(limit)}:remote-enabled:{remote_enabled}"
 
 
 def _get_latest_trends_cached(limit: int) -> dict[str, Any] | None:
@@ -716,6 +728,7 @@ def _normalize_item(item: dict[str, Any]) -> dict[str, Any] | None:
     if not (
         _contains_any_keyword(title.lower(), STYLE_INCLUDE_KEYWORDS)
         or _contains_any_keyword(article_title.lower(), STYLE_INCLUDE_KEYWORDS)
+        or _contains_any_keyword(article_url.lower(), STYLE_URL_KEYWORDS)
     ):
         return None
 
@@ -895,10 +908,35 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
         source_label = "raw_trends_json"
         raw_items = _iter_raw_items()
 
+    refined_article_lookup = _load_refined_article_lookup()
     normalized_items: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     for item in raw_items:
-        normalized = _normalize_item(item)
+        candidate = dict(item)
+        article_url = str(candidate.get("article_url") or "").strip()
+        refined_article = refined_article_lookup.get(article_url)
+        if refined_article is not None:
+            candidate = {**candidate, **refined_article}
+            canonical_title = str(
+                refined_article.get("trend_name")
+                or refined_article.get("article_title")
+                or candidate.get("article_title")
+                or candidate.get("display_title")
+                or ""
+            ).strip()
+            refined_description = str(refined_article.get("description") or "").strip()
+            if canonical_title:
+                candidate["display_title"] = canonical_title
+            if refined_description and _looks_like_hairstyle_only(
+                title=canonical_title,
+                summary=refined_description,
+                article_url=article_url,
+            ):
+                candidate["summary"] = refined_description
+            elif canonical_title:
+                candidate["summary"] = canonical_title
+
+        normalized = _normalize_item(candidate)
         if normalized is None:
             continue
         dedupe_key = str(normalized.get("article_url") or normalized.get("title") or "")

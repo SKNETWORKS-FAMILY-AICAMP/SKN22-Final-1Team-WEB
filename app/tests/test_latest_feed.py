@@ -66,7 +66,7 @@ class LatestFeedTests(SimpleTestCase):
                 "title": "Soft Bob",
                 "summary": "A soft bob trend.",
                 "title_ko": "소프트 보브",
-                "summary_ko": "부드러운 보브 트렌드입니다.",
+                "summary_ko": "부드러운 보브 스타일입니다.",
             }
         ]
 
@@ -75,9 +75,19 @@ class LatestFeedTests(SimpleTestCase):
         self.assertEqual(localized, items)
         mock_load_translation_cache.assert_not_called()
 
+    @patch("app.trend_pipeline.latest_feed._set_latest_trends_cached", side_effect=lambda limit, payload: payload)
+    @patch("app.trend_pipeline.latest_feed._get_latest_trends_cached", return_value=None)
+    @patch("app.trend_pipeline.latest_feed._load_refined_article_lookup", return_value={})
     @patch("app.trend_pipeline.latest_feed._iter_chroma_items")
     @patch("app.trend_pipeline.latest_feed._load_translation_cache")
-    def test_latest_crawled_trends_uses_chroma_localized_metadata(self, mock_load_translation_cache, mock_iter_chroma_items):
+    def test_latest_crawled_trends_uses_chroma_localized_metadata(
+        self,
+        mock_load_translation_cache,
+        mock_iter_chroma_items,
+        _mock_refined_lookup,
+        _mock_get_cached,
+        _mock_set_cached,
+    ):
         mock_iter_chroma_items.return_value = [
             {
                 "display_title": "Soft Bob",
@@ -87,7 +97,7 @@ class LatestFeedTests(SimpleTestCase):
                 "published_at": "2026-04-01T00:00:00+00:00",
                 "category": "style_trend",
                 "title_ko": "소프트 보브",
-                "summary_ko": "에어리한 질감이 특징인 소프트 보브 트렌드입니다.",
+                "summary_ko": "가벼운 질감이 들어간 소프트 보브 스타일입니다.",
                 "style_tags": "bob",
                 "color_tags": "",
             }
@@ -98,5 +108,53 @@ class LatestFeedTests(SimpleTestCase):
         self.assertEqual(payload["source"], "chromadb_trends")
         self.assertEqual(payload["items"][0]["source_name"], "Example")
         self.assertEqual(payload["items"][0]["title_ko"], "소프트 보브")
-        self.assertEqual(payload["items"][0]["summary_ko"], "에어리한 질감이 특징인 소프트 보브 트렌드입니다.")
+        self.assertEqual(payload["items"][0]["summary_ko"], "가벼운 질감이 들어간 소프트 보브 스타일입니다.")
         mock_load_translation_cache.assert_not_called()
+
+    @patch("app.trend_pipeline.latest_feed._set_latest_trends_cached", side_effect=lambda limit, payload: payload)
+    @patch("app.trend_pipeline.latest_feed._get_latest_trends_cached", return_value=None)
+    @patch("app.trend_pipeline.latest_feed._attach_korean_fields", side_effect=lambda items: items)
+    @patch("app.trend_pipeline.latest_feed._load_refined_article_lookup")
+    @patch("app.trend_pipeline.latest_feed._iter_chroma_items")
+    def test_latest_crawled_trends_prefers_refined_article_metadata_for_deduped_chroma_items(
+        self,
+        mock_iter_chroma_items,
+        mock_refined_lookup,
+        _mock_attach_korean_fields,
+        _mock_get_cached,
+        _mock_set_cached,
+    ):
+        article_url = "https://www.marieclaire.com/beauty/hair/zendaya-hydro-bob-euphoria-season-three-premiere/"
+        canonical_title = "Zendaya Brings the Sultry Wet and Wavy Look to the 'Euphoria' Red Carpet"
+        mock_iter_chroma_items.return_value = [
+            {
+                "display_title": "Gabrielle Union Is Keeping the C*nty Little Bob Alive",
+                "summary": "Gabrielle bob summary",
+                "article_title": canonical_title,
+                "article_url": article_url,
+                "source": "Marieclaire",
+                "published_at": "2026-04-08T18:30:56+00:00",
+                "category": "celebrity_example",
+                "style_tags": "bob",
+                "color_tags": "",
+            }
+        ]
+        mock_refined_lookup.return_value = {
+            article_url: {
+                "trend_name": canonical_title,
+                "description": "Zendaya bob summary",
+                "article_title": canonical_title,
+                "article_url": article_url,
+                "source": "Marieclaire",
+                "published_at": "2026-04-08T18:30:56+00:00",
+                "category": "celebrity_example",
+                "hairstyle_text": "bob",
+                "color_text": "",
+            }
+        }
+
+        payload = latest_feed.get_latest_crawled_trends(limit=5)
+
+        self.assertEqual(payload["items"][0]["title"], canonical_title)
+        self.assertEqual(payload["items"][0]["summary"], "Zendaya bob summary")
+        self.assertEqual(payload["items"][0]["source_name"], "Marie Claire")

@@ -218,6 +218,26 @@ def persist_analysis_input_image_reference(
     )
 
 
+def load_storage_reference_bytes(reference: str | None) -> bytes | None:
+    normalized_reference = str(reference or "").strip()
+    if not normalized_reference:
+        return None
+
+    decoded = _decode_data_image_reference(normalized_reference)
+    if decoded is not None:
+        asset_bytes, _, _ = decoded
+        return asset_bytes
+
+    local_asset_path = _resolve_local_asset_path(normalized_reference)
+    if local_asset_path is None:
+        return None
+
+    try:
+        return local_asset_path.read_bytes()
+    except OSError:
+        return None
+
+
 def _extract_signed_url(signed) -> str | None:
     if isinstance(signed, dict):
         return signed.get("signedURL") or signed.get("signedUrl")
