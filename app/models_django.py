@@ -123,4 +123,35 @@ class Survey(models.Model):
     class Meta:
         db_table = "client_survey"
 
+
+class DesignerDiagnosisCard(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    admin_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    designer_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    hair_texture = models.CharField(max_length=20, blank=True, default="")
+    damage_level = models.CharField(max_length=20, blank=True, default="")
+    special_notes = models.JSONField(default=list, blank=True)
+    special_memo = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    client_ref_id = models.BigIntegerField(unique=True, db_index=True)
+    legacy_client_ref_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+
+    class Meta:
+        db_table = "designer_diagnosis_cards"
+
+
+class ClientProfileNote(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    client_ref_id = models.BigIntegerField(unique=True, db_index=True)
+    legacy_client_ref_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
+    admin_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    designer_ref_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    content = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "client_profile_notes"
+
 # 기존에 사용하던 나머지 모델들(CaptureRecord, FaceAnalysis 등)도 필요시 동일한 방식으로 실제 DB에 맞춰 업데이트할 수 있습니다.

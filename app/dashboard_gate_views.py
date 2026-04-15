@@ -48,7 +48,9 @@ def gated_partner_staff_dashboard(request):
         return redirect("partner_index")
 
     if not can_access_designer_dashboard(request=request):
-        return redirect(f"{reverse('partner_designer_select')}?next={reverse('partner_staff_dashboard')}")
+        return redirect(
+            f"{reverse('partner_designer_select')}?designer_id={designer.id}&next={reverse('partner_staff_dashboard')}"
+        )
 
     # Consume the temporary access grant so the next fresh dashboard entry
     # requires PIN verification again.

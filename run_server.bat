@@ -4,6 +4,9 @@ SETLOCAL EnableDelayedExpansion
 :: Change directory to the folder where this script is located
 cd /d %~dp0
 
+call :stop_listener 8000 "Django"
+call :stop_listener 8001 "FastAPI"
+
 set "ENABLE_TREND_SCHEDULER=false"
 for /f "tokens=1,* delims==" %%A in ('findstr /b /i "ENABLE_TREND_SCHEDULER=" ".env"') do (
     set "ENABLE_TREND_SCHEDULER=%%B"
@@ -30,3 +33,18 @@ START http://localhost:8000
 python manage.py runserver 0.0.0.0:8000
 
 ENDLOCAL
+goto :eof
+
+:stop_listener
+set "TARGET_PORT=%~1"
+set "TARGET_NAME=%~2"
+set "FOUND_PID="
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%TARGET_PORT% .*LISTENING"') do (
+    set "FOUND_PID=%%P"
+    echo [prep] Stopping !TARGET_NAME! process on port %TARGET_PORT% (PID !FOUND_PID!)...
+    taskkill /PID !FOUND_PID! /F >nul 2>&1
+)
+if not defined FOUND_PID (
+    echo [prep] No existing !TARGET_NAME! listener on port %TARGET_PORT%.
+)
+goto :eof

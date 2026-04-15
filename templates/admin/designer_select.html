@@ -147,7 +147,8 @@
         document.querySelector('#stepList p').textContent = '본인의 이름을 선택하고 PIN 번호 4자리를 입력해 주세요.';
       }
 
-      const targetDesignerId = urlParams.get('designer_id');
+      const activeDesignerId = "{{ active_designer_id|default:''|escapejs }}";
+      const targetDesignerId = urlParams.get('designer_id') || activeDesignerId;
 
       const listContainer = document.getElementById('designerList');
       listContainer.innerHTML = `
