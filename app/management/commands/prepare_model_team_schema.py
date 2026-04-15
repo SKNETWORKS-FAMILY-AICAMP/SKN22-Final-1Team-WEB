@@ -83,7 +83,10 @@ POSTGRES_CREATE_TABLE_STATEMENTS = (
         hair_colour TEXT,
         budget_range TEXT,
         preference_vector_json JSONB,
-        created_at_ts TIMESTAMPTZ
+        created_at_ts TIMESTAMPTZ,
+        question_answers JSONB,
+        survey_profile JSONB,
+        gender_branch VARCHAR(20)
     )
     """,
     """
@@ -220,6 +223,9 @@ POSTGRES_STATEMENTS = (
     "ALTER TABLE IF EXISTS client_survey ADD COLUMN IF NOT EXISTS budget_range VARCHAR(50)",
     "ALTER TABLE IF EXISTS client_survey ADD COLUMN IF NOT EXISTS preference_vector_json JSONB",
     "ALTER TABLE IF EXISTS client_survey ADD COLUMN IF NOT EXISTS created_at_ts TIMESTAMPTZ",
+    "ALTER TABLE IF EXISTS client_survey ADD COLUMN IF NOT EXISTS question_answers JSONB",
+    "ALTER TABLE IF EXISTS client_survey ADD COLUMN IF NOT EXISTS survey_profile JSONB",
+    "ALTER TABLE IF EXISTS client_survey ADD COLUMN IF NOT EXISTS gender_branch VARCHAR(20)",
     # client_analysis
     "ALTER TABLE IF EXISTS client_analysis ADD COLUMN IF NOT EXISTS backend_analysis_id BIGINT",
     "ALTER TABLE IF EXISTS client_analysis ADD COLUMN IF NOT EXISTS backend_client_ref_id BIGINT",
@@ -369,7 +375,10 @@ SQLITE_TABLE_STATEMENTS = (
         hair_colour TEXT,
         budget_range TEXT,
         preference_vector_json TEXT,
-        created_at_ts TEXT
+        created_at_ts TEXT,
+        question_answers TEXT,
+        survey_profile TEXT,
+        gender_branch TEXT
     )
     """,
     """
@@ -472,6 +481,26 @@ SQLITE_TABLE_STATEMENTS = (
 class Command(BaseCommand):
     help = "Extend model-team tables so they can hold backend metadata during schema unification."
 
+    def _ensure_postgres_autofield_sequence(self, *, cursor, table: str, column: str, sequence: str) -> None:
+        cursor.execute(f"CREATE SEQUENCE IF NOT EXISTS {sequence}")
+        cursor.execute(f"ALTER SEQUENCE {sequence} OWNED BY {table}.{column}")
+        cursor.execute(
+            f"ALTER TABLE {table} ALTER COLUMN {column} SET DEFAULT nextval('{sequence}'::regclass)"
+        )
+        cursor.execute(f"SELECT MAX({column}) FROM {table}")
+        max_value = cursor.fetchone()[0]
+        if max_value is None:
+            cursor.execute("SELECT setval(%s, %s, %s)", [sequence, 1, False])
+            return
+        cursor.execute("SELECT setval(%s, %s, %s)", [sequence, int(max_value), True])
+
+    def _ensure_sqlite_column(self, *, cursor, table: str, column: str, definition: str) -> None:
+        cursor.execute(f"PRAGMA table_info({table})")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if column in existing_columns:
+            return
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
     def handle(self, *args, **options):
         if connection.vendor == "postgresql":
             with connection.cursor() as cursor:
@@ -479,6 +508,18 @@ class Command(BaseCommand):
                     cursor.execute(statement)
                 for statement in POSTGRES_STATEMENTS:
                     cursor.execute(statement)
+                self._ensure_postgres_autofield_sequence(
+                    cursor=cursor,
+                    table="client_result",
+                    column="result_id",
+                    sequence="client_result_result_id_seq",
+                )
+                self._ensure_postgres_autofield_sequence(
+                    cursor=cursor,
+                    table="client_result_detail",
+                    column="detail_id",
+                    sequence="client_result_detail_detail_id_seq",
+                )
 
             self.stdout.write(
                 self.style.SUCCESS(
@@ -491,6 +532,24 @@ class Command(BaseCommand):
             with connection.cursor() as cursor:
                 for statement in SQLITE_TABLE_STATEMENTS:
                     cursor.execute(statement)
+                self._ensure_sqlite_column(
+                    cursor=cursor,
+                    table="client_survey",
+                    column="question_answers",
+                    definition="TEXT",
+                )
+                self._ensure_sqlite_column(
+                    cursor=cursor,
+                    table="client_survey",
+                    column="survey_profile",
+                    definition="TEXT",
+                )
+                self._ensure_sqlite_column(
+                    cursor=cursor,
+                    table="client_survey",
+                    column="gender_branch",
+                    definition="TEXT",
+                )
 
             self.stdout.write(
                 self.style.SUCCESS(

@@ -117,7 +117,7 @@
           <div class="history-image-wrapper">
             <img
               class="history-image"
-              src="{{ item.sample_image_url|default:'https://via.placeholder.com/400x500' }}"
+              src="{{ item.display_image_url|default:item.sample_image_url|default:'https://via.placeholder.com/400x500' }}"
               alt="{{ item.style_name }}"
             >
             <span style="position: absolute; top: 12px; left: 12px; padding: 4px 12px; background: var(--accent-neon); color: var(--bg-dark); border-radius: var(--radius-pill); font-size: 11px; font-weight: 800;">

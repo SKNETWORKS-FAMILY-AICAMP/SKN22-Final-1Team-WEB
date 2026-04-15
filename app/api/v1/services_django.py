@@ -67,7 +67,9 @@ from app.services.model_team_bridge import (
     mark_legacy_capture_processing,
     sync_model_team_rows,
     sync_model_team_runtime_state,
+    update_legacy_survey_metadata,
 )
+from app.services.survey_contract import normalize_survey_contract
 from app.services.storage_service import (
     build_storage_snapshot,
     persist_analysis_input_image_reference,
@@ -316,6 +318,12 @@ def _persist_legacy_survey(*, client: "Client", normalized_payload: dict, prefer
             "preference_vector_json": preference_vector,
             "created_at_ts": created_at,
         },
+    )
+    update_legacy_survey_metadata(
+        survey_id=survey_id,
+        question_answers=dict(normalized_payload.get("question_answers") or {}),
+        survey_profile=dict(normalized_payload.get("survey_profile") or {}),
+        gender_branch=normalized_payload.get("gender_branch"),
     )
     return _legacy_survey_namespace(
         survey_id=survey_id,
@@ -956,101 +964,91 @@ def _survey_payload_from_gender_questions(*, client: "Client", payload: dict) ->
 
 
 def normalize_survey_payload(*, client: "Client", payload: dict) -> dict:
-    explicit_gender_branch = (
-        _explicit_gender_branch(payload.get("gender_branch") or payload.get("gender"))
-        or None
+    normalized_payload = normalize_survey_contract(
+        payload,
+        fallback_gender_branch=getattr(client, "gender", None),
     )
-    question_answers = dict(payload.get("question_answers") or {})
-    survey_profile = dict(payload.get("survey_profile") or {})
-    if question_answers:
-        survey_profile["question_answers"] = question_answers
-    if explicit_gender_branch:
-        survey_profile["gender_branch"] = explicit_gender_branch
-
-    if any(payload.get(field) for field in ("target_length", "target_vibe", "scalp_type", "hair_colour", "budget_range")):
-        return {
-            "target_length": payload.get("target_length"),
-            "target_vibe": payload.get("target_vibe"),
-            "scalp_type": payload.get("scalp_type"),
-            "hair_colour": payload.get("hair_colour"),
-            "budget_range": payload.get("budget_range"),
-            "gender_branch": explicit_gender_branch,
-            "question_answers": question_answers,
-            "survey_profile": survey_profile,
-        }
-
-    mapped_payload = _survey_payload_from_gender_questions(client=client, payload=payload)
-    if mapped_payload is not None:
-        return mapped_payload
-
-    return {
-        "target_length": payload.get("target_length"),
-        "target_vibe": payload.get("target_vibe"),
-        "scalp_type": payload.get("scalp_type"),
-        "hair_colour": payload.get("hair_colour"),
-        "budget_range": payload.get("budget_range"),
-        "gender_branch": explicit_gender_branch,
-        "question_answers": question_answers,
-        "survey_profile": survey_profile,
-    }
+    logger.info(
+        "[survey_question_mapping] client_id=%s gender=%s target_length=%s target_vibe=%s scalp_type=%s hair_colour=%s budget_range=%s",
+        client.id,
+        normalized_payload.get("gender_branch"),
+        normalized_payload.get("target_length"),
+        normalized_payload.get("target_vibe"),
+        normalized_payload.get("scalp_type"),
+        normalized_payload.get("hair_colour"),
+        normalized_payload.get("budget_range"),
+    )
+    return normalized_payload
 
 
 def _resolved_survey_profile(*, client: "Client", survey) -> dict:
-    survey_profile = dict(getattr(survey, "survey_profile", None) or {})
-    question_answers = dict(
-        getattr(survey, "question_answers", None)
-        or survey_profile.get("question_answers")
-        or {}
+    normalized_payload = normalize_survey_contract(
+        {
+            "target_length": getattr(survey, "target_length", None),
+            "target_vibe": getattr(survey, "target_vibe", None),
+            "scalp_type": getattr(survey, "scalp_type", None),
+            "hair_colour": getattr(survey, "hair_colour", None),
+            "budget_range": getattr(survey, "budget_range", None),
+            "gender_branch": getattr(survey, "gender_branch", None),
+            "question_answers": dict(
+                getattr(survey, "question_answers", None)
+                or (getattr(survey, "survey_profile", None) or {}).get("question_answers")
+                or {}
+            ),
+            "survey_profile": dict(getattr(survey, "survey_profile", None) or {}),
+        },
+        fallback_gender_branch=getattr(client, "gender", None),
     )
-    gender_branch = _normalized_gender_branch(
-        getattr(survey, "gender_branch", None)
-        or survey_profile.get("gender_branch")
-        or getattr(client, "gender", None)
-    )
-    survey_profile["gender_branch"] = gender_branch
-    if question_answers:
-        survey_profile["question_answers"] = question_answers
-    return survey_profile
+    return dict(normalized_payload.get("survey_profile") or {})
 
 
 def _build_generation_survey_payload(*, client: "Client", survey) -> dict:
-    survey_profile = _resolved_survey_profile(client=client, survey=survey)
-    question_answers = dict(
-        getattr(survey, "question_answers", None)
-        or survey_profile.get("question_answers")
-        or {}
+    return normalize_survey_contract(
+        {
+            "target_length": getattr(survey, "target_length", None),
+            "target_vibe": getattr(survey, "target_vibe", None),
+            "scalp_type": getattr(survey, "scalp_type", None),
+            "hair_colour": getattr(survey, "hair_colour", None),
+            "budget_range": getattr(survey, "budget_range", None),
+            "gender_branch": getattr(survey, "gender_branch", None),
+            "question_answers": dict(
+                getattr(survey, "question_answers", None)
+                or (getattr(survey, "survey_profile", None) or {}).get("question_answers")
+                or {}
+            ),
+            "survey_profile": dict(getattr(survey, "survey_profile", None) or {}),
+        },
+        fallback_gender_branch=getattr(client, "gender", None),
     )
-    return {
-        "target_length": getattr(survey, "target_length", None),
-        "target_vibe": getattr(survey, "target_vibe", None),
-        "scalp_type": getattr(survey, "scalp_type", None),
-        "hair_colour": getattr(survey, "hair_colour", None),
-        "budget_range": getattr(survey, "budget_range", None),
-        "question_answers": question_answers,
-        "survey_profile": survey_profile,
-        "gender_branch": survey_profile.get("gender_branch"),
-    }
 
 
 def _resolved_survey_snapshot(*, client: "Client", survey_snapshot: dict | None) -> dict:
     snapshot = dict(survey_snapshot or {})
-    survey_profile = dict(snapshot.get("survey_profile") or {})
-    question_answers = dict(
-        snapshot.get("question_answers")
-        or survey_profile.get("question_answers")
-        or {}
+    normalized_payload = normalize_survey_contract(
+        {
+            "target_length": snapshot.get("target_length"),
+            "target_vibe": snapshot.get("target_vibe"),
+            "scalp_type": snapshot.get("scalp_type"),
+            "hair_colour": snapshot.get("hair_colour"),
+            "budget_range": snapshot.get("budget_range"),
+            "gender_branch": snapshot.get("gender_branch"),
+            "question_answers": dict(
+                snapshot.get("question_answers")
+                or (snapshot.get("survey_profile") or {}).get("question_answers")
+                or {}
+            ),
+            "survey_profile": dict(snapshot.get("survey_profile") or {}),
+        },
+        fallback_gender_branch=getattr(client, "gender", None),
     )
-    gender_branch = _normalized_gender_branch(
-        snapshot.get("gender_branch")
-        or survey_profile.get("gender_branch")
-        or getattr(client, "gender", None)
-    )
-    snapshot["gender_branch"] = gender_branch
-    survey_profile["gender_branch"] = gender_branch
-    if question_answers:
-        snapshot["question_answers"] = question_answers
-        survey_profile["question_answers"] = question_answers
-    snapshot["survey_profile"] = survey_profile
+    snapshot["target_length"] = normalized_payload.get("target_length")
+    snapshot["target_vibe"] = normalized_payload.get("target_vibe")
+    snapshot["scalp_type"] = normalized_payload.get("scalp_type")
+    snapshot["hair_colour"] = normalized_payload.get("hair_colour")
+    snapshot["budget_range"] = normalized_payload.get("budget_range")
+    snapshot["gender_branch"] = normalized_payload.get("gender_branch")
+    snapshot["question_answers"] = dict(normalized_payload.get("question_answers") or {})
+    snapshot["survey_profile"] = dict(normalized_payload.get("survey_profile") or {})
     return snapshot
 
 
@@ -1788,12 +1786,17 @@ def get_former_recommendations(client: "Client") -> dict:
             message="아직 과거의 추천 내역이 없습니다.",
             next_actions=["trend", "capture"],
         )
+    items = [
+        _normalize_recommendation_item_contract(item)
+        for item in legacy_items[:5]
+        if isinstance(item, dict)
+    ]
     return {
         "status": "ready",
         "client_id": client.id,
         "legacy_client_id": get_legacy_client_id(client=client),
         "source": "former_recommendations",
-        "items": legacy_items[:5],
+        "items": items,
     }
 
 
@@ -2069,8 +2072,6 @@ def _materialize_direct_consultation_current_recommendation(
         )
         return None, None, None, None
 
-    result_id = _next_legacy_pk(LegacyClientResult, "result_id")
-    detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
     style_name, style_description = _legacy_style_label(style_id)
     selected_style_name = selected_style_name or style_name
     persisted_simulation_image_reference = _resolve_persistable_display_image_reference(
@@ -2078,7 +2079,6 @@ def _materialize_direct_consultation_current_recommendation(
         sample_image_url=legacy_item.get("sample_image_url"),
     )
     selected_result = LegacyClientResult.objects.create(
-        result_id=result_id,
         analysis_id=(getattr(get_latest_analysis(client), "id", None) or getattr(get_latest_analysis(client), "analysis_id", None) or 0),
         client_id=legacy_client_id,
         selected_hairstyle_id=None,
@@ -2101,8 +2101,7 @@ def _materialize_direct_consultation_current_recommendation(
         selected_recommendation_id=None,
     )
     selected_detail = LegacyClientResultDetail.objects.create(
-        detail_id=detail_id,
-        result_id=result_id,
+        result_id=selected_result.result_id,
         hairstyle_id=style_id,
         rank=int(legacy_item.get("rank") or 1),
         similarity_score=float(legacy_item.get("match_score") or 0.0),
@@ -3167,11 +3166,8 @@ def _legacy_result_direct_write(
             selection_record_status = direct_consultation_status
 
     if selected_result is None and source == "current_recommendations" and selected_style_id is not None:
-        result_id = _next_legacy_pk(LegacyClientResult, "result_id")
-        detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
         style_name, style_description = _legacy_style_label(int(selected_style_id or 0))
         selected_result = LegacyClientResult.objects.create(
-            result_id=result_id,
             analysis_id=(getattr(get_latest_analysis(client), "id", None) or getattr(get_latest_analysis(client), "analysis_id", None) or 0),
             client_id=legacy_client_id,
             selected_hairstyle_id=(None if direct_consultation else selected_style_id),
@@ -3191,11 +3187,10 @@ def _legacy_result_direct_write(
             is_active=True,
             is_read=False,
             closed_at=None,
-            selected_recommendation_id=(None if direct_consultation else detail_id),
+            selected_recommendation_id=None,
         )
         selected_detail = LegacyClientResultDetail.objects.create(
-            detail_id=detail_id,
-            result_id=result_id,
+            result_id=selected_result.result_id,
             hairstyle_id=int(selected_style_id or 0),
             rank=1,
             similarity_score=0.0,
@@ -3227,14 +3222,14 @@ def _legacy_result_direct_write(
             sent_at=now,
             created_at_ts=now,
         )
+        if not direct_consultation:
+            selected_result.selected_recommendation_id = selected_detail.detail_id
+            selected_result.save(update_fields=["selected_recommendation_id"])
         selection_record_status = "materialized_current_recommendation"
 
     if selected_result is None and source == "trend":
-        result_id = _next_legacy_pk(LegacyClientResult, "result_id")
-        detail_id = _next_legacy_pk(LegacyClientResultDetail, "detail_id")
         style_name, style_description = _legacy_style_label(int(selected_style_id or 0))
         selected_result = LegacyClientResult.objects.create(
-            result_id=result_id,
             analysis_id=(getattr(get_latest_analysis(client), "id", None) or getattr(get_latest_analysis(client), "analysis_id", None) or 0),
             client_id=legacy_client_id,
             selected_hairstyle_id=(None if direct_consultation else selected_style_id),
@@ -3254,11 +3249,10 @@ def _legacy_result_direct_write(
             is_active=True,
             is_read=False,
             closed_at=None,
-            selected_recommendation_id=(None if direct_consultation else detail_id),
+            selected_recommendation_id=None,
         )
         selected_detail = LegacyClientResultDetail.objects.create(
-            detail_id=detail_id,
-            result_id=result_id,
+            result_id=selected_result.result_id,
             hairstyle_id=int(selected_style_id or 0),
             rank=1,
             similarity_score=0.0,
@@ -3282,6 +3276,9 @@ def _legacy_result_direct_write(
             sent_at=now,
             created_at_ts=now,
         )
+        if not direct_consultation:
+            selected_result.selected_recommendation_id = selected_detail.detail_id
+            selected_result.save(update_fields=["selected_recommendation_id"])
 
     if selected_result is None:
         logger.warning(

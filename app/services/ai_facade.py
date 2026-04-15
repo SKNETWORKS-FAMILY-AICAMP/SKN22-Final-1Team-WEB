@@ -18,6 +18,7 @@ from app.api.v1.recommendation_logic import (
     canonical_vibe,
     score_recommendations,
 )
+from app.services.survey_contract import normalize_survey_contract
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,16 @@ _AI_HEALTH_CACHE: dict[str, object] = {
     "expires_at": 0.0,
     "payload": None,
 }
+
+
+def _normalized_survey_data(survey_data: dict | None) -> dict:
+    source = dict(survey_data or {})
+    normalized = normalize_survey_contract(
+        source,
+        fallback_gender_branch=source.get("gender_branch"),
+    )
+    source.update(normalized)
+    return source
 
 
 def _service_base_url() -> str:
@@ -662,7 +673,7 @@ def get_ai_health(*, use_cache: bool = True) -> dict:
 
 
 def _build_preference_payload(survey_data: dict | None) -> dict:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     length = canonical_length(survey_data.get("target_length"))
     mood = canonical_vibe(survey_data.get("target_vibe"))
     hair_type = canonical_scalp(survey_data.get("scalp_type"))
@@ -681,13 +692,13 @@ def _build_preference_payload(survey_data: dict | None) -> dict:
 
 
 def _survey_profile_dict(survey_data: dict | None) -> dict:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     value = survey_data.get("survey_profile")
     return value if isinstance(value, dict) else {}
 
 
 def _survey_gender_branch(survey_data: dict | None) -> str:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     survey_profile = _survey_profile_dict(survey_data)
     return canonical_gender_branch(
         survey_data.get("gender_branch")
@@ -696,23 +707,12 @@ def _survey_gender_branch(survey_data: dict | None) -> str:
 
 
 def _resolved_survey_profile_payload(survey_data: dict | None) -> dict:
-    survey_data = survey_data or {}
-    survey_profile = dict(survey_data.get("survey_profile") or {})
-    question_answers = dict(
-        survey_data.get("question_answers")
-        or survey_profile.get("question_answers")
-        or {}
-    )
-    gender_branch = _survey_gender_branch(survey_data)
-    if question_answers:
-        survey_profile["question_answers"] = question_answers
-    if gender_branch:
-        survey_profile["gender_branch"] = gender_branch
-    return survey_profile
+    survey_data = _normalized_survey_data(survey_data)
+    return dict(survey_data.get("survey_profile") or {})
 
 
 def _survey_style_axes(survey_data: dict | None) -> dict:
-    survey_profile = _survey_profile_dict(survey_data)
+    survey_profile = _resolved_survey_profile_payload(survey_data)
     value = survey_profile.get("style_axes")
     return value if isinstance(value, dict) else {}
 
@@ -732,7 +732,7 @@ def _unique_prompt_parts(parts: list[str]) -> list[str]:
 
 
 def _build_male_hairstyle_text(survey_data: dict | None) -> str:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     style_axes = _survey_style_axes(survey_data)
     length = canonical_length(survey_data.get("target_length"))
     mood = canonical_vibe(survey_data.get("target_vibe"))
@@ -757,23 +757,25 @@ def _build_male_hairstyle_text(survey_data: dict | None) -> str:
         parts.append("connected side line")
 
     front_styling = str(style_axes.get("front_styling") or "").strip()
-    if front_styling == "up":
-        parts.append("up styling")
+    if front_styling == "lifted":
+        parts.append("lifted front")
+        parts.append("open forehead")
+        parts.append("no bangs")
     elif front_styling == "down":
-        parts.append("down styling")
-    elif front_styling == "flexible":
-        parts.append("flexible front styling")
+        parts.append("down fringe")
 
     parting = str(style_axes.get("parting") or "").strip()
-    if parting == "parted":
-        parts.append("parted fringe")
+    if parting == "side_part":
+        parts.append("side part")
+    elif parting == "center_part":
+        parts.append("center part")
     elif parting == "non_parted":
-        parts.append("non-parted fringe")
-    elif parting == "either":
-        parts.append("natural parting")
+        parts.append("non-parted crop")
 
     if hair_type == "straight":
         parts.append("clean straight texture")
+        parts.append("no perm")
+        parts.append("no curl")
     elif hair_type == "waved":
         parts.append("soft volume")
     elif hair_type == "curly":
@@ -792,7 +794,7 @@ def _build_male_hairstyle_text(survey_data: dict | None) -> str:
 
 
 def _build_female_hairstyle_text(survey_data: dict | None) -> str:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     style_axes = _survey_style_axes(survey_data)
     parts = [
         str(survey_data.get("target_length") or "").strip(),
@@ -819,7 +821,7 @@ def _build_female_hairstyle_text(survey_data: dict | None) -> str:
 
 
 def _build_runpod_preference_payload(survey_data: dict | None) -> dict:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     length = canonical_length(survey_data.get("target_length"))
     mood = canonical_vibe(survey_data.get("target_vibe"))
     hair_type = canonical_scalp(survey_data.get("scalp_type"))
@@ -849,23 +851,55 @@ def _build_runpod_preference_payload(survey_data: dict | None) -> dict:
 
 
 def _build_preference_text(survey_data: dict | None) -> str | None:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     gender_branch = _survey_gender_branch(survey_data)
     style_axes = _survey_style_axes(survey_data)
 
     if gender_branch == "male":
-        parts = [
-            "gender=male",
-            f"length={canonical_length(survey_data.get('target_length'))}",
-            f"mood={canonical_vibe(survey_data.get('target_vibe'))}",
-            f"texture={canonical_scalp(survey_data.get('scalp_type'))}",
-            f"color={str(survey_data.get('hair_colour') or '').strip()}",
-            f"budget={canonical_budget(survey_data.get('budget_range'))}",
-            f"two_block={style_axes.get('two_block') or 'soft'}",
-            f"front={style_axes.get('front_styling') or 'flexible'}",
-            f"parting={style_axes.get('parting') or 'either'}",
-            "male salon vocabulary only",
-        ]
+        parts = ["gender=male"]
+        length = canonical_length(survey_data.get("target_length"))
+        mood = canonical_vibe(survey_data.get("target_vibe"))
+        texture = canonical_scalp(survey_data.get("scalp_type"))
+        budget = canonical_budget(survey_data.get("budget_range"))
+        hair_colour = str(survey_data.get("hair_colour") or "").strip()
+        two_block = str(style_axes.get("two_block") or "").strip()
+        front_styling = str(style_axes.get("front_styling") or "").strip()
+        parting = str(style_axes.get("parting") or "").strip()
+
+        if length != "unknown":
+            parts.append(f"length={length}")
+        if mood != "unknown":
+            parts.append(f"mood={mood}")
+        if texture != "unknown":
+            parts.append(f"texture={texture}")
+        if hair_colour:
+            parts.append(f"color={hair_colour}")
+        if budget != "unknown":
+            parts.append(f"budget={budget}")
+        if two_block:
+            parts.append(f"two_block={two_block}")
+        if front_styling:
+            parts.append(f"front={front_styling}")
+        if parting:
+            parts.append(f"parting={parting}")
+        if length == "short":
+            parts.append("short crop")
+        if front_styling == "lifted":
+            parts.append("lifted front")
+            parts.append("open forehead")
+            parts.append("no bangs")
+        elif front_styling == "down":
+            parts.append("down fringe")
+        if parting == "side_part":
+            parts.append("side part")
+        elif parting == "center_part":
+            parts.append("center part")
+        elif parting == "non_parted":
+            parts.append("non-parted crop")
+        if texture == "straight":
+            parts.append("no perm")
+            parts.append("no curl")
+        parts.append("male salon vocabulary only")
     else:
         parts = [
             str(survey_data.get("target_length") or "").strip(),
@@ -901,7 +935,7 @@ def _count_survey_answers(question_answers: dict | None) -> int:
 
 
 def _resolve_question_answer_count(survey_data: dict | None) -> tuple[int, str]:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
 
     explicit_count = _count_survey_answers(survey_data.get("question_answers"))
     if explicit_count:
@@ -968,7 +1002,7 @@ def _build_face_ratios_preview(analysis_data: dict | None) -> dict | None:
 
 
 def _build_runpod_request_preview(survey_data: dict | None) -> dict:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     payload = {
         "hairstyle_text": _build_hairstyle_text(survey_data),
         "top_k": 5,
@@ -991,7 +1025,7 @@ def _build_direct_runpod_request_preview(
     survey_data: dict | None,
     analysis_data: dict | None,
 ) -> dict:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     payload = {
         "top_k": 5,
         "return_base64": True,
@@ -1045,7 +1079,7 @@ def build_recommendation_debug_payload(
     scoring_weights: ScoringWeights | None = None,
     recommendation_stage: str | None = None,
 ) -> dict:
-    survey_data = survey_data or {}
+    survey_data = _normalized_survey_data(survey_data)
     analysis_data = analysis_data or {}
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
 
@@ -1296,6 +1330,7 @@ def _augment_items_with_runpod(
     if _ai_provider() != "runpod":
         return items
 
+    survey_data = _normalized_survey_data(survey_data)
     image_payload = _build_runpod_image_payload(analysis_data)
     if not image_payload:
         return items
@@ -1477,6 +1512,7 @@ def _generate_runpod_recommendation_batch_details(
     analysis_data: dict,
     styles_by_id: dict[int, object] | None,
 ) -> dict:
+    survey_data = _normalized_survey_data(survey_data)
     image_payload = _build_runpod_image_payload(analysis_data)
     face_ratios = _build_face_ratios(analysis_data)
     if not image_payload or not face_ratios:
@@ -1561,6 +1597,7 @@ def generate_recommendation_batch(
     styles_by_id: dict[int, object] | None = None,
     scoring_weights: ScoringWeights | None = None,
 ) -> list[dict]:
+    survey_data = _normalized_survey_data(survey_data)
     scoring_weights = scoring_weights or DEFAULT_SCORING_WEIGHTS
     provider = _ai_provider()
     runpod_direct_outcome = None
@@ -1570,7 +1607,7 @@ def generate_recommendation_batch(
             "/internal/generate-simulations",
             {
                 "client_id": client_id,
-                "survey_data": survey_data or {},
+                "survey_data": survey_data,
                 "analysis_data": analysis_data,
                 "scoring_weights": scoring_weights.as_dict(),
             },
@@ -1589,7 +1626,7 @@ def generate_recommendation_batch(
             client_id,
         )
 
-    survey = SimpleNamespace(client_id=client_id, **(survey_data or {}))
+    survey = SimpleNamespace(client_id=client_id, **survey_data)
     analysis = SimpleNamespace(**analysis_data)
     items = score_recommendations(
         survey=survey,
