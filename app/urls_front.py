@@ -14,6 +14,7 @@ from app.front_views import (
     client_recommendation_history_page,
     client_trend_page,
     customer_resume_page,
+    partner_customer_detail_page,
     customer_reanalysis_start_page,
     customer_consultation_complete_page,
     client_survey_page,
@@ -72,14 +73,7 @@ urlpatterns = [
     path("partner/staff/", gated_partner_staff_dashboard, name="partner_staff_dashboard"),
     path(
         "partner/customer-detail/<int:pk>/",
-        lambda r, pk: render(
-            r,
-            "admin/customer_detail.html",
-            {
-                "client_id": pk,
-                "show_customer_detail_chatbot": True,
-            },
-        ),
+        partner_customer_detail_page,
         name="partner_customer_detail",
     ),
     path("partner/customer-detail/<int:pk>/reanalysis/", customer_reanalysis_start_page, name="partner_customer_reanalysis_start"),

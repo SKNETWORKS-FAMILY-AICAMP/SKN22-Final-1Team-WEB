@@ -7,6 +7,7 @@ from collections import Counter
 from typing import TYPE_CHECKING
 from urllib import error, request
 
+from django.apps import apps as django_apps
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import IntegrityError, OperationalError, ProgrammingError, connection
 from django.db.models import Count, Q
@@ -87,6 +88,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 STYLE_PROFILE_BY_ID = {profile.style_id: profile for profile in STYLE_CATALOG}
+
+
+def _get_runtime_model(model_name: str):
+    try:
+        model = django_apps.get_model("mirrai_app", model_name)
+    except LookupError:
+        model = None
+    if model is not None:
+        return model
+
+    from app import models_django
+
+    return getattr(models_django, model_name)
 
 
 def _partner_lookup_cache_key(
@@ -338,7 +352,7 @@ def _serialize_designer_diagnosis_editor(*, admin: "AdminAccount | None" = None,
 
 
 def _fetch_designer_diagnosis_card(*, client: "Client") -> tuple["DesignerDiagnosisCard | None", bool]:
-    from app.models_django import DesignerDiagnosisCard
+    DesignerDiagnosisCard = _get_runtime_model("DesignerDiagnosisCard")
 
     client_ref_id = getattr(client, "id", client)
     legacy_client_ref_id = get_legacy_client_id(client=client)
@@ -393,7 +407,7 @@ def _has_customer_profile_note_content(payload: dict | None) -> bool:
 
 
 def _fetch_customer_profile_note(*, client: "Client") -> tuple["ClientProfileNote | None", bool]:
-    from app.models_django import ClientProfileNote
+    ClientProfileNote = _get_runtime_model("ClientProfileNote")
 
     client_ref_id = getattr(client, "id", client)
     legacy_client_ref_id = get_legacy_client_id(client=client)
@@ -534,7 +548,7 @@ def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict 
     has_active_consultation = bool(get_legacy_active_consultation_items(admin=admin, designer=designer, client=client))
     if not has_active_consultation:
         raise ValueError("세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다.")
-    from app.models_django import DesignerDiagnosisCard
+    DesignerDiagnosisCard = _get_runtime_model("DesignerDiagnosisCard")
 
     filters = Q(client_ref_id=client_ref_id)
     if legacy_client_ref_id:
@@ -1980,7 +1994,7 @@ def upsert_client_customer_note(
     _ensure_client_in_scope(client=client, admin=admin, designer=designer)
 
     normalized_content = str(content or "").strip()
-    from app.models_django import ClientProfileNote
+    ClientProfileNote = _get_runtime_model("ClientProfileNote")
 
     filters = Q(client_ref_id=client_ref_id)
     if legacy_client_ref_id:

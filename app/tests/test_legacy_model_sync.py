@@ -526,7 +526,7 @@ class LegacyModelSyncTests(TransactionTestCase):
         self.assertEqual(shop_row[1], "MirrAI Test Shop")
         self.assertEqual(shop_row[2], "1012345672")
         self.assertEqual(shop_row[3], "01080001000")
-        self.assertTrue(check_password("1000", shop_row[4]))
+        self.assertTrue(check_password("1234", shop_row[4]))
 
         client_row = self._fetch_one(
             "SELECT client_name, phone, gender FROM client WHERE phone = %s",

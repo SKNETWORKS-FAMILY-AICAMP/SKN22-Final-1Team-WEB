@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+import logging
 import socket
 from urllib.request import urlopen
+
+try:
+    import redis
+except Exception:  # pragma: no cover - optional dependency failure
+    redis = None
+
+
+logger = logging.getLogger(__name__)
 
 
 def unique_values(*groups) -> list[str]:
@@ -53,12 +62,41 @@ def resolve_active_database_url(
     return "sqlite:///db.sqlite3"
 
 
+def redis_cache_available(*, redis_url: str, health_timeout: float = 0.5) -> bool:
+    normalized_url = str(redis_url or "").strip()
+    if not normalized_url:
+        return False
+    if redis is None:
+        logger.warning("[settings] redis package unavailable; using local memory cache instead.")
+        return False
+    try:
+        client = redis.Redis.from_url(
+            normalized_url,
+            socket_connect_timeout=health_timeout,
+            socket_timeout=health_timeout,
+            health_check_interval=0,
+        )
+        try:
+            client.ping()
+        finally:
+            client.close()
+        return True
+    except Exception as exc:
+        logger.warning(
+            "[settings] Redis unavailable at %s; using local memory cache instead. error=%s",
+            normalized_url,
+            exc,
+        )
+        return False
+
+
 def build_cache_settings(*, redis_url: str, timeout: int, key_prefix: str) -> dict:
-    if str(redis_url or "").strip():
+    normalized_url = str(redis_url or "").strip()
+    if normalized_url:
         return {
             "default": {
                 "BACKEND": "django.core.cache.backends.redis.RedisCache",
-                "LOCATION": redis_url,
+                "LOCATION": normalized_url,
                 "TIMEOUT": timeout,
                 "KEY_PREFIX": key_prefix,
                 "OPTIONS": {

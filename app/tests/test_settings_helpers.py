@@ -1,6 +1,8 @@
+from unittest.mock import Mock, patch
+
 from django.test import SimpleTestCase
 
-from mirrai_project.settings_helpers import build_cache_settings, resolve_active_database_url
+from mirrai_project.settings_helpers import build_cache_settings, redis_cache_available, resolve_active_database_url
 
 
 class SettingsHelpersTests(SimpleTestCase):
@@ -14,6 +16,24 @@ class SettingsHelpersTests(SimpleTestCase):
         cache_config = build_cache_settings(redis_url="", timeout=30, key_prefix="mirrai")
 
         self.assertEqual(cache_config["default"]["BACKEND"], "django.core.cache.backends.locmem.LocMemCache")
+
+    @patch("mirrai_project.settings_helpers.redis")
+    def test_redis_cache_available_returns_true_when_ping_succeeds(self, mock_redis):
+        client = Mock()
+        mock_redis.Redis.from_url.return_value = client
+
+        self.assertTrue(redis_cache_available(redis_url="redis://127.0.0.1:6379/1"))
+        client.ping.assert_called_once()
+        client.close.assert_called_once()
+
+    @patch("mirrai_project.settings_helpers.redis")
+    def test_redis_cache_available_returns_false_when_ping_fails(self, mock_redis):
+        client = Mock()
+        client.ping.side_effect = OSError("redis down")
+        mock_redis.Redis.from_url.return_value = client
+
+        self.assertFalse(redis_cache_available(redis_url="redis://127.0.0.1:6399/1"))
+        client.close.assert_called_once()
 
     def test_resolve_active_database_url_prefers_remote_then_local_then_database_url(self):
         self.assertEqual(

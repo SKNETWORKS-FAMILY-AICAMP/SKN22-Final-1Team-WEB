@@ -6,6 +6,7 @@ import environ
 from mirrai_project.settings_helpers import (
     build_allowed_hosts,
     build_cache_settings,
+    redis_cache_available,
     resolve_active_database_url,
     unique_values,
 )
@@ -97,8 +98,9 @@ PARTNER_DETAIL_CACHE_SECONDS = env.int("PARTNER_DETAIL_CACHE_SECONDS", default=4
 PARTNER_HISTORY_CACHE_SECONDS = env.int("PARTNER_HISTORY_CACHE_SECONDS", default=30)
 PARTNER_LOOKUP_CACHE_SECONDS = env.int("PARTNER_LOOKUP_CACHE_SECONDS", default=45)
 PARTNER_REPORT_CACHE_SECONDS = env.int("PARTNER_REPORT_CACHE_SECONDS", default=90)
+REDIS_CACHE_ACTIVE = redis_cache_available(redis_url=REDIS_URL) if REDIS_URL else False
 CACHES = build_cache_settings(
-    redis_url=REDIS_URL,
+    redis_url=(REDIS_URL if REDIS_CACHE_ACTIVE else ""),
     timeout=CACHE_DEFAULT_TIMEOUT,
     key_prefix=REDIS_KEY_PREFIX,
 )
@@ -200,7 +202,7 @@ SESSION_COOKIE_AGE = 86400 * 7
 SESSION_SAVE_EVERY_REQUEST = env.bool("SESSION_SAVE_EVERY_REQUEST", default=True)
 SESSION_ENGINE = env("SESSION_ENGINE", default="django.contrib.sessions.backends.db")
 SESSION_CACHE_ALIAS = env("SESSION_CACHE_ALIAS", default="default")
-if REDIS_URL and REDIS_USE_FOR_SESSIONS and SESSION_ENGINE == "django.contrib.sessions.backends.db":
+if REDIS_CACHE_ACTIVE and REDIS_USE_FOR_SESSIONS and SESSION_ENGINE == "django.contrib.sessions.backends.db":
     SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 
 if DEBUG:

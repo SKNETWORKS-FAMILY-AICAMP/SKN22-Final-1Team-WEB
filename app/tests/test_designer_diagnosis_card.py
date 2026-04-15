@@ -23,6 +23,7 @@ from app.session_state import (
     ADMIN_LEGACY_ID_SESSION_KEY,
     ADMIN_NAME_SESSION_KEY,
     ADMIN_STORE_NAME_SESSION_KEY,
+    DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY,
     DESIGNER_ID_SESSION_KEY,
     DESIGNER_LEGACY_ID_SESSION_KEY,
     DESIGNER_NAME_SESSION_KEY,
@@ -65,6 +66,7 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         session[DESIGNER_ID_SESSION_KEY] = designer.id
         session[DESIGNER_LEGACY_ID_SESSION_KEY] = get_legacy_designer_id(designer=designer)
         session[DESIGNER_NAME_SESSION_KEY] = designer.name
+        session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = True
         session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
         session.save()
         return designer
@@ -182,6 +184,32 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         self.assertContains(response, 'data-chatbot-placement="designer-dashboard"')
         self.assertContains(response, 'id="mirraiChatbot"', count=1)
         self.assertContains(response, 'shared/js/chatbot.js')
+
+    def test_analysis_designer_selection_keeps_designer_session_but_requires_pin_for_staff_dashboard(self):
+        self._login_shop_session()
+        designer = get_designers_for_admin(admin=self.shop)[0]
+
+        response = self.client.post("/partner/select-designer/", {"designer_id": str(designer.id)})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "success")
+        session = self.client.session
+        self.assertEqual(str(session[DESIGNER_ID_SESSION_KEY]), str(designer.id))
+        self.assertFalse(session.get(DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY, False))
+
+        staff_response = self.client.get("/partner/staff/")
+        self.assertEqual(staff_response.status_code, 302)
+        self.assertIn(f"designer_id={designer.id}", staff_response["Location"])
+        self.assertIn("next=/partner/staff/", staff_response["Location"])
+
+    def test_designer_detail_page_does_not_require_reselect_after_pin_login(self):
+        self._login_designer_session()
+
+        response = self.client.get(f"/partner/customer-detail/{self.client_id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="customerDetailChatbotTemplate"')
 
     def test_shop_dashboard_does_not_render_designer_chatbot_component(self):
         self._login_shop_session()

@@ -164,6 +164,7 @@ class Command(BaseCommand):
         self.stdout.write("  login page: /partner/login/")
         self.stdout.write(f"  business number: {shop.business_number}")
         self.stdout.write("  password: 1234")
+        self.stdout.write("  admin pin: 1234")
         self.stdout.write("  phone: 010-8000-1000")
         self.stdout.write("  store: MirrAI Test Shop")
         self.stdout.write("")
@@ -203,7 +204,7 @@ class Command(BaseCommand):
         }
         existing = LegacyShop.objects.filter(phone="01080001000").order_by("-backend_admin_id", "shop_id").first()
         if existing is None:
-            return create_admin_record(
+            created = create_admin_record(
                 name="테스트 매장 관리자",
                 store_name="MirrAI Test Shop",
                 role="owner",
@@ -213,13 +214,15 @@ class Command(BaseCommand):
                 consent_snapshot=consent_snapshot,
                 consented_at=timezone.now(),
             )
+            LegacyShop.objects.filter(phone="01080001000").update(admin_pin=make_password("1234"))
+            return get_admin_by_phone(phone="01080001000") or created
 
         existing.login_id = "01080001000"
         existing.shop_name = "MirrAI Test Shop"
         existing.biz_number = business_number
         existing.owner_phone = "01080001000"
         existing.password = make_password("1234")
-        existing.admin_pin = make_password("1000")
+        existing.admin_pin = make_password("1234")
         existing.name = "테스트 매장 관리자"
         existing.store_name = "MirrAI Test Shop"
         existing.role = "owner"

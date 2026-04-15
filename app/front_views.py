@@ -45,6 +45,7 @@ from app.session_state import (
     get_session_admin,
     get_session_customer,
     get_session_designer,
+    revoke_designer_dashboard,
     revoke_all_owner_scopes,
     revoke_owner_dashboard,
     set_admin_session,
@@ -449,7 +450,46 @@ def partner_designer_select_page(request: HttpRequest):
 
     # 고객 세션이 있는 경우 템플릿으로 전달
     client = get_session_customer(request=request)
-    return render(request, "admin/designer_select.html", {"client": client})
+    active_designer = get_session_designer(request=request)
+    return render(
+        request,
+        "admin/designer_select.html",
+        {
+            "client": client,
+            "active_designer_id": getattr(active_designer, "id", "") or "",
+        },
+    )
+
+
+@never_cache
+def partner_customer_detail_page(request: HttpRequest, pk: int):
+    if _has_standalone_customer_session(request=request):
+        return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
+
+    admin, designer = _resolve_active_shop_and_designer(request=request)
+    if admin is None:
+        return redirect("partner_index")
+
+    client = get_client_by_identifier(identifier=pk)
+    if client is None:
+        return redirect("partner_index")
+
+    if designer is not None:
+        if client.designer_id != designer.id:
+            return redirect("partner_staff_dashboard")
+    elif client.shop_id != admin.id:
+        return redirect("partner_dashboard")
+
+    return render(
+        request,
+        "admin/customer_detail.html",
+        {
+            "client_id": pk,
+            "show_customer_detail_chatbot": True,
+            "skip_owner_gate_for_current_view": bool(designer is not None),
+            "is_designer_session": bool(designer is not None),
+        },
+    )
 
 
 @never_cache
@@ -911,6 +951,7 @@ def partner_select_designer(request):
 
     # PIN 없이 세션 설정
     set_designer_session(request=request, designer=designer)
+    revoke_designer_dashboard(request=request)
 
     return JsonResponse({
         "status": "success",
