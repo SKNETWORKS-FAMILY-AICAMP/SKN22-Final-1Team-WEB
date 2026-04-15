@@ -3,27 +3,541 @@
 {% block page_title %}MirrAI | AI Hair Styling Solution{% endblock %}
 
 {% block hero_content %}
-<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">당신에게 <span>가장 완벽한</span> 헤어 스타일</h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">
-    MirrAI의 독자적인 AI 기술로 새로운 당신을 발견하세요.
-  </p>
+<div class="home-hero">
+  <div class="home-hero-copy">
+    <p class="home-kicker">AI HAIR STYLING SOLUTION</p>
+
+    {% if request.session.customer_id %}
+    <h2 class="hero-title">지금 고객에게 <span>시술 전 결과 방향</span>을 먼저 보여주세요</h2>
+    <p class="section-copy home-hero-description">
+      MirrAI는 취향 입력과 얼굴 분석을 바탕으로 시술 전에 어울리는 스타일 방향을 먼저 확인하게 해, 기대와 실제 결과의 차이를 줄입니다.
+    </p>
+    <div class="home-hero-actions">
+      <a href="{% url 'customer_camera' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="분석 준비 중...">새 추천 시작</a>
+      <a href="{% url 'customer_history' %}" class="btn btn-dark home-btn-ghost">추천 이력 보기</a>
+    </div>
+    {% elif request.session.admin_id or request.session.designer_id %}
+    <h2 class="hero-title">시술 전 결과 방향을 <span>먼저 확인하는</span> AI 헤어 가이드</h2>
+    <p class="section-copy home-hero-description">
+      자르기 전에는 결과를 정확히 보기 어려운 헤어 서비스의 특성을 보완해, 고객이 시술 전에 어울리는 방향을 먼저 확인할 수 있게 합니다.
+    </p>
+    <div class="home-hero-actions">
+      {% if request.session.designer_id %}
+      <a href="{% url 'customer_index' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="고객 화면 준비 중...">고객 분석 시작</a>
+      <a href="{% url 'partner_staff_dashboard' %}" class="btn btn-dark home-btn-ghost">디자이너 대시보드</a>
+      {% else %}
+      <a href="{% url 'partner_designer_select' %}?next={% url 'customer_index' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="고객 화면 준비 중...">고객 분석 시작</a>
+      <a href="{% url 'partner_dashboard' %}" class="btn btn-dark home-btn-ghost">파트너 센터</a>
+      {% endif %}
+    </div>
+    {% else %}
+    <h2 class="hero-title">시술 전에 <span>가장 어울리는</span> 헤어 스타일을 먼저 확인하세요</h2>
+    <p class="section-copy home-hero-description">
+      헤어 시술은 결과를 미리 확인하기 어렵기 때문에, MirrAI는 취향 입력과 얼굴 분석을 통해 어울리는 결과 방향을 먼저 보여줍니다.
+    </p>
+    <div class="home-hero-actions">
+      <a href="{% url 'customer_index' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="분석 준비 중...">분석 시작하기</a>
+      <a href="{% url 'partner_index' %}" class="btn btn-dark home-btn-ghost">파트너 센터</a>
+    </div>
+    {% endif %}
+
+    <div class="home-pill-row">
+      <span class="home-pill">스타일 방향 입력</span>
+      <span class="home-pill">얼굴 분석</span>
+      <span class="home-pill">개인화 추천</span>
+      <span class="home-pill">시술 전 확인</span>
+    </div>
+
+    <div class="home-signal-grid">
+      <article class="home-signal-card">
+        <strong>시술 전 방향 확인</strong>
+        <span>자르기 전에 어떤 스타일이 어울릴지 먼저 확인해 결과에 대한 불안을 줄입니다.</span>
+      </article>
+      <article class="home-signal-card">
+        <strong>기대 차이 감소</strong>
+        <span>원하는 느낌과 실제 결과 사이의 오차를 줄일 수 있도록 추천 근거를 먼저 정리합니다.</span>
+      </article>
+      <article class="home-signal-card">
+        <strong>트렌드와 히스토리 연결</strong>
+        <span>최신 피드와 기존 추천 이력을 함께 보며 다음 선택의 방향을 더 안정적으로 잡습니다.</span>
+      </article>
+    </div>
+  </div>
+
+  <div class="home-hero-visual">
+    <div class="home-preview-panel">
+      <div class="home-preview-glow"></div>
+
+      <div class="home-preview-head">
+        <div>
+          <p class="brand-sub home-preview-kicker">Salon Workflow</p>
+          <h3 class="home-preview-title">시술 전에 먼저 보는 4단계 흐름</h3>
+        </div>
+        <span class="home-preview-status">Live Fit</span>
+      </div>
+
+      <div class="home-preview-grid">
+        <article class="home-preview-step">
+          <span class="home-preview-step-number">01</span>
+          <h4>고객 정보 입력</h4>
+          <p>이름, 연락처, 기본 정보를 먼저 정리합니다.</p>
+        </article>
+        <article class="home-preview-step">
+          <span class="home-preview-step-number">02</span>
+          <h4>스타일 방향 정리</h4>
+          <p>원하는 길이와 분위기를 입력해 결과 방향을 먼저 좁힙니다.</p>
+        </article>
+        <article class="home-preview-step">
+          <span class="home-preview-step-number">03</span>
+          <h4>얼굴 촬영 및 분석</h4>
+          <p>얼굴형과 인상 포인트를 읽어 어울림 기준을 만듭니다.</p>
+        </article>
+        <article class="home-preview-step">
+          <span class="home-preview-step-number">04</span>
+          <h4>추천 결과 먼저 확인</h4>
+          <p>시술 전에 어울리는 후보를 미리 보고 선택 오차를 줄입니다.</p>
+        </article>
+      </div>
+
+      <div class="home-preview-foot">
+        <div class="home-preview-note">
+          <span>Trend Feed</span>
+          <strong>최신 스타일 흐름 참고</strong>
+        </div>
+        <div class="home-preview-note">
+          <span>History Sync</span>
+          <strong>이전 추천 결과와 비교 확인</strong>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_head %}
 <style>
+  .section-copy {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .home-hero {
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
+    gap: 32px;
+    align-items: stretch;
+  }
+
+  .home-hero-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .home-kicker,
+  .home-section-kicker {
+    margin: 0;
+    color: var(--accent-neon);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .home-hero-description {
+    max-width: 640px;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 16px;
+  }
+
+  .home-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .home-btn-ghost {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #fff;
+  }
+
+  .home-btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+
+  .home-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .home-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.86);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .home-signal-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 4px;
+  }
+
+  .home-signal-card {
+    padding: 18px 18px 20px;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    backdrop-filter: blur(12px);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 140px;
+  }
+
+  .home-signal-card strong {
+    color: #fff;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  .home-signal-card span {
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .home-hero-visual {
+    display: flex;
+    min-height: 100%;
+  }
+
+  .home-preview-panel {
+    position: relative;
+    width: 100%;
+    padding: 28px;
+    border-radius: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background:
+      radial-gradient(circle at top right, rgba(245, 209, 13, 0.18), transparent 36%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+    overflow: hidden;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+    animation: home-float 7s ease-in-out infinite;
+  }
+
+  .home-preview-glow {
+    position: absolute;
+    top: -120px;
+    right: -30px;
+    width: 220px;
+    height: 220px;
+    background: rgba(245, 209, 13, 0.18);
+    filter: blur(30px);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .home-preview-head {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 26px;
+  }
+
+  .home-preview-kicker {
+    margin-bottom: 10px;
+  }
+
+  .home-preview-title {
+    margin: 0;
+    color: #fff;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+  }
+
+  .home-preview-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(245, 209, 13, 0.12);
+    border: 1px solid rgba(245, 209, 13, 0.22);
+    color: var(--accent-neon);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .home-preview-grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .home-preview-step {
+    position: relative;
+    padding: 18px;
+    border-radius: 22px;
+    background: rgba(17, 17, 17, 0.34);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    min-height: 146px;
+  }
+
+  .home-preview-step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+    height: 42px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: rgba(245, 209, 13, 0.12);
+    color: var(--accent-neon);
+    font-size: 15px;
+    font-weight: 800;
+    margin-bottom: 18px;
+  }
+
+  .home-preview-step h4 {
+    margin: 0 0 10px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .home-preview-step p {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .home-preview-foot {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .home-preview-note {
+    padding: 16px 18px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .home-preview-note span {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .home-preview-note strong {
+    color: #fff;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .home-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .home-flow-section,
+  .home-entry-section {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .home-section-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .home-section-head .section-title {
+    margin-bottom: 10px;
+  }
+
+  .home-section-head .section-copy {
+    max-width: 680px;
+  }
+
+  .home-flow-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 20px;
+  }
+
+  .home-flow-card {
+    position: relative;
+    overflow: hidden;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 238px;
+  }
+
+  .home-flow-card::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: linear-gradient(90deg, var(--accent-neon), rgba(245, 209, 13, 0.08));
+  }
+
+  .home-flow-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: var(--bg-dark);
+    color: var(--accent-neon);
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .home-flow-card h3 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.3;
+  }
+
+  .home-flow-note {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--bg-light);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .home-story-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.06fr) minmax(320px, 0.94fr);
+    gap: 24px;
+  }
+
+  .home-story-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 100%;
+  }
+
+  .home-story-panel .section-title {
+    margin-bottom: 0;
+  }
+
+  .home-story-panel--dark {
+    background:
+      radial-gradient(circle at top left, rgba(245, 209, 13, 0.16), transparent 34%),
+      linear-gradient(180deg, #161616 0%, #0f0f0f 100%);
+    border: 1px solid rgba(245, 209, 13, 0.12);
+    color: #fff;
+  }
+
+  .home-story-panel--dark .section-copy {
+    color: rgba(255, 255, 255, 0.74);
+  }
+
+  .home-point-list,
+  .home-principle-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .home-point,
+  .home-principle {
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.78);
+  }
+
+  .home-story-panel--dark .home-point {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .home-point strong,
+  .home-principle strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .home-story-panel--dark .home-point strong {
+    color: var(--accent-neon);
+  }
+
+  .home-point span,
+  .home-principle span {
+    display: block;
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+
+  .home-story-panel--dark .home-point span {
+    color: rgba(255, 255, 255, 0.68);
+  }
+
   .home-card-grid {
     display: grid;
     gap: 24px;
     margin: 0 auto;
   }
 
-  .home-card-grid--public {
-    max-width: 1080px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
+  .home-card-grid--public,
   .home-card-grid--customer {
     max-width: 1080px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -40,6 +554,45 @@
     flex-direction: column;
     gap: 16px;
     min-height: 100%;
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  }
+
+  .home-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 24px 46px rgba(17, 17, 17, 0.08);
+    border-color: rgba(17, 17, 17, 0.08);
+  }
+
+  .home-card--featured {
+    background:
+      radial-gradient(circle at top right, rgba(245, 209, 13, 0.16), transparent 34%),
+      linear-gradient(180deg, #151515 0%, #0f0f0f 100%);
+    border: 1px solid rgba(245, 209, 13, 0.16);
+    box-shadow: 0 22px 40px rgba(17, 17, 17, 0.16);
+  }
+
+  .home-card--featured .section-title {
+    color: #fff;
+  }
+
+  .home-card--featured .home-card-topline,
+  .home-card--featured .home-card-number span {
+    color: var(--accent-neon);
+  }
+
+  .home-card--featured .section-copy {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .home-card--featured .home-card-number {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .home-card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
   }
 
   .home-card-number {
@@ -50,13 +603,97 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 24px;
   }
 
   .home-card-number span {
     color: var(--accent-neon);
     font-size: 20px;
     font-weight: 800;
+  }
+
+  .home-card-topline {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .home-card .section-title {
+    margin-bottom: 0;
+    font-size: 22px;
+  }
+
+  .home-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .home-card-tags span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--bg-light);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .home-card--featured .home-card-tags span {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .home-card .btn {
+    margin-top: auto;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .home-cta-panel {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 32px;
+    background:
+      radial-gradient(circle at top right, rgba(245, 209, 13, 0.18), transparent 30%),
+      linear-gradient(180deg, #151515 0%, #101010 100%);
+    border: 1px solid rgba(245, 209, 13, 0.16);
+    color: #fff;
+  }
+
+  .home-cta-panel .section-title {
+    margin-bottom: 10px;
+  }
+
+  .home-cta-panel .section-copy {
+    max-width: 680px;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .home-cta-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  @keyframes home-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
   }
 
   @media (max-width: 1320px) {
@@ -66,110 +703,399 @@
     }
   }
 
+  @media (max-width: 1180px) {
+    .home-hero,
+    .home-story-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .home-preview-panel {
+      animation: none;
+    }
+
+    .home-flow-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .home-card-grid--public,
+    .home-card-grid--customer {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
   @media (max-width: 900px) {
+    .home-signal-grid,
+    .home-flow-grid,
+    .home-preview-grid,
+    .home-preview-foot,
     .home-card-grid--public,
     .home-card-grid--customer,
     .home-card-grid--partner {
       grid-template-columns: 1fr;
       max-width: 100%;
     }
+
+    .home-preview-head,
+    .home-section-head,
+    .home-cta-panel {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .home-preview-status {
+      align-self: flex-start;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .home-hero-actions,
+    .home-cta-actions {
+      width: 100%;
+      flex-direction: column;
+    }
+
+    .home-hero-actions .btn,
+    .home-cta-actions .btn {
+      width: 100%;
+    }
+
+    .home-preview-panel,
+    .home-flow-card,
+    .home-card,
+    .home-cta-panel {
+      padding: 24px;
+    }
+
+    .home-preview-title {
+      font-size: 24px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .home-card,
+    .home-preview-panel,
+    .btn {
+      transition: none !important;
+      animation: none !important;
+    }
   }
 </style>
 {% endblock %}
 
 {% block content %}
-{% if request.session.customer_id %}
-<div class="home-card-grid home-card-grid--customer">
-  <article class="panel home-card">
-    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">History</p>
-    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">과거의 추천 내역</h3>
-    <p class="section-copy" style="font-size: 14px;">해당 계정이 이전에 선택했던 스타일과 상담 이력을 먼저 확인할 수 있습니다.</p>
-    <a href="{% url 'customer_history' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">과거의 추천 내역 보기</a>
-  </article>
+<div class="home-stack">
+  <section class="home-flow-section">
+    <div class="home-section-head">
+      <div>
+        <p class="home-section-kicker">Service Flow</p>
+        <h3 class="section-title">현재 제품 구조를 그대로 살린 시술 전 확인 플로우</h3>
+      </div>
+      <p class="section-copy">
+        고객 정보 입력, 취향 정리, 얼굴 분석, 추천 결과 확인 구조를 유지하면서 시술 전에 결과 방향을 먼저 보여주는 서비스 성격이 드러나도록 정리했습니다.
+      </p>
+    </div>
 
-  <article class="panel home-card">
-    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">Trend</p>
-    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">최신 헤어 트렌드</h3>
-    <p class="section-copy" style="font-size: 14px;">국내외 잡지사와 매거진에서 수집한 최신 헤어 트렌드를 한곳에서 살펴볼 수 있습니다. 지금 주목받는 스타일과 컬러 흐름을 빠르게 확인해 보세요.</p>
-    <a href="{% url 'customer_trend' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">트렌드 보기</a>
-  </article>
+    <div class="home-flow-grid">
+      <article class="panel home-flow-card">
+        <span class="home-flow-step">01</span>
+        <h3 class="section-title">고객 정보 입력</h3>
+        <p class="section-copy">고객 기본 정보를 먼저 정리해 추천 결과를 생성할 기준을 안정적으로 맞춥니다.</p>
+        <span class="home-flow-note">추천 기준 정리</span>
+      </article>
 
-  <article class="panel home-card">
-    <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">New</p>
-    <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">새로운 스타일 추천</h3>
-    <p class="section-copy" style="font-size: 14px;">사진 촬영부터 다시 시작해 새로운 추천 결과를 받아볼 수 있습니다.</p>
-    <a href="{% url 'customer_camera' %}" class="btn btn-primary" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">촬영 시작</a>
-  </article>
+      <article class="panel home-flow-card">
+        <span class="home-flow-step">02</span>
+        <h3 class="section-title">스타일 방향 정리</h3>
+        <p class="section-copy">길이, 분위기, 모발 상태 같은 선택지를 통해 막연한 요청을 시술 전 확인 가능한 방향으로 구체화합니다.</p>
+        <span class="home-flow-note">기대 이미지 정리</span>
+      </article>
+
+      <article class="panel home-flow-card">
+        <span class="home-flow-step">03</span>
+        <h3 class="section-title">AI 얼굴 분석</h3>
+        <p class="section-copy">촬영 이미지를 바탕으로 얼굴형과 인상 포인트를 읽고, 어울림 판단의 기준을 만듭니다.</p>
+        <span class="home-flow-note">어울림 분석</span>
+      </article>
+
+      <article class="panel home-flow-card">
+        <span class="home-flow-step">04</span>
+        <h3 class="section-title">추천 결과 확인</h3>
+        <p class="section-copy">시술 전에 어울리는 스타일 후보를 먼저 확인해 결과물에 대한 불확실성을 줄입니다.</p>
+        <span class="home-flow-note">미리 보기 역할</span>
+      </article>
+    </div>
+  </section>
+
+  <section class="home-story-grid">
+    <article class="panel home-story-panel home-story-panel--dark">
+      <p class="home-section-kicker">Why MirrAI</p>
+      <h3 class="section-title">고객이 시술 전에 결과 방향을 먼저 확인할 수 있게 합니다</h3>
+      <p class="section-copy">
+        헤어 시술은 결과를 되돌리기 어렵고 미리 확인하기도 어렵기 때문에, MirrAI는 시술 전에 어울리는 방향을 먼저 보여주는 데 초점을 둡니다.
+      </p>
+
+      <div class="home-point-list">
+        <div class="home-point">
+          <strong>시술 전 불안을 줄입니다</strong>
+          <span>자르고 난 뒤를 상상만 하던 과정을 추천 결과로 먼저 확인할 수 있어 선택 부담을 낮춥니다.</span>
+        </div>
+        <div class="home-point">
+          <strong>기대와 결과 차이를 줄입니다</strong>
+          <span>원하는 느낌을 입력값과 추천 결과로 정리해 고객과 디자이너가 같은 방향을 보게 만듭니다.</span>
+        </div>
+        <div class="home-point">
+          <strong>다음 선택까지 이어집니다</strong>
+          <span>과거 추천 결과와 최신 트렌드를 함께 보며 재방문 시에도 방향성을 안정적으로 이어갈 수 있습니다.</span>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel home-story-panel">
+      <p class="home-section-kicker">When It Helps</p>
+      <h3 class="section-title">특히 결과가 불안한 순간에 먼저 확인하는 용도로 유용합니다</h3>
+      <p class="section-copy">
+        큰 변화를 주는 시술일수록 결과를 미리 가늠하기 어려운 경우가 많습니다. MirrAI는 그런 순간에 방향을 먼저 확인하는 보조 역할에 맞춰집니다.
+      </p>
+
+      <div class="home-principle-list">
+        <div class="home-principle">
+          <strong>짧게 자르기 전</strong>
+          <span>숏컷, 단발처럼 변화 폭이 큰 스타일을 시도하기 전에 전체 인상 변화를 먼저 가늠할 수 있습니다.</span>
+        </div>
+        <div class="home-principle">
+          <strong>이미지 변화를 크게 줄 때</strong>
+          <span>분위기 전환이 필요한 경우, 원하는 느낌이 실제로 어울리는 방향인지 먼저 좁혀볼 수 있습니다.</span>
+        </div>
+        <div class="home-principle">
+          <strong>재방문 때 비교할 때</strong>
+          <span>이전 추천 결과와 이번 추천을 함께 보면서 다음 스타일 방향을 더 안정적으로 선택할 수 있습니다.</span>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section class="home-entry-section">
+    <div class="home-section-head">
+      <div>
+        <p class="home-section-kicker">Quick Entry</p>
+        {% if request.session.customer_id %}
+        <h3 class="section-title">지금 바로 이어서 진행할 수 있는 메뉴</h3>
+        {% elif request.session.admin_id or request.session.designer_id %}
+        <h3 class="section-title">시술 전 확인에 바로 연결되는 주요 기능</h3>
+        {% else %}
+        <h3 class="section-title">MirrAI를 구성하는 핵심 기능</h3>
+        {% endif %}
+      </div>
+
+      {% if request.session.customer_id %}
+      <p class="section-copy">이전 추천 확인, 최신 트렌드 탐색, 새로운 스타일 추천 시작까지 한 번에 이어갈 수 있습니다.</p>
+      {% elif request.session.admin_id or request.session.designer_id %}
+      <p class="section-copy">시술 전에 결과 방향을 확인하는 데 필요한 분석, 추천, 이력, 트렌드 흐름을 메인에서 바로 이해할 수 있도록 정리했습니다.</p>
+      {% else %}
+      <p class="section-copy">첫 방문 사용자가 결과를 미리 확인하기 어려운 헤어 서비스의 특성을 어떻게 보완하는지 바로 이해할 수 있도록 구성했습니다.</p>
+      {% endif %}
+    </div>
+
+    {% if request.session.customer_id %}
+    <div class="home-card-grid home-card-grid--customer">
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>01</span>
+          </div>
+          <p class="home-card-topline">History</p>
+        </div>
+        <h3 class="section-title">과거의 추천 내역</h3>
+        <p class="section-copy">이전에 확인했던 추천 결과를 먼저 보고, 이번 선택의 방향을 다시 빠르게 잡을 수 있습니다.</p>
+        <div class="home-card-tags">
+          <span>추천 이력</span>
+          <span>비교 확인</span>
+        </div>
+        <a href="{% url 'customer_history' %}" class="btn btn-dark">과거의 추천 내역 보기</a>
+      </article>
+
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>02</span>
+          </div>
+          <p class="home-card-topline">Trend</p>
+        </div>
+        <h3 class="section-title">최신 헤어 트렌드</h3>
+        <p class="section-copy">국내외 매거진과 수집 피드를 바탕으로 지금 주목받는 스타일 흐름과 컬러 방향을 빠르게 살펴볼 수 있습니다.</p>
+        <div class="home-card-tags">
+          <span>트렌드 피드</span>
+          <span>스타일 참고</span>
+        </div>
+        <a href="{% url 'customer_trend' %}" class="btn btn-dark">트렌드 보기</a>
+      </article>
+
+      <article class="panel home-card home-card--featured">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>03</span>
+          </div>
+          <p class="home-card-topline">New</p>
+        </div>
+        <h3 class="section-title">새로운 스타일 추천</h3>
+        <p class="section-copy">사진 촬영부터 다시 시작해, 지금 상태와 취향을 기준으로 시술 전에 새로운 추천 결과를 다시 확인할 수 있습니다.</p>
+        <div class="home-card-tags">
+          <span>새 분석</span>
+          <span>즉시 시작</span>
+        </div>
+        <a href="{% url 'customer_camera' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="분석 준비 중...">촬영 시작</a>
+      </article>
+    </div>
+    {% elif request.session.admin_id or request.session.designer_id %}
+    <div class="home-card-grid home-card-grid--partner">
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>01</span>
+          </div>
+          <p class="home-card-topline">Analysis</p>
+        </div>
+        <h3 class="section-title">AI 정밀 분석</h3>
+        <p class="section-copy">촬영 이미지와 고객 입력값을 바탕으로 시술 전 확인의 기준이 되는 분석 정보를 빠르게 확보합니다.</p>
+        <div class="home-card-tags">
+          <span>얼굴 분석</span>
+          <span>어울림 기준</span>
+        </div>
+      </article>
+
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>02</span>
+          </div>
+          <p class="home-card-topline">Personalized</p>
+        </div>
+        <h3 class="section-title">개인화 추천</h3>
+        <p class="section-copy">얼굴형과 취향 입력을 함께 읽어, 고객의 고유한 인상과 니즈에 맞는 스타일 후보를 먼저 보여줍니다.</p>
+        <div class="home-card-tags">
+          <span>취향 반영</span>
+          <span>추천 근거</span>
+        </div>
+      </article>
+
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>03</span>
+          </div>
+          <p class="home-card-topline">History</p>
+        </div>
+        <h3 class="section-title">스마트 히스토리</h3>
+        <p class="section-copy">과거 추천 결과를 이어 보며 재방문 고객도 이전 선택과 현재 방향을 더 쉽게 비교할 수 있습니다.</p>
+        <div class="home-card-tags">
+          <span>재방문 비교</span>
+          <span>기록 연결</span>
+        </div>
+      </article>
+
+      <article class="panel home-card home-card--featured">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>04</span>
+          </div>
+          <p class="home-card-topline">Trend</p>
+        </div>
+        <h3 class="section-title">최신 헤어 트렌드</h3>
+        <p class="section-copy">매거진과 수집 피드를 한곳에서 확인하며, 추천 결과와 함께 참고할 최신 스타일 흐름을 빠르게 찾습니다.</p>
+        <div class="home-card-tags">
+          <span>최신 흐름</span>
+          <span>스타일 참고</span>
+        </div>
+        <a href="{% url 'customer_trend' %}" class="btn btn-dark home-btn-ghost">트렌드 보기</a>
+      </article>
+    </div>
+    {% else %}
+    <div class="home-card-grid home-card-grid--public">
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>01</span>
+          </div>
+          <p class="home-card-topline">Analysis</p>
+        </div>
+        <h3 class="section-title">AI 정밀 분석</h3>
+        <p class="section-copy">고객의 얼굴형과 인상 포인트를 빠르게 읽어 시술 전에 확인할 추천 결과의 기준을 세웁니다.</p>
+        <div class="home-card-tags">
+          <span>얼굴 분석</span>
+          <span>어울림 기준</span>
+        </div>
+      </article>
+
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>02</span>
+          </div>
+          <p class="home-card-topline">Personalized</p>
+        </div>
+        <h3 class="section-title">개인화 추천</h3>
+        <p class="section-copy">취향 설문과 얼굴 분석을 결합해, 단순한 유행이 아니라 고객에게 어울리는 후보를 추려냅니다.</p>
+        <div class="home-card-tags">
+          <span>취향 반영</span>
+          <span>추천 큐레이션</span>
+        </div>
+      </article>
+
+      <article class="panel home-card">
+        <div class="home-card-head">
+          <div class="home-card-number">
+            <span>03</span>
+          </div>
+          <p class="home-card-topline">History</p>
+        </div>
+        <h3 class="section-title">스마트 히스토리</h3>
+        <p class="section-copy">추천 결과를 축적해 재방문 시에도 이전 선택과 현재 방향을 자연스럽게 이어서 비교할 수 있습니다.</p>
+        <div class="home-card-tags">
+          <span>비교 연속성</span>
+          <span>기록 관리</span>
+        </div>
+      </article>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="panel home-cta-panel">
+    <div>
+      <p class="home-section-kicker">Start Now</p>
+      <h3 class="section-title">시술 전에 결과를 먼저 확인할 준비가 되었다면, 다음 단계로 이어가면 됩니다</h3>
+      {% if request.session.customer_id %}
+      <p class="section-copy">새 추천을 시작하거나, 이전 결과를 먼저 보고 지금 고객에게 맞는 방향을 다시 정리해 보세요.</p>
+      {% elif request.session.admin_id or request.session.designer_id %}
+      <p class="section-copy">고객이 시술 전에 결과 방향을 확인하는 흐름을 메인에서 정리한 만큼, 이제 실제 고객 플로우로 바로 이동할 수 있습니다.</p>
+      {% else %}
+      <p class="section-copy">고객 분석 시작과 파트너 진입을 분리해 두어, 방문 목적에 따라 가장 빠르게 결과 확인 흐름으로 이동할 수 있습니다.</p>
+      {% endif %}
+    </div>
+
+    <div class="home-cta-actions">
+      {% if request.session.customer_id %}
+      <a href="{% url 'customer_camera' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="분석 준비 중...">새 추천 시작</a>
+      <a href="{% url 'customer_trend' %}" class="btn btn-dark home-btn-ghost">트렌드 보기</a>
+      {% elif request.session.designer_id %}
+      <a href="{% url 'customer_index' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="고객 화면 준비 중...">고객 분석 시작</a>
+      <a href="{% url 'partner_staff_dashboard' %}" class="btn btn-dark home-btn-ghost">대시보드 보기</a>
+      {% elif request.session.admin_id %}
+      <a href="{% url 'partner_designer_select' %}?next={% url 'customer_index' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="고객 화면 준비 중...">고객 분석 시작</a>
+      <a href="{% url 'partner_dashboard' %}" class="btn btn-dark home-btn-ghost">파트너 센터</a>
+      {% else %}
+      <a href="{% url 'customer_index' %}" class="btn btn-primary" data-loading-cta="true" data-loading-label="분석 준비 중...">분석 시작하기</a>
+      <a href="{% url 'partner_index' %}" class="btn btn-dark home-btn-ghost">파트너 센터</a>
+      {% endif %}
+    </div>
+  </section>
 </div>
-{% elif request.session.admin_id or request.session.designer_id %}
-<div class="home-card-grid home-card-grid--partner">
-  <article class="panel home-card">
-    <div class="home-card-number">
-      <span>01</span>
-    </div>
-    <h3 class="section-title">AI 정밀 분석</h3>
-    <p class="section-copy">수천 명의 데이터셋을 학습한 AI가 당신의 두상과 모발 상태를 0.1mm 단위로 정교하게 분석합니다.</p>
-  </article>
-
-  <article class="panel home-card">
-    <div class="home-card-number">
-      <span>02</span>
-    </div>
-    <h3 class="section-title">개인화 추천</h3>
-    <p class="section-copy">단순한 트렌드 추종이 아닌, 당신의 고유한 매력을 극대화할 수 있는 최적의 스타일을 제안합니다.</p>
-  </article>
-
-  <article class="panel home-card">
-    <div class="home-card-number">
-      <span>03</span>
-    </div>
-    <h3 class="section-title">스마트 히스토리</h3>
-    <p class="section-copy">과거의 스타일 변화를 기록하고 관리하여 최상의 컨디션을 유지할 수 있도록 돕습니다.</p>
-  </article>
-
-  <article class="panel home-card">
-    <div class="home-card-number">
-      <span>04</span>
-    </div>
-    <h3 class="section-title">최신 헤어 트렌드</h3>
-    <p class="section-copy">국내외 잡지사와 매거진에서 수집한 최신 헤어 트렌드를 한곳에서 살펴볼 수 있습니다. 지금 주목받는 스타일과 컬러 흐름을 빠르게 확인해 보세요.</p>
-    <a href="{% url 'customer_trend' %}" class="btn btn-dark" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">트렌드 보기</a>
-  </article>
-</div>
-{% else %}
-<div class="home-card-grid home-card-grid--public">
-  <article class="panel home-card">
-    <div class="home-card-number">
-      <span>01</span>
-    </div>
-    <h3 class="section-title">AI 정밀 분석</h3>
-    <p class="section-copy">수천 명의 데이터셋을 학습한 AI가 당신의 두상과 모발 상태를 0.1mm 단위로 정교하게 분석합니다.</p>
-  </article>
-
-  <article class="panel home-card">
-    <div class="home-card-number">
-      <span>02</span>
-    </div>
-    <h3 class="section-title">개인화 추천</h3>
-    <p class="section-copy">단순한 트렌드 추종이 아닌, 당신의 고유한 매력을 극대화할 수 있는 최적의 스타일을 제안합니다.</p>
-  </article>
-
-  <article class="panel home-card">
-    <div class="home-card-number">
-      <span>03</span>
-    </div>
-    <h3 class="section-title">스마트 히스토리</h3>
-    <p class="section-copy">과거의 스타일 변화를 기록하고 관리하여 최상의 컨디션을 유지할 수 있도록 돕습니다.</p>
-  </article>
-</div>
-{% endif %}
 {% endblock %}
 
 {% block page_scripts %}
 <script>
   (function() {
     'use strict';
-    const buttons = document.querySelectorAll('.btn-primary');
+    const buttons = document.querySelectorAll('[data-loading-cta="true"]');
     buttons.forEach(btn => {
       btn.addEventListener('click', function(e) {
         if (this.classList.contains('is-loading')) {
@@ -178,7 +1104,7 @@
         }
         this.classList.add('is-loading');
         this.style.opacity = '0.7';
-        this.textContent = '분석 준비 중...';
+        this.textContent = this.dataset.loadingLabel || '분석 준비 중...';
       });
     });
   })();
