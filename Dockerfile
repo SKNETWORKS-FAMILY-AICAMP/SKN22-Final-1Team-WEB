@@ -34,4 +34,4 @@ RUN mkdir -p storage/captures storage/processed storage/synthetic
 EXPOSE 8000
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py verify_static_manifest --require shared/styles/base.css && python manage.py migrate --noinput && gunicorn --bind 0.0.0.0:8000 --pythonpath /app mirrai_project.wsgi:application"]
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py verify_static_manifest --require shared/styles/base.css && python manage.py migrate --noinput && gunicorn --bind 0.0.0.0:8000 --timeout 120 --pythonpath /app mirrai_project.wsgi:application"]
