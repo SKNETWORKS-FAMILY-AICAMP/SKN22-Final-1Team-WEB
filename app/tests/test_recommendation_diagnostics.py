@@ -81,6 +81,70 @@ class RecommendationDiagnosticSnapshotTests(SimpleTestCase):
         self.assertTrue(any("[recommendation_state]" in message for message in captured.output))
         self.assertTrue(any("decision=capture_failed_retake" in message for message in captured.output))
 
+    def test_retry_current_recommendations_normalizes_display_image_url_for_preview(self):
+        client = SimpleNamespace(id=16, legacy_client_id="legacy-16", name="Retry", phone="01000001616")
+        latest_capture = SimpleNamespace(id=71, analysis_id=71, status="DONE", face_count=1, created_at=None, updated_at=None)
+        latest_analysis = SimpleNamespace(
+            id=71,
+            analysis_id=71,
+            status="DONE",
+            face_shape="oval",
+            golden_ratio_score=0.91,
+            image_url="analysis/71.png",
+            created_at=None,
+        )
+        latest_survey = SimpleNamespace(id=81)
+        initial_items = [
+            {
+                "analysis_id": 71,
+                "batch_id": "batch-initial",
+                "simulation_image_url": "simulations/old.png",
+                "synthetic_image_url": "simulations/old.png",
+                "sample_image_url": "styles/301.jpg",
+                "source": "generated",
+                "style_id": 301,
+                "style_name": "Old Bob",
+                "style_description": "initial batch",
+                "keywords": ["bob"],
+                "match_score": 80.0,
+                "rank": 1,
+                "reasoning_snapshot": {"recommendation_stage": "initial"},
+            }
+        ]
+        retried_items = [
+            {
+                "analysis_id": 71,
+                "batch_id": "batch-retry",
+                "simulation_image_url": "simulations/retry.png",
+                "synthetic_image_url": "simulations/retry.png",
+                "sample_image_url": "styles/301.jpg",
+                "source": "generated",
+                "style_id": 301,
+                "style_name": "Retry Bob",
+                "style_description": "retry batch",
+                "keywords": ["bob"],
+                "match_score": 84.0,
+                "rank": 1,
+                "reasoning_snapshot": {"recommendation_stage": "retry"},
+            }
+        ]
+
+        def _resolve(reference):
+            mapping = {
+                "styles/301.jpg": "https://cdn.example.com/styles/301.jpg",
+                "simulations/old.png": "https://cdn.example.com/simulations/old.png",
+                "simulations/retry.png": "https://cdn.example.com/simulations/retry.png",
+            }
+            return mapping.get(reference, reference)
+
+        with patch.object(services_django, "get_latest_capture", return_value=latest_capture), patch.object(services_django, "get_latest_analysis", return_value=latest_analysis), patch.object(services_django, "get_latest_survey", return_value=latest_survey), patch.object(services_django, "get_legacy_former_recommendation_items", side_effect=[initial_items, retried_items]), patch.object(services_django, "_has_active_consultation_state", return_value=False), patch.object(services_django, "persist_generated_batch", return_value=("batch-retry", None)), patch.object(services_django, "_build_recommendation_diagnostic_snapshot", return_value={"capture": {"record_id": 71}, "analysis": {"analysis_id": 71}, "active_consultation": False}), patch.object(services_django, "resolve_storage_reference", side_effect=_resolve), patch.object(services_django, "get_legacy_client_id", return_value="legacy-16"):
+            payload = services_django.retry_current_recommendations(client)
+
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["batch_id"], "batch-retry")
+        self.assertEqual(payload["items"][0]["simulation_image_url"], "https://cdn.example.com/simulations/retry.png")
+        self.assertEqual(payload["items"][0]["display_image_url"], "https://cdn.example.com/simulations/retry.png")
+
     def test_get_current_recommendations_does_not_mark_ready_when_only_sample_image_exists(self):
         client = SimpleNamespace(id=10, legacy_client_id="legacy-10", name="Regenerator", phone="01000001010")
         latest_capture = SimpleNamespace(id=21, analysis_id=21, status="DONE", face_count=1, created_at=None, updated_at=None)

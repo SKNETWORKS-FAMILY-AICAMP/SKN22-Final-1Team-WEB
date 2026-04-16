@@ -2076,7 +2076,8 @@
       if (nextAction === "dashboard") {
         targetUrl = "/customer/dashboard/";
       } else if (nextAction === "result" || nextAction === "recommendations") {
-        targetUrl = "/customer/recommendations/";
+        const freshTs = Math.floor(Date.now() / 1000);
+        targetUrl = `/customer/recommendations/?fresh=${freshTs}`;
       }
 
       updateStatus("분석을 시작했습니다. 다음 단계로 이동합니다...", "success");

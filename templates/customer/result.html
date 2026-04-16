@@ -602,10 +602,29 @@
         && items.every((item) => Boolean(item.simulation_image_url || item.synthetic_image_url));
     }
 
+    function hasRenderableRecommendationPreview(items) {
+      return Array.isArray(items)
+        && items.some((item) => Boolean(
+          item.display_image_url
+          || item.sample_image_url
+          || item.simulation_image_url
+          || item.synthetic_image_url
+        ));
+    }
+
+    function shouldRenderPreviewWhilePolling(data, items) {
+      const gateStatus = String((data && data.display_gate_status) || '').toLowerCase();
+      return hasRenderableRecommendationPreview(items)
+        && ['sample_only', 'partial_ready', 'ready', 'mock_ready'].includes(gateStatus);
+    }
+
     function shouldContinuePolling(data, items, elapsed) {
       const status = String((data && data.status) || '').toLowerCase();
+      if (elapsed >= POLL_TIMEOUT_MS) {
+        return false;
+      }
       if (status === 'processing') {
-        return true;
+        return elapsed < POLL_TIMEOUT_MS;
       }
       if (status === 'needs_capture' || status === 'needs_input' || status === 'empty') {
         return false;
@@ -615,9 +634,6 @@
       }
       if (freshTs && status === 'ready' && !isNewResult(items)) {
         return true;
-      }
-      if (freshTs && elapsed >= POLL_TIMEOUT_MS) {
-        return false;
       }
       return Boolean(freshTs) && status !== 'ready';
     }
@@ -662,7 +678,15 @@
         renderPromptDebugPanel(Array.isArray(data) ? null : data);
 
         const status = String((data && data.status) || '').toLowerCase();
-        const wantsPolling = polling || freshTs > 0 || status === 'processing';
+        const gateStatus = String((data && data.display_gate_status) || '').toLowerCase();
+        const hasPendingSimulationAssets = Array.isArray(items)
+          && items.length > 0
+          && !allSimulationImagesReady(items);
+        const wantsPolling = polling
+          || freshTs > 0
+          || status === 'processing'
+          || hasPendingSimulationAssets
+          || ['processing', 'sample_only', 'partial_ready'].includes(gateStatus);
         if (wantsPolling && !pollStartedAt) {
           pollStartedAt = Date.now();
         }
@@ -670,11 +694,21 @@
         if (wantsPolling) {
           const elapsed = Date.now() - pollStartedAt;
           if (shouldContinuePolling(data, items, elapsed)) {
-            showWaitingState();
+            if (shouldRenderPreviewWhilePolling(data, items)) {
+              renderResults(items);
+              showToast('추천 이미지를 먼저 보여드릴게요. 생성 이미지가 준비되면 자동으로 갱신합니다.', {
+                tone: 'loading',
+                persist: true,
+              });
+            } else {
+              showWaitingState();
+            }
             pollTimer = setTimeout(() => fetchRecommendations({ polling: true }), POLL_INTERVAL_MS);
             return;
           }
         }
+
+        hideToast();
 
         if (status === 'needs_capture') {
           showEmptyState(data.message || '촬영이 완료되지 않아 추천 이미지를 생성할 수 없습니다. 사진을 다시 촬영해 주세요.');

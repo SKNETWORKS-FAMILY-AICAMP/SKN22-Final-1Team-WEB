@@ -157,6 +157,11 @@ def _normalize_phone(value: str) -> str:
     return value.replace("-", "").strip()
 
 
+def _is_valid_mobile_phone(value: str) -> bool:
+    normalized = _normalize_phone(value)
+    return bool(re.fullmatch(r"010\d{8}", normalized))
+
+
 def _normalize_business_number(value: str) -> str:
     return re.sub(r"\D", "", value or "")
 
@@ -485,7 +490,7 @@ def _serialize_active_consultation_payload(
 def _build_session_status_payload(*, is_active: bool, diagnosis_storage_ready: bool = True) -> dict:
     return {
         "is_active": bool(is_active),
-        "can_write_designer_diagnosis": bool(is_active and diagnosis_storage_ready),
+        "can_write_designer_diagnosis": bool(diagnosis_storage_ready),
         "customer_note_scope": "client",
     }
 
@@ -545,9 +550,6 @@ def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict 
     _ensure_client_in_scope(client=client, admin=admin, designer=designer)
 
     normalized_state = _normalize_designer_diagnosis_payload(diagnosis_state)
-    has_active_consultation = bool(get_legacy_active_consultation_items(admin=admin, designer=designer, client=client))
-    if not has_active_consultation:
-        raise ValueError("세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다.")
     DesignerDiagnosisCard = _get_runtime_model("DesignerDiagnosisCard")
 
     filters = Q(client_ref_id=client_ref_id)
@@ -597,12 +599,16 @@ def upsert_client_designer_diagnosis(*, client: "Client", diagnosis_state: dict 
         card.save()
 
     _invalidate_partner_client_payloads(client=client, admin=admin, designer=designer)
+    has_active_consultation = bool(get_legacy_active_consultation_items(admin=admin, designer=designer, client=client))
     return {
         "status": "success",
         "client_id": client_ref_id,
         "legacy_client_id": legacy_client_ref_id,
         "designer_diagnosis": _serialize_designer_diagnosis_card(card),
-        "session_status": _build_session_status_payload(is_active=True),
+        "session_status": _build_session_status_payload(
+            is_active=has_active_consultation,
+            diagnosis_storage_ready=True,
+        ),
     }
 
 
@@ -1089,6 +1095,9 @@ def register_admin(*, payload: dict) -> dict:
     for label, value in required_values:
         if not value:
             raise ValueError(_required_field_message(label))
+
+    if not _is_valid_mobile_phone(phone):
+        raise ValueError("관리자 연락처는 휴대폰 번호(010-0000-0000)로 입력해 주세요.")
 
     required_consents = [
         ("이용약관 동의", consent_snapshot["agree_terms"]),
@@ -2047,9 +2056,16 @@ def upsert_client_customer_note(
     }
 
 
-def close_consultation_session(*, consultation_id: int, admin: "AdminAccount | None" = None, designer: "Designer | None" = None) -> dict:
+def close_consultation_session(
+    *,
+    consultation_id: int,
+    client: "Client | None" = None,
+    admin: "AdminAccount | None" = None,
+    designer: "Designer | None" = None,
+) -> dict:
     consultation = _resolve_consultation_bridge(
         consultation_id=consultation_id,
+        client=client,
         admin=admin,
         designer=designer,
     )
@@ -2079,7 +2095,6 @@ def close_consultation_session(*, consultation_id: int, admin: "AdminAccount | N
         is_read=True,
         closed_at=consultation["closed_at"],
     )
-    sync_model_team_runtime_state(client=consultation["client"])
     _invalidate_partner_client_payloads(
         client=consultation["client"],
         admin=admin,
@@ -2090,7 +2105,7 @@ def close_consultation_session(*, consultation_id: int, admin: "AdminAccount | N
         "consultation_id": consultation["id"],
         "client_id": consultation["client_id"],
         "legacy_client_id": get_legacy_client_id(client=consultation["client"]),
-        "message": "The consultation session has been closed.",
+        "message": "상담 세션을 종료했습니다.",
     }
 
 

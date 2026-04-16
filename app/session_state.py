@@ -55,7 +55,6 @@ def clear_customer_session(*, request: HttpRequest) -> None:
     request.session.pop(CUSTOMER_NAME_SESSION_KEY, None)
     request.session[OWNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session[OWNER_MYPAGE_ALLOWED_SESSION_KEY] = False
-    request.session[DESIGNER_DASHBOARD_ALLOWED_SESSION_KEY] = False
     request.session.modified = True
 
 

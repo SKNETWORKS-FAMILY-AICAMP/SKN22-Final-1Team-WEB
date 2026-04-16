@@ -9,7 +9,6 @@ from app.session_state import (
     can_access_designer_dashboard,
     get_session_admin,
     get_session_designer,
-    revoke_designer_dashboard,
 )
 
 
@@ -52,7 +51,6 @@ def gated_partner_staff_dashboard(request):
             f"{reverse('partner_designer_select')}?designer_id={designer.id}&next={reverse('partner_staff_dashboard')}"
         )
 
-    # Consume the temporary access grant so the next fresh dashboard entry
-    # requires PIN verification again.
-    revoke_designer_dashboard(request=request)
+    # Keep the verified designer session alive until logout or expiry so
+    # detail-to-dashboard navigation does not require PIN entry again.
     return designer_dashboard_page(request)
