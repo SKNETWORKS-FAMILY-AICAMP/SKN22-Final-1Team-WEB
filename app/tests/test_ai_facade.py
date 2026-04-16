@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import unittest
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -466,7 +467,7 @@ class AiFacadeRunpodDirectTests(SimpleTestCase):
         )
 
         self.assertEqual(len(items), 1)
-        self.assertTrue(items[0]["simulation_image_url"].startswith("data:image/png;base64,"))
+        self.assertTrue(items[0]["simulation_image_url"].startswith("data:image/jpeg;base64,"))
         self.assertEqual(items[0]["llm_explanation"], "Mid-length shag with crown texture.")
         snapshot = items[0]["reasoning_snapshot"]["runpod"]
         self.assertEqual(snapshot["build_tag"], "build-2026-04-06")
@@ -836,3 +837,222 @@ class AiRuntimeDiagnosticsTests(SimpleTestCase):
         self.assertIn("overall_state: unstable", output)
         self.assertIn("face_analysis_mode: local_mock_fallback", output)
         self.assertIn("runpod_health_flaky", output)
+
+
+class RunpodIoTests(unittest.TestCase):
+    @patch.dict(
+        os.environ,
+        {
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
+            "RUNPOD_BASE_URL": "https://api.runpod.ai/v2",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.get")
+    @patch("app.services.ai_facade.requests.post")
+    def test_post_runpod_follows_completed_output_url(self, mock_post, mock_get):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "status": "COMPLETED",
+                "id": "job-1",
+                "build_tag": "build-2026-04-15",
+                "runpod": {"endpoint_id": "endpoint-a", "worker_id": "worker-a", "pod_id": "pod-a"},
+                "output_url": "https://runpod.example.com/output/job-1",
+            }
+        )
+        mock_get.return_value = _MockResponse(
+            payload={"output": {"results": [{"image_base64": "ZmFrZQ=="}]}}
+        )
+
+        payload = ai_facade._post_runpod({"action": "recommend"}, timeout=(3, 30))
+
+        self.assertEqual(payload["results"], [{"image_base64": "ZmFrZQ=="}])
+        self.assertEqual(payload["request_id"], "job-1")
+        self.assertEqual(payload["build_tag"], "build-2026-04-15")
+        self.assertEqual(payload["runpod"]["endpoint_id"], "endpoint-a")
+        self.assertEqual(payload["runpod"]["worker_id"], "worker-a")
+        self.assertEqual(payload["runpod"]["pod_id"], "pod-a")
+        self.assertTrue(payload["runpod"]["output_url_used"])
+        mock_get.assert_called_once_with(
+            "https://runpod.example.com/output/job-1",
+            timeout=30,
+        )
+
+    @patch.dict(
+        os.environ,
+        {
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
+            "RUNPOD_BASE_URL": "https://api.runpod.ai/v2",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.time.sleep")
+    @patch("app.services.ai_facade.requests.get")
+    @patch("app.services.ai_facade.requests.post")
+    def test_post_runpod_polls_pending_job_and_then_follows_output_url(self, mock_post, mock_get, _mock_sleep):
+        mock_post.return_value = _MockResponse(payload={"status": "IN_QUEUE", "id": "job-42"})
+        mock_get.side_effect = [
+            _MockResponse(payload={"status": "IN_PROGRESS", "id": "job-42"}),
+            _MockResponse(
+                payload={
+                    "status": "COMPLETED",
+                    "id": "job-42",
+                    "build_tag": "build-2026-04-15",
+                    "runpod": {"endpoint_id": "endpoint-b", "worker_id": "worker-b"},
+                    "output_url": "https://runpod.example.com/output/job-42",
+                }
+            ),
+            _MockResponse(payload={"output": {"results": [{"image_base64": "ZmFrZQ=="}]}}),
+        ]
+
+        payload = ai_facade._post_runpod({"action": "recommend"}, timeout=(3, 15))
+
+        self.assertEqual(payload["results"], [{"image_base64": "ZmFrZQ=="}])
+        self.assertEqual(payload["request_id"], "job-42")
+        self.assertEqual(payload["build_tag"], "build-2026-04-15")
+        self.assertEqual(payload["runpod"]["endpoint_id"], "endpoint-b")
+        self.assertEqual(payload["runpod"]["worker_id"], "worker-b")
+        self.assertTrue(payload["runpod"]["output_url_used"])
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(
+            mock_get.call_args_list[-1].kwargs,
+            {"timeout": 15},
+        )
+        self.assertEqual(
+            mock_get.call_args_list[-1].args[0],
+            "https://runpod.example.com/output/job-42",
+        )
+
+    def test_sanitize_recommendation_item_payload_promotes_final_image_and_strips_base64_fields(self):
+        with self.assertLogs("app.services.ai_facade", level="INFO") as captured:
+            sanitized = ai_facade.sanitize_recommendation_item_payload(
+                {
+                    "style_id": 7,
+                    "rank": 1,
+                    "image_base64": "ZmFrZQ==",
+                    "mask_base64": "bWFzaw==",
+                    "reasoning_snapshot": {
+                        "preview_base64": "cHJldmlldw==",
+                        "runpod": {"mask_base64": "bmVzdGVkLW1hc2s="},
+                    },
+                },
+                log_context="unit_test",
+            )
+
+        self.assertEqual(
+            sanitized["simulation_image_url"],
+            "data:image/jpeg;base64,ZmFrZQ==",
+        )
+        self.assertEqual(
+            sanitized["synthetic_image_url"],
+            "data:image/jpeg;base64,ZmFrZQ==",
+        )
+        self.assertNotIn("image_base64", sanitized)
+        self.assertNotIn("mask_base64", sanitized)
+        self.assertNotIn("preview_base64", sanitized["reasoning_snapshot"])
+        self.assertNotIn("mask_base64", sanitized["reasoning_snapshot"]["runpod"])
+        joined_logs = "\n".join(captured.output)
+        self.assertIn("[recommendation_image_base64_length]", joined_logs)
+        self.assertIn("[recommendation_payload_sanitized]", joined_logs)
+
+    def test_sanitize_recommendation_item_payload_preserves_existing_data_url_and_normalizes_field_priority(self):
+        sanitized = ai_facade.sanitize_recommendation_item_payload(
+            {
+                "style_id": 9,
+                "rank": 2,
+                "synthetic_image_url": "  data:image/webp;base64,ZmFrZQ==  ",
+                "sample_image_url": "  https://cdn.example.com/sample.png  ",
+                "mask_overlay_base64": "bWFzay1vdmVybGF5",
+            },
+            log_context="unit_test",
+        )
+
+        self.assertEqual(
+            sanitized["simulation_image_url"],
+            "data:image/webp;base64,ZmFrZQ==",
+        )
+        self.assertEqual(
+            sanitized["synthetic_image_url"],
+            "data:image/webp;base64,ZmFrZQ==",
+        )
+        self.assertEqual(
+            sanitized["sample_image_url"],
+            "https://cdn.example.com/sample.png",
+        )
+        self.assertNotIn("mask_overlay_base64", sanitized)
+
+    @patch.dict(
+        os.environ,
+        {
+            "MIRRAI_AI_PROVIDER": "runpod",
+            "RUNPOD_API_KEY": "runpod-key",
+            "RUNPOD_ENDPOINT_ID": "runpod-endpoint",
+        },
+        clear=False,
+    )
+    @patch("app.services.ai_facade.requests.post")
+    def test_runpod_augment_attaches_metadata_and_sanitizes_binary_fields(self, mock_post):
+        mock_post.return_value = _MockResponse(
+            payload={
+                "output": {
+                    "results": [
+                        {
+                            "rank": 1,
+                            "clip_score": 0.298,
+                            "mask_used": "sam2",
+                            "image_base64": "ZmFrZS1pbWFnZQ==",
+                            "mask_base64": "bWFzay1pbWFnZQ==",
+                            "recommended_style": {
+                                "style_id": "shaggy-midi",
+                                "style_name": "Shaggy Midi Cut",
+                            },
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rank": 1,
+                            "style_id": "shaggy-midi",
+                            "style_name": "Shaggy Midi Cut",
+                            "score": 0.8437,
+                            "description": "Mid-length shag with crown texture.",
+                            "face_shape_detected": "oval",
+                            "golden_ratio_score": 0.649,
+                        }
+                    ],
+                    "rag_context": "[자료 1] 제목: shaggy midi",
+                    "elapsed_seconds": 58.7,
+                    "build_tag": "build-2026-04-06",
+                    "runpod": {"endpoint_id": "stable-endpoint"},
+                }
+            }
+        )
+
+        items = ai_facade._augment_items_with_runpod(
+            items=[
+                {
+                    "style_id": 201,
+                    "style_name": "Side-Parted Lob",
+                    "style_description": "",
+                    "keywords": ["lob"],
+                    "match_score": 0.77,
+                    "rank": 1,
+                    "reasoning_snapshot": {"summary": "local summary"},
+                }
+            ],
+            survey_data={"target_length": "medium", "target_vibe": "chic"},
+            analysis_data={"image_url": "https://cdn.example.com/original.png"},
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0]["simulation_image_url"].startswith("data:image/jpeg;base64,"))
+        self.assertEqual(items[0]["llm_explanation"], "Mid-length shag with crown texture.")
+        snapshot = items[0]["reasoning_snapshot"]["runpod"]
+        self.assertEqual(snapshot["build_tag"], "build-2026-04-06")
+        self.assertEqual(snapshot["face_shape_detected"], "oval")
+        self.assertEqual(snapshot["golden_ratio_score"], 0.649)
+        self.assertEqual(snapshot["runtime"]["endpoint_id"], "stable-endpoint")
+        self.assertIn("shaggy midi", snapshot["rag_context_excerpt"].lower())
+        self.assertNotIn("image_base64", items[0])
+        self.assertNotIn("mask_base64", items[0])

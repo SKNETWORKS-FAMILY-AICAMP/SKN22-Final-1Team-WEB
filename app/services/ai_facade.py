@@ -5,6 +5,7 @@ import os
 import time
 from math import dist
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import requests
 
@@ -157,6 +158,133 @@ def get_ai_runtime_config_snapshot() -> dict:
     }
 
 
+def _normalized_optional_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _first_non_empty_text(*values: object) -> str | None:
+    for value in values:
+        normalized = _normalized_optional_text(value)
+        if normalized:
+            return normalized
+    return None
+
+
+def _runpod_runtime_payload(payload: dict | None) -> dict:
+    if isinstance(payload, dict) and isinstance(payload.get("runpod"), dict):
+        return dict(payload.get("runpod") or {})
+    return {}
+
+
+def _runpod_response_metadata(payload: dict | None, *, request_id: str | None = None) -> dict:
+    runtime = _runpod_runtime_payload(payload)
+    metadata = {
+        "request_id": _first_non_empty_text(
+            request_id,
+            payload.get("request_id") if isinstance(payload, dict) else None,
+            payload.get("id") if isinstance(payload, dict) else None,
+            runtime.get("request_id"),
+            runtime.get("job_id"),
+        ),
+        "build_tag": _first_non_empty_text(
+            payload.get("build_tag") if isinstance(payload, dict) else None,
+            runtime.get("build_tag"),
+        ),
+        "endpoint_id": _first_non_empty_text(
+            payload.get("endpoint_id") if isinstance(payload, dict) else None,
+            payload.get("endpointId") if isinstance(payload, dict) else None,
+            runtime.get("endpoint_id"),
+            runtime.get("endpointId"),
+            _runpod_endpoint_id(),
+        ),
+        "worker_id": _first_non_empty_text(
+            payload.get("worker_id") if isinstance(payload, dict) else None,
+            payload.get("workerId") if isinstance(payload, dict) else None,
+            runtime.get("worker_id"),
+            runtime.get("workerId"),
+        ),
+        "pod_id": _first_non_empty_text(
+            payload.get("pod_id") if isinstance(payload, dict) else None,
+            payload.get("podId") if isinstance(payload, dict) else None,
+            runtime.get("pod_id"),
+            runtime.get("podId"),
+            runtime.get("machine_id"),
+            runtime.get("machineId"),
+        ),
+    }
+    return metadata
+
+
+def _merge_runpod_output_payload(
+    payload: dict | None,
+    *,
+    fallback_payload: dict | None = None,
+    output_url_used: bool | None = None,
+) -> dict | None:
+    merged = _extract_runpod_output(payload)
+    if not isinstance(merged, dict):
+        return merged
+
+    normalized = dict(merged)
+    merged_runtime = _runpod_runtime_payload(normalized)
+    for source in (fallback_payload, payload):
+        if not isinstance(source, dict):
+            continue
+        for key in ("id", "status", "request_id", "build_tag", "elapsed_seconds", "delayTime", "executionTime"):
+            if normalized.get(key) in (None, "", {}, []) and source.get(key) not in (None, "", {}, []):
+                normalized[key] = source.get(key)
+        source_runtime = _runpod_runtime_payload(source)
+        if source_runtime:
+            merged_runtime = {**source_runtime, **merged_runtime}
+
+    if output_url_used is not None:
+        merged_runtime["output_url_used"] = bool(output_url_used)
+
+    metadata = _runpod_response_metadata(
+        {
+            **normalized,
+            "runpod": merged_runtime,
+        }
+    )
+    if metadata["request_id"] and not normalized.get("request_id"):
+        normalized["request_id"] = metadata["request_id"]
+    if metadata["build_tag"] and not normalized.get("build_tag"):
+        normalized["build_tag"] = metadata["build_tag"]
+    if metadata["endpoint_id"]:
+        merged_runtime.setdefault("endpoint_id", metadata["endpoint_id"])
+    if metadata["worker_id"]:
+        merged_runtime.setdefault("worker_id", metadata["worker_id"])
+    if metadata["pod_id"]:
+        merged_runtime.setdefault("pod_id", metadata["pod_id"])
+    if merged_runtime:
+        normalized["runpod"] = merged_runtime
+    return normalized
+
+
+def _log_runpod_status_transition(
+    *,
+    previous_status: str | None,
+    current_status: str | None,
+    payload: dict | None,
+    output_url_used: bool | None = None,
+) -> None:
+    if not current_status:
+        return
+    metadata = _runpod_response_metadata(payload)
+    logger.info(
+        "[runpod_status_transition] request_id=%s previous_status=%s current_status=%s output_url_used=%s build_tag=%s endpoint_id=%s worker_id=%s pod_id=%s",
+        metadata["request_id"],
+        previous_status,
+        current_status,
+        output_url_used,
+        metadata["build_tag"],
+        metadata["endpoint_id"],
+        metadata["worker_id"],
+        metadata["pod_id"],
+    )
+
+
 def _extract_runpod_output(payload: dict) -> dict | None:
     if not isinstance(payload, dict):
         return {"output": payload} if payload is not None else None
@@ -180,28 +308,66 @@ def _runpod_poll_interval_seconds() -> float:
     return max(0.2, float(os.environ.get("RUNPOD_POLL_INTERVAL_SECONDS", "1.0")))
 
 
-def _fetch_runpod_output_url(output_url: str, *, timeout_seconds: int) -> dict | None:
+def _fetch_runpod_output_url(
+    output_url: str,
+    *,
+    timeout_seconds: int,
+    fallback_payload: dict | None = None,
+) -> dict | None:
+    metadata = _runpod_response_metadata(fallback_payload)
+    logger.info(
+        "[runpod_output_url_fetch] request_id=%s host=%s timeout_seconds=%s build_tag=%s endpoint_id=%s worker_id=%s pod_id=%s",
+        metadata["request_id"],
+        urlparse(output_url).netloc or None,
+        timeout_seconds,
+        metadata["build_tag"],
+        metadata["endpoint_id"],
+        metadata["worker_id"],
+        metadata["pod_id"],
+    )
     response = requests.get(output_url, timeout=min(max(timeout_seconds, 3), 120))
     response.raise_for_status()
-    return _extract_runpod_output(response.json())
+    return _merge_runpod_output_payload(
+        response.json(),
+        fallback_payload=fallback_payload,
+        output_url_used=True,
+    )
+
+
+def _resolve_runpod_completed_payload(payload: dict, *, timeout_seconds: int) -> dict | None:
+    output_url = _normalized_optional_text(payload.get("output_url"))
+    if output_url:
+        return _fetch_runpod_output_url(
+            output_url,
+            timeout_seconds=timeout_seconds,
+            fallback_payload=payload,
+        )
+    return _merge_runpod_output_payload(payload, output_url_used=False)
 
 
 def _poll_runpod_job_until_complete(*, job_id: str, timeout_seconds: int) -> dict | None:
     deadline = time.monotonic() + max(3, timeout_seconds)
     status_url = f"{_runpod_base_url()}/{_runpod_endpoint_id()}/status/{job_id}"
     headers = {"Authorization": f"Bearer {_runpod_api_key()}"}
+    previous_status: str | None = None
 
     while time.monotonic() < deadline:
         response = requests.get(status_url, headers=headers, timeout=min(max(timeout_seconds, 3), 60))
         response.raise_for_status()
         payload = response.json()
         status = str((payload or {}).get("status") or "").upper()
+        output_url = _normalized_optional_text((payload or {}).get("output_url"))
+        if status != previous_status:
+            _log_runpod_status_transition(
+                previous_status=previous_status,
+                current_status=status or None,
+                payload=payload,
+                output_url_used=(bool(output_url) if status == "COMPLETED" else None),
+            )
+            previous_status = status or previous_status
 
         if status == "COMPLETED":
-            output_url = str((payload or {}).get("output_url") or "").strip()
-            if output_url:
-                return _fetch_runpod_output_url(output_url, timeout_seconds=timeout_seconds)
-            return _extract_runpod_output(payload)
+            return _resolve_runpod_completed_payload(payload, timeout_seconds=timeout_seconds)
         if status in {"FAILED", "CANCELLED", "TIMED_OUT"}:
             logger.warning(
                 "[runpod_poll_failed] job_id=%s status=%s keys=%s error=%s",
@@ -223,14 +389,26 @@ def _resolve_runpod_sync_payload(payload: dict, *, timeout_seconds: int) -> dict
         return _extract_runpod_output(payload)
 
     status = str(payload.get("status") or "").upper()
-    job_id = str(payload.get("id") or "").strip()
-    output_url = str(payload.get("output_url") or "").strip()
+    job_id = _normalized_optional_text(payload.get("id")) or ""
+    output_url = _normalized_optional_text(payload.get("output_url"))
+    _log_runpod_status_transition(
+        previous_status=None,
+        current_status=status or None,
+        payload=payload,
+        output_url_used=(bool(output_url) if status == "COMPLETED" else None),
+    )
 
     if status in {"IN_QUEUE", "IN_PROGRESS"} and job_id:
+        logger.info(
+            "[runpod_sync_pending] status=%s job_id=%s has_output_url=%s",
+            status,
+            job_id,
+            bool(output_url),
+        )
         return _poll_runpod_job_until_complete(job_id=job_id, timeout_seconds=timeout_seconds)
-    if status == "COMPLETED" and output_url:
-        return _fetch_runpod_output_url(output_url, timeout_seconds=timeout_seconds)
-    return _extract_runpod_output(payload)
+    if status == "COMPLETED":
+        return _resolve_runpod_completed_payload(payload, timeout_seconds=timeout_seconds)
+    return _merge_runpod_output_payload(payload, output_url_used=False)
 
 
 def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, int] | None = None) -> dict | None:
@@ -251,6 +429,20 @@ def _post_runpod(input_payload: dict, *, sync: bool = True, timeout: tuple[int, 
         )
         response.raise_for_status()
         payload = response.json()
+        payload_dict = payload if isinstance(payload, dict) else None
+        metadata = _runpod_response_metadata(payload_dict)
+        logger.info(
+            "[runpod_response] route=%s request_id=%s status=%s requested_top_k=%s has_output_url=%s build_tag=%s endpoint_id=%s worker_id=%s pod_id=%s",
+            route,
+            metadata["request_id"],
+            _normalized_optional_text(payload_dict.get("status") if payload_dict else None) or None,
+            input_payload.get("top_k"),
+            bool(_normalized_optional_text(payload_dict.get("output_url") if payload_dict else None)),
+            metadata["build_tag"],
+            metadata["endpoint_id"],
+            metadata["worker_id"],
+            metadata["pod_id"],
+        )
         timeout_seconds = int((timeout or (5, 120))[1])
         resolved = _resolve_runpod_sync_payload(payload, timeout_seconds=timeout_seconds) if sync else _extract_runpod_output(payload)
         if resolved is None:
@@ -1211,6 +1403,227 @@ def _build_face_ratios(analysis_data: dict | None) -> dict | None:
     }
 
 
+_RECOMMENDATION_IMAGE_BASE64_KEYS = (
+    "image_base64",
+    "final_image_base64",
+    "simulation_image_base64",
+    "synthetic_image_base64",
+)
+
+
+def _normalize_recommendation_image_reference(value: object) -> str | None:
+    return _normalized_optional_text(value)
+
+
+def _normalize_recommendation_render_fields(item: dict) -> dict:
+    normalized = dict(item or {})
+    sample_image_url = _normalize_recommendation_image_reference(normalized.get("sample_image_url"))
+    simulation_image_url = _normalize_recommendation_image_reference(normalized.get("simulation_image_url"))
+    synthetic_image_url = _normalize_recommendation_image_reference(normalized.get("synthetic_image_url"))
+
+    if not simulation_image_url and synthetic_image_url:
+        simulation_image_url = synthetic_image_url
+    if simulation_image_url and not synthetic_image_url:
+        synthetic_image_url = simulation_image_url
+
+    normalized["sample_image_url"] = sample_image_url
+    normalized["simulation_image_url"] = simulation_image_url
+    normalized["synthetic_image_url"] = synthetic_image_url
+    return normalized
+
+
+def _recommendation_display_image_field_name(item: dict) -> str | None:
+    for key in ("simulation_image_url", "synthetic_image_url", "sample_image_url"):
+        if _normalize_recommendation_image_reference(item.get(key)):
+            return key
+    return None
+
+
+def _log_recommendation_image_base64_length(
+    *,
+    source: str,
+    source_key: str,
+    style_id: object,
+    rank: object,
+    image_base64: str,
+) -> None:
+    logger.info(
+        "[recommendation_image_base64_length] source=%s source_key=%s style_id=%s rank=%s base64_length=%s",
+        source,
+        source_key,
+        style_id,
+        rank,
+        len(image_base64),
+    )
+
+
+def _recommendation_image_data_url(
+    *,
+    image_base64: str,
+    source: str,
+    source_key: str,
+    style_id: object,
+    rank: object,
+) -> str:
+    normalized_image_base64 = _normalized_optional_text(image_base64) or ""
+    if normalized_image_base64.startswith("data:image/"):
+        return normalized_image_base64
+    _log_recommendation_image_base64_length(
+        source=source,
+        source_key=source_key,
+        style_id=style_id,
+        rank=rank,
+        image_base64=normalized_image_base64,
+    )
+    return f"data:image/jpeg;base64,{normalized_image_base64}"
+
+
+def _recommendation_image_base64_candidate(item: dict) -> tuple[str | None, str | None]:
+    for key in _RECOMMENDATION_IMAGE_BASE64_KEYS:
+        value = _normalized_optional_text(item.get(key))
+        if value:
+            return key, value
+    return None, None
+
+
+def _scrub_base64_fields(value: object, *, removed_fields: list[str]) -> object:
+    if isinstance(value, dict):
+        sanitized: dict = {}
+        for key, nested_value in value.items():
+            key_text = str(key)
+            normalized_key = key_text.lower().replace("-", "_")
+            if normalized_key == "base64" or normalized_key.endswith("base64"):
+                removed_fields.append(key_text)
+                continue
+            sanitized[key_text] = _scrub_base64_fields(nested_value, removed_fields=removed_fields)
+        return sanitized
+    if isinstance(value, list):
+        return [_scrub_base64_fields(item, removed_fields=removed_fields) for item in value]
+    return value
+
+
+def sanitize_recommendation_item_payload(item: dict, *, log_context: str) -> dict:
+    normalized = _normalize_recommendation_render_fields(item)
+    style_id = normalized.get("style_id")
+    rank = normalized.get("rank")
+    has_display_image = bool(normalized.get("simulation_image_url") or normalized.get("synthetic_image_url"))
+    source_key, image_base64 = _recommendation_image_base64_candidate(normalized)
+
+    if image_base64 and not has_display_image and source_key:
+        data_url = _recommendation_image_data_url(
+            image_base64=image_base64,
+            source=log_context,
+            source_key=source_key,
+            style_id=style_id,
+            rank=rank,
+        )
+        normalized["simulation_image_url"] = data_url
+        normalized["synthetic_image_url"] = data_url
+
+    removed_fields: list[str] = []
+    sanitized = _scrub_base64_fields(normalized, removed_fields=removed_fields)
+    if not isinstance(sanitized, dict):
+        return {}
+
+    if removed_fields:
+        logger.info(
+            "[recommendation_payload_sanitized] context=%s style_id=%s rank=%s removed_fields=%s",
+            log_context,
+            style_id,
+            rank,
+            sorted(set(removed_fields)),
+        )
+    sanitized = _normalize_recommendation_render_fields(sanitized)
+    return sanitized
+
+
+def _runpod_result_image_length(result: dict) -> int | None:
+    if not isinstance(result, dict):
+        return None
+    _, image_value = _recommendation_image_base64_candidate(result)
+    if not image_value:
+        return None
+    if image_value.startswith("data:image/"):
+        separator_index = image_value.find(",")
+        if separator_index >= 0:
+            return len(image_value[separator_index + 1 :])
+    return len(image_value)
+
+
+def _runpod_result_style_id(result: dict) -> object:
+    if not isinstance(result, dict):
+        return None
+    recommended_style = result.get("recommended_style") if isinstance(result.get("recommended_style"), dict) else {}
+    return result.get("style_id") or recommended_style.get("style_id")
+
+
+def _log_runpod_result_diagnostics(
+    *,
+    context: str,
+    remote: dict,
+    requested_top_k: int | None,
+    normalized_items: list[dict],
+) -> None:
+    metadata = _runpod_response_metadata(remote)
+    runtime = _runpod_runtime_payload(remote)
+    results = remote.get("results") if isinstance(remote.get("results"), list) else []
+    raw_results_count = len(results)
+    normalized_results_count = len(normalized_items)
+    logger.info(
+        "[runpod_result_summary] context=%s request_id=%s requested_top_k=%s raw_results_count=%s normalized_results_count=%s output_url_used=%s build_tag=%s endpoint_id=%s worker_id=%s pod_id=%s",
+        context,
+        metadata["request_id"],
+        requested_top_k,
+        raw_results_count,
+        normalized_results_count,
+        runtime.get("output_url_used"),
+        metadata["build_tag"],
+        metadata["endpoint_id"],
+        metadata["worker_id"],
+        metadata["pod_id"],
+    )
+    for index, result in enumerate(results, start=1):
+        logger.info(
+            "[runpod_result_image_length] context=%s request_id=%s index=%s rank=%s style_id=%s image_base64_length=%s",
+            context,
+            metadata["request_id"],
+            index,
+            result.get("rank") if isinstance(result, dict) else None,
+            _runpod_result_style_id(result),
+            _runpod_result_image_length(result),
+        )
+    for index, item in enumerate(normalized_items, start=1):
+        selected_field = _recommendation_display_image_field_name(item)
+        selected_image = item.get(selected_field) if selected_field else None
+        logger.info(
+            "[runpod_normalized_card] context=%s request_id=%s index=%s style_id=%s rank=%s final_image_field=%s image_length=%s build_tag=%s endpoint_id=%s worker_id=%s pod_id=%s",
+            context,
+            metadata["request_id"],
+            index,
+            item.get("style_id"),
+            item.get("rank"),
+            selected_field,
+            len(str(selected_image)) if selected_image else None,
+            metadata["build_tag"],
+            metadata["endpoint_id"],
+            metadata["worker_id"],
+            metadata["pod_id"],
+        )
+    if requested_top_k is not None and raw_results_count != requested_top_k:
+        logger.warning(
+            "[runpod_result_count_mismatch] context=%s request_id=%s requested_top_k=%s raw_results_count=%s normalized_results_count=%s build_tag=%s endpoint_id=%s worker_id=%s pod_id=%s",
+            context,
+            metadata["request_id"],
+            requested_top_k,
+            raw_results_count,
+            normalized_results_count,
+            metadata["build_tag"],
+            metadata["endpoint_id"],
+            metadata["worker_id"],
+            metadata["pod_id"],
+        )
+
+
 def _match_runpod_recommendation(
     *,
     recommendations: list[dict],
@@ -1321,6 +1734,102 @@ def _fetch_rag_context_for_items(items: list[dict]) -> str | None:
     return build_context(documents[:5])
 
 
+def _normalize_runpod_direct_items(
+    *,
+    client_id: int | None,
+    remote: dict,
+    styles_by_id: dict[int, object] | None,
+) -> list[dict] | None:
+    recommendations = remote.get("recommendations")
+    results = remote.get("results")
+    if not isinstance(recommendations, list) and not isinstance(results, list):
+        return None
+
+    recommendations = recommendations if isinstance(recommendations, list) else []
+    results = results if isinstance(results, list) else []
+    build_tag = str(remote.get("build_tag") or "").strip() or None
+    runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
+    rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
+    request_id = _runpod_response_metadata(remote)["request_id"]
+    item_count = max(len(recommendations), len(results))
+    normalized_items: list[dict] = []
+
+    for index in range(item_count):
+        result = results[index] if index < len(results) and isinstance(results[index], dict) else {}
+        recommendation = None
+        if recommendations:
+            recommendation = _match_runpod_recommendation(
+                recommendations=recommendations,
+                index=index,
+                result=result,
+            )
+        elif index < len(results):
+            recommendation = result.get("recommended_style") if isinstance(result.get("recommended_style"), dict) else None
+
+        recommendation = recommendation if isinstance(recommendation, dict) else {}
+        recommended_style = result.get("recommended_style") if isinstance(result.get("recommended_style"), dict) else {}
+        style_id = recommendation.get("style_id") or recommended_style.get("style_id")
+        style_name = recommendation.get("style_name") or recommended_style.get("style_name")
+        style_description = recommendation.get("description") or ""
+        match_score = (
+            recommendation.get("score")
+            if recommendation.get("score") is not None
+            else recommended_style.get("recommendation_score")
+        )
+        sample_image_url = None
+        try:
+            style_lookup_id = int(style_id)
+        except (TypeError, ValueError):
+            style_lookup_id = None
+        if style_lookup_id is not None and isinstance(styles_by_id, dict):
+            style_record = styles_by_id.get(style_lookup_id)
+            sample_image_url = getattr(style_record, "image_url", None) if style_record is not None else None
+
+        item = {
+            "source": "runpod_direct_primary",
+            "style_id": style_id,
+            "style_name": style_name or f"RunPod Style {index + 1}",
+            "style_description": style_description,
+            "sample_image_url": result.get("sample_image_url") or sample_image_url,
+            "simulation_image_url": result.get("simulation_image_url"),
+            "synthetic_image_url": result.get("synthetic_image_url"),
+            "llm_explanation": style_description,
+            "reasoning": style_description,
+            "match_score": match_score,
+            "rank": recommendation.get("rank") if recommendation.get("rank") is not None else (index + 1),
+            "image_base64": result.get("image_base64"),
+            "reasoning_snapshot": {
+                "source": "runpod_direct_primary",
+                "summary": style_description,
+                "runpod": {
+                    "provider": "runpod",
+                    "clip_score": result.get("clip_score"),
+                    "mask_used": result.get("mask_used"),
+                    "elapsed_seconds": remote.get("elapsed_seconds"),
+                    "request_id": request_id,
+                    "build_tag": build_tag,
+                    "runtime": runpod_runtime,
+                    "face_shape_detected": recommendation.get("face_shape_detected"),
+                    "golden_ratio_score": recommendation.get("golden_ratio_score"),
+                    "rag_context_excerpt": rag_context_excerpt,
+                },
+            },
+        }
+        normalized_item = sanitize_recommendation_item_payload(
+            item,
+            log_context="runpod_direct_primary",
+        )
+        normalized_items.append(normalized_item)
+
+    if normalized_items:
+        logger.info(
+            "[runpod_direct_primary_normalized] client_id=%s item_count=%s",
+            client_id,
+            len(normalized_items),
+        )
+    return normalized_items or None
+
+
 def _augment_items_with_runpod(
     *,
     items: list[dict],
@@ -1367,34 +1876,96 @@ def _augment_items_with_runpod(
 
     results = remote.get("results")
     if not isinstance(results, list) or not results:
+        _log_runpod_result_diagnostics(
+            context="runpod_augment",
+            remote=remote,
+            requested_top_k=runpod_payload["top_k"],
+            normalized_items=[],
+        )
         logger.warning("[runpod_augment] no results in response. remote_keys=%s", sorted(remote.keys()))
         return items
 
+    recommendations = remote.get("recommendations") if isinstance(remote.get("recommendations"), list) else []
+    rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
     build_tag = str(remote.get("build_tag") or "").strip() or None
     runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
+    request_id = _runpod_response_metadata(remote)["request_id"]
 
     augmented: list[dict] = []
     for index, item in enumerate(items):
         enriched = dict(item)
         if index < len(results):
             result = results[index] or {}
+            matched_recommendation = _match_runpod_recommendation(
+                recommendations=recommendations,
+                index=index,
+                result=result,
+            ) if recommendations else None
+            direct_simulation_image_url = _normalize_recommendation_image_reference(
+                result.get("simulation_image_url") or result.get("synthetic_image_url")
+            )
+            direct_sample_image_url = _normalize_recommendation_image_reference(result.get("sample_image_url"))
+            if direct_sample_image_url and not enriched.get("sample_image_url"):
+                enriched["sample_image_url"] = direct_sample_image_url
+            if direct_simulation_image_url:
+                enriched["simulation_image_url"] = direct_simulation_image_url
+                enriched["synthetic_image_url"] = direct_simulation_image_url
             image_base64 = result.get("image_base64")
-            if image_base64:
-                data_url = f"data:image/png;base64,{image_base64}"
+            if image_base64 and not direct_simulation_image_url:
+                data_url = _recommendation_image_data_url(
+                    image_base64=str(image_base64).strip(),
+                    source="runpod_augment",
+                    source_key="image_base64",
+                    style_id=enriched.get("style_id"),
+                    rank=enriched.get("rank"),
+                )
                 enriched["simulation_image_url"] = data_url
                 enriched["synthetic_image_url"] = data_url
+            description = (
+                str((matched_recommendation or {}).get("description") or "").strip()
+                if isinstance(matched_recommendation, dict)
+                else ""
+            )
+            if description:
+                if not enriched.get("llm_explanation"):
+                    enriched["llm_explanation"] = description
+                if not enriched.get("reasoning"):
+                    enriched["reasoning"] = description
             snapshot = dict(enriched.get("reasoning_snapshot") or {})
             snapshot["runpod"] = {
                 "provider": "runpod",
                 "clip_score": result.get("clip_score"),
                 "mask_used": result.get("mask_used"),
                 "elapsed_seconds": remote.get("elapsed_seconds"),
+                "request_id": request_id,
                 "build_tag": build_tag,
                 "runtime": runpod_runtime,
+                "face_shape_detected": (
+                    matched_recommendation.get("face_shape_detected")
+                    if isinstance(matched_recommendation, dict)
+                    else None
+                ),
+                "golden_ratio_score": (
+                    matched_recommendation.get("golden_ratio_score")
+                    if isinstance(matched_recommendation, dict)
+                    else None
+                ),
+                "rag_context_excerpt": rag_context_excerpt,
             }
             enriched["reasoning_snapshot"] = snapshot
-        augmented.append(enriched)
+        augmented.append(
+            sanitize_recommendation_item_payload(
+                enriched,
+                log_context="runpod_augment",
+            )
+        )
 
+    _log_runpod_result_diagnostics(
+        context="runpod_augment",
+        remote=remote,
+        requested_top_k=runpod_payload["top_k"],
+        normalized_items=augmented,
+    )
     logger.info(
         "[runpod_augment] done. items=%s simulated=%s",
         len(augmented),
@@ -1567,6 +2138,12 @@ def _generate_runpod_recommendation_batch_details(
         summary["has_traceback"],
     )
     normalized = _normalize_runpod_direct_items(client_id=client_id, remote=remote, styles_by_id=styles_by_id)
+    _log_runpod_result_diagnostics(
+        context="runpod_direct_primary",
+        remote=remote,
+        requested_top_k=int(runpod_payload["top_k"]),
+        normalized_items=normalized or [],
+    )
     if normalized is None:
         _emit_runpod_direct_primary_skipped(
             "normalization_failed",

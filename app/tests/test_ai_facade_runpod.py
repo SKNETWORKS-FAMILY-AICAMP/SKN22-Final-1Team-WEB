@@ -121,7 +121,7 @@ class RunPodFacadeTests(SimpleTestCase):
             )
 
         self.assertTrue(items)
-        self.assertEqual(items[0]["simulation_image_url"], "data:image/png;base64,ZmFrZS1pbWFnZQ==")
+        self.assertEqual(items[0]["simulation_image_url"], "data:image/jpeg;base64,ZmFrZS1pbWFnZQ==")
         self.assertEqual(items[0]["reasoning_snapshot"]["runpod"]["provider"], "runpod")
 
     @patch("app.services.ai_facade.requests.get")

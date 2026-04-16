@@ -68,10 +68,11 @@ def _style_placeholder_if_missing(reference: str | None) -> str | None:
 
 
 def _decode_data_image_reference(reference: str) -> tuple[bytes, str, str] | None:
-    if not reference.startswith("data:image/") or "," not in reference:
+    normalized_reference = str(reference or "").strip()
+    if not normalized_reference.startswith("data:image/") or "," not in normalized_reference:
         return None
 
-    header, encoded = reference.split(",", 1)
+    header, _, encoded = normalized_reference.partition(",")
     if ";base64" not in header:
         return None
 
@@ -358,30 +359,34 @@ def resolve_storage_reference(reference: str | None) -> str | None:
     if not reference:
         return reference
 
-    style_placeholder = _style_placeholder_if_missing(reference)
-    if style_placeholder and str(reference).strip().startswith("/media/"):
+    normalized_reference = str(reference).strip()
+    if normalized_reference.startswith("data:image/"):
+        return normalized_reference
+
+    style_placeholder = _style_placeholder_if_missing(normalized_reference)
+    if style_placeholder and normalized_reference.startswith("/media/"):
         return style_placeholder
 
-    if reference.startswith(("http://", "https://", "/")):
-        return reference
+    if normalized_reference.startswith(("http://", "https://", "/")):
+        return normalized_reference
 
     if not settings.SUPABASE_USE_REMOTE_STORAGE:
-        return reference
+        return normalized_reference
 
     client = get_supabase_client()
     if client is None:
-        return reference
+        return normalized_reference
 
     bucket = client.storage.from_(settings.SUPABASE_BUCKET)
     if settings.SUPABASE_BUCKET_PUBLIC:
-        return bucket.get_public_url(reference)
+        return bucket.get_public_url(normalized_reference)
 
     try:
-        signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
+        signed = bucket.create_signed_url(normalized_reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
     except Exception as exc:
         if style_placeholder:
             return style_placeholder
-        logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
+        logger.warning("[storage] unable to resolve signed url for reference=%s: %s", normalized_reference, exc)
         return None
     resolved = _extract_signed_url(signed) or None
     if resolved:
@@ -395,15 +400,19 @@ def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str |
     if not reference:
         return reference, "missing_reference"
 
-    style_placeholder = _style_placeholder_if_missing(reference)
-    if style_placeholder and str(reference).strip().startswith("/media/"):
+    normalized_reference = str(reference).strip()
+    if normalized_reference.startswith("data:image/"):
+        return normalized_reference, "data_url"
+
+    style_placeholder = _style_placeholder_if_missing(normalized_reference)
+    if style_placeholder and normalized_reference.startswith("/media/"):
         return style_placeholder, "style_placeholder"
 
-    if reference.startswith(("http://", "https://", "/")):
-        return reference, "already_resolved"
+    if normalized_reference.startswith(("http://", "https://", "/")):
+        return normalized_reference, "already_resolved"
 
     if not settings.SUPABASE_USE_REMOTE_STORAGE:
-        return reference, "local_reference"
+        return normalized_reference, "local_reference"
 
     client = get_supabase_client()
     if client is None:
@@ -411,14 +420,14 @@ def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str |
 
     bucket = client.storage.from_(settings.SUPABASE_BUCKET)
     if settings.SUPABASE_BUCKET_PUBLIC:
-        return bucket.get_public_url(reference), "public_url"
+        return bucket.get_public_url(normalized_reference), "public_url"
 
     try:
-        signed = bucket.create_signed_url(reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
+        signed = bucket.create_signed_url(normalized_reference, settings.SUPABASE_SIGNED_URL_EXPIRES_IN)
     except Exception as exc:
         if style_placeholder:
             return style_placeholder, "style_placeholder"
-        logger.warning("[storage] unable to resolve signed url for reference=%s: %s", reference, exc)
+        logger.warning("[storage] unable to resolve signed url for reference=%s: %s", normalized_reference, exc)
         return None, "signed_url_failed"
 
     resolved = _extract_signed_url(signed)

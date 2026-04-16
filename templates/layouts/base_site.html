@@ -322,7 +322,7 @@
             });
             const data = await response.json();
             if (data.status === 'success') {
-              window.adminGateCloseModal();
+              window.adminGateCloseModal({ skipRedirect: true });
               if (pinTargetType === 'header' || pinTargetType === 'current-view') {
                 if (window.location.pathname + window.location.search === pinTargetId) {
                   window.location.reload();
@@ -357,8 +357,14 @@
           if (pinModal) pinModal.classList.add('active');
         };
 
-        window.adminGateCloseModal = function() {
+        window.adminGateCloseModal = function(options = {}) {
+          const shouldRedirect = !options.skipRedirect;
+          const redirectUrl = shouldRedirect ? (window.adminGateCancelUrl || '') : '';
+          window.adminGateCancelUrl = '';
           if (pinModal) pinModal.classList.remove('active');
+          if (redirectUrl) {
+            window.location.replace(redirectUrl);
+          }
         };
 
         window.adminGateAppendPin = function(num) {

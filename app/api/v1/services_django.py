@@ -40,6 +40,7 @@ from app.services.ai_facade import (
     build_recommendation_debug_payload,
     generate_recommendation_batch,
     get_ai_runtime_config_snapshot,
+    sanitize_recommendation_item_payload,
     simulate_face_analysis,
 )
 from app.services.model_team_bridge import (
@@ -552,6 +553,8 @@ def _has_displayable_image_reference(reference: object) -> bool:
     text = str(reference or "").strip()
     if not text:
         return False
+    if text.startswith("data:image/"):
+        return True
     if text.startswith(("http://", "https://")):
         return True
     if text.startswith(("/media/simulations/", "simulations/")):
@@ -638,7 +641,10 @@ def _normalize_persistable_recommendation_items(*, items: list[dict], analysis_s
     normalized_items: list[dict] = []
     canonical_source = _coerce_snapshot_source(analysis_snapshot.get("source"))
     for item in items:
-        normalized_item = dict(item)
+        normalized_item = sanitize_recommendation_item_payload(
+            dict(item),
+            log_context="persist_recommendation_item",
+        )
         reasoning_snapshot = dict(normalized_item.get("reasoning_snapshot") or {})
         canonical_source = _resolve_consistent_snapshot_source(
             analysis_source=canonical_source,
@@ -1428,7 +1434,10 @@ def _build_empty_response(*, source: str, message: str, next_action: str | None 
 
 
 def _normalize_recommendation_item_contract(item: dict) -> dict:
-    normalized = dict(item)
+    normalized = sanitize_recommendation_item_payload(
+        dict(item),
+        log_context="recommendation_contract",
+    )
     sample_image_url = resolve_storage_reference(normalized.get("sample_image_url"))
     simulation_image_url = resolve_storage_reference(
         normalized.get("simulation_image_url") or normalized.get("synthetic_image_url")
@@ -2534,6 +2543,9 @@ def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapsho
     ]
     if normalized_items or isinstance(items, list):
         payload["items"] = normalized_items
+
+    if payload.get("status") == "processing" and any(item.get("has_displayable_simulation") for item in normalized_items):
+        payload["status"] = "ready"
 
     recommendation_stage = str(
         payload.get("recommendation_stage")

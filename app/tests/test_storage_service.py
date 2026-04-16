@@ -1,59 +1,39 @@
-from unittest.mock import Mock, patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from django.test import SimpleTestCase, override_settings
 
 from app.services import storage_service
 
 
-class StorageReferenceResolutionTests(SimpleTestCase):
-    @override_settings(
-        SUPABASE_USE_REMOTE_STORAGE=True,
-        SUPABASE_BUCKET_PUBLIC=False,
-        SUPABASE_SIGNED_URL_EXPIRES_IN=3600,
-    )
-    @patch("app.services.storage_service.get_supabase_client")
-    def test_resolve_storage_reference_uses_style_placeholder_for_missing_style_asset(self, mock_get_supabase_client):
-        bucket = Mock()
-        bucket.create_signed_url.side_effect = Exception("Object not found")
-        client = Mock()
-        client.storage.from_.return_value = bucket
-        mock_get_supabase_client.return_value = client
+class StorageServiceTests(SimpleTestCase):
+    def test_resolve_storage_reference_preserves_trimmed_data_url(self):
+        reference = "  data:image/webp;base64,ZmFrZQ==  "
 
-        resolved = storage_service.resolve_storage_reference("styles/204.jpg")
+        resolved = storage_service.resolve_storage_reference(reference)
 
-        self.assertTrue(str(resolved).startswith("data:image/svg+xml"))
+        self.assertEqual(resolved, "data:image/webp;base64,ZmFrZQ==")
 
-    @override_settings(
-        SUPABASE_USE_REMOTE_STORAGE=True,
-        SUPABASE_BUCKET_PUBLIC=False,
-        SUPABASE_SIGNED_URL_EXPIRES_IN=3600,
-    )
-    @patch("app.services.storage_service.get_supabase_client")
-    def test_resolve_storage_reference_with_status_marks_style_placeholder(self, mock_get_supabase_client):
-        bucket = Mock()
-        bucket.create_signed_url.side_effect = Exception("Object not found")
-        client = Mock()
-        client.storage.from_.return_value = bucket
-        mock_get_supabase_client.return_value = client
+    def test_persist_simulation_image_reference_keeps_jpeg_data_url_as_jpg_asset(self):
+        with TemporaryDirectory() as temp_dir:
+            with override_settings(
+                MEDIA_ROOT=temp_dir,
+                MEDIA_URL="/media/",
+                SUPABASE_USE_REMOTE_STORAGE=False,
+            ):
+                persisted = storage_service.persist_simulation_image_reference(
+                    "data:image/jpeg;base64,ZmFrZQ=="
+                )
 
-        resolved, status = storage_service._resolve_storage_reference_with_status("styles/206.jpg")
+                self.assertIsNotNone(persisted)
+                self.assertTrue(str(persisted).startswith("/media/simulations/"))
+                self.assertTrue(str(persisted).endswith(".jpg"))
 
-        self.assertTrue(str(resolved).startswith("data:image/svg+xml"))
-        self.assertEqual(status, "style_placeholder")
-
-    @override_settings(
-        SUPABASE_USE_REMOTE_STORAGE=True,
-        SUPABASE_BUCKET_PUBLIC=False,
-        SUPABASE_SIGNED_URL_EXPIRES_IN=3600,
-    )
-    @patch("app.services.storage_service.get_supabase_client")
-    def test_resolve_storage_reference_keeps_warning_path_for_non_style_assets(self, mock_get_supabase_client):
-        bucket = Mock()
-        bucket.create_signed_url.side_effect = Exception("Object not found")
-        client = Mock()
-        client.storage.from_.return_value = bucket
-        mock_get_supabase_client.return_value = client
-
-        resolved = storage_service.resolve_storage_reference("simulations/missing.png")
-
-        self.assertIsNone(resolved)
+                relative_path = str(persisted).removeprefix("/media/")
+                stored_file = Path(temp_dir) / relative_path
+                self.assertTrue(stored_file.exists())
+                self.assertEqual(stored_file.read_bytes(), b"fake")
+                self.assertEqual(
+                    storage_service.load_storage_reference_bytes(str(persisted)),
+                    b"fake",
+                )

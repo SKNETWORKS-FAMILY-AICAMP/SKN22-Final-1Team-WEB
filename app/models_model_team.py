@@ -170,7 +170,7 @@ class LegacyClientResultDetail(models.Model):
     style_name_snapshot = models.CharField(max_length=100, null=True, blank=True)
     style_description_snapshot = models.TextField(null=True, blank=True)
     keywords_json = models.JSONField(null=True, blank=True)
-    sample_image_url = models.CharField(max_length=500, null=True, blank=True)
+    sample_image_url = models.TextField(null=True, blank=True)
     regeneration_snapshot = models.JSONField(null=True, blank=True)
     reasoning_snapshot = models.JSONField(null=True, blank=True)
     is_chosen = models.BooleanField(null=True, blank=True)
