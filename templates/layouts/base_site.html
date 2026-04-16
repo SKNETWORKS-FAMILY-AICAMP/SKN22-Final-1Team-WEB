@@ -87,7 +87,11 @@
 
               {# 디자이너 버튼 #}
               {% if request.session.designer_id %}
-                <a href="{% url 'partner_designer_select' %}?designer_id={{ request.session.designer_id }}&next={% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+                {% if request.session.designer_dashboard_allowed %}
+                  <a href="{% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+                {% else %}
+                  <a href="{% url 'partner_designer_select' %}?designer_id={{ request.session.designer_id }}&next={% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+                {% endif %}
               {% elif request.session.customer_id %}
                 <a href="{% url 'partner_designer_select' %}?next={% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
               {% elif request.session.admin_id %}

@@ -1548,6 +1548,28 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(admin.business_number, valid_business_number)
         self.assertIsNotNone(self.client.session.get("admin_id"))
 
+    def test_partner_signup_page_rejects_non_mobile_admin_phone(self):
+        valid_business_number = build_valid_business_number("623456781")
+
+        response = self.client.post(
+            "/partner/signup/",
+            {
+                "name": "Owner Landline",
+                "store_name": "MirrAI Landline",
+                "phone": "02-123-4567",
+                "business_number": valid_business_number,
+                "password": "pw1234!!",
+                "password_confirm": "pw1234!!",
+                "agree_terms": "on",
+                "agree_privacy": "on",
+                "agree_third_party_sharing": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "관리자 연락처는 휴대폰 번호(010-0000-0000)로 입력해 주세요.")
+        self.assertIsNone(self._get_admin_by_phone("021234567"))
+
     def test_partner_signup_page_accepts_biz_number_alias(self):
         valid_business_number = build_valid_business_number("723456780")
 

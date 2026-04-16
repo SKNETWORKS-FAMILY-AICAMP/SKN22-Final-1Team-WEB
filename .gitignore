@@ -138,6 +138,7 @@ detect_encoding.py
 choi_sample/
 architecture.txt
 .playwright-cli/
+AGENTS.md
 
 # Front feedback working folders
 front_feedback/**/past/

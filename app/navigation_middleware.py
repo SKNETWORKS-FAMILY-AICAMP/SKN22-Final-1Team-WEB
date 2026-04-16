@@ -117,6 +117,24 @@ class CurrentFlowNavigationMiddleware:
         )
 
     def _handle_customer_logout(self, request):
+        client = get_session_customer(request=request)
+        if client is not None:
+            try:
+                from app.api.v1.admin_services import close_consultation_session
+                from app.services.model_team_bridge import get_legacy_active_consultation_items
+
+                active_items = get_legacy_active_consultation_items(client=client) or []
+                active_item = active_items[0] if active_items else None
+                consultation_id = active_item.get("consultation_id") if isinstance(active_item, dict) else None
+                if consultation_id not in (None, ""):
+                    close_consultation_session(
+                        consultation_id=int(consultation_id),
+                        client=client,
+                        admin=getattr(client, "shop", None),
+                        designer=getattr(client, "designer", None),
+                    )
+            except Exception:
+                pass
         clear_customer_session(request=request)
         if has_admin_session(request=request) or has_designer_session(request=request):
             return self._redirect_response(request, "partner_index")

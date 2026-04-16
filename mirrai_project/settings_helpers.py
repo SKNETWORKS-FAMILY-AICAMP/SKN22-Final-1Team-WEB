@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import socket
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 try:
@@ -11,6 +12,17 @@ except Exception:  # pragma: no cover - optional dependency failure
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_local_redis_url(redis_url: str) -> bool:
+    normalized_url = str(redis_url or "").strip()
+    if not normalized_url:
+        return False
+    try:
+        hostname = (urlparse(normalized_url).hostname or "").strip().lower()
+    except Exception:
+        return False
+    return hostname in {"127.0.0.1", "localhost", "::1"}
 
 
 def unique_values(*groups) -> list[str]:
@@ -66,8 +78,10 @@ def redis_cache_available(*, redis_url: str, health_timeout: float = 0.5) -> boo
     normalized_url = str(redis_url or "").strip()
     if not normalized_url:
         return False
+    local_redis = _is_local_redis_url(normalized_url)
     if redis is None:
-        logger.warning("[settings] redis package unavailable; using local memory cache instead.")
+        log = logger.debug if local_redis else logger.warning
+        log("[settings] redis package unavailable; using local memory cache instead.")
         return False
     try:
         client = redis.Redis.from_url(
@@ -82,7 +96,8 @@ def redis_cache_available(*, redis_url: str, health_timeout: float = 0.5) -> boo
             client.close()
         return True
     except Exception as exc:
-        logger.warning(
+        log = logger.debug if local_redis else logger.warning
+        log(
             "[settings] Redis unavailable at %s; using local memory cache instead. error=%s",
             normalized_url,
             exc,

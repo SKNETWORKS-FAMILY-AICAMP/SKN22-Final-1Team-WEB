@@ -520,6 +520,34 @@ class LegacyConsultationNoteCreateView(CompatEnvelopeAPIView):
         return Response(response_payload)
 
 
+class LegacyConsultationCloseView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Close the active consultation session from the template customer detail view",
+        request=ConsultationCloseSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, pk):
+        staff, error_response = _legacy_staff_required(request)
+        if error_response:
+            return error_response
+        admin, designer = staff
+
+        serializer = ConsultationCloseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        client = _get_client_or_404(pk)
+        try:
+            payload = close_consultation_session(
+                consultation_id=serializer.validated_data["consultation_id"],
+                client=client,
+                admin=admin,
+                designer=designer,
+            )
+        except ValueError as exc:
+            return detail_response(str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
+
 class LegacyCustomerProfileNoteView(CompatEnvelopeAPIView):
     @extend_schema(
         summary="Customer-level note for the active shop session",

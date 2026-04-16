@@ -126,10 +126,39 @@
   }
 
   .preview-card {
+    display: grid;
+    gap: 12px;
     padding: 16px;
     border-radius: 14px;
     background: var(--bg-light);
     border: 1px solid var(--line);
+  }
+
+  .preview-image-wrap {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(12, 10, 7, 0.06);
+    border: 1px solid rgba(12, 10, 7, 0.08);
+  }
+
+  .preview-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .preview-image-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
   }
 
   .preview-card strong {
@@ -215,6 +244,61 @@
 
   .retry-status.is-hidden {
     display: none;
+  }
+
+  .session-guide {
+    margin: 14px 0 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .session-action-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+
+  .session-action-copy {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .page-notice {
+    display: none;
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+
+  .page-notice.is-visible {
+    display: block;
+  }
+
+  .page-notice.is-success {
+    background: rgba(21, 128, 61, 0.10);
+    border-color: rgba(21, 128, 61, 0.18);
+    color: #166534;
+  }
+
+  .page-notice.is-error {
+    background: rgba(185, 28, 28, 0.08);
+    border-color: rgba(185, 28, 28, 0.16);
+    color: #b91c1c;
+  }
+
+  .page-notice.is-loading {
+    background: rgba(12, 10, 7, 0.05);
+    border-color: rgba(12, 10, 7, 0.10);
+    color: var(--bg-dark);
   }
 
   .diagnosis-shell {
@@ -493,6 +577,8 @@
       </a>
     </div>
 
+    <div id="detailNotice" class="page-notice" aria-live="polite"></div>
+
     <div id="detailContent">
       <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 120px 0; opacity: 0.6;">
         <div style="width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--bg-dark); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 20px;"></div>
@@ -549,6 +635,7 @@
   (function () {
     const clientId = "{{ client_id }}";
     const detailContent = document.getElementById('detailContent');
+    const detailNotice = document.getElementById('detailNotice');
     const retryChoiceModal = document.getElementById('retryChoiceModal');
     const retryKeepPreferenceBtn = document.getElementById('retryKeepPreferenceBtn');
     const retryChooseAgainBtn = document.getElementById('retryChooseAgainBtn');
@@ -556,11 +643,29 @@
     const customerDetailChatbotTemplate = document.getElementById('customerDetailChatbotTemplate');
     const diagnosisApiUrl = `/api/v1/customers/${clientId}/diagnosis-card/`;
     const customerNoteApiUrl = `/api/v1/customers/${clientId}/customer-note/`;
+    const consultationCloseApiUrl = `/api/v1/customers/${clientId}/consultation-close/`;
 
     let currentCustomer = null;
     let latestRetryPreviewHtml = '';
     let diagnosisEditorCollapsed = false;
     let currentDiagnosisState = defaultDiagnosisState();
+
+    function hideDetailNotice() {
+      if (!detailNotice) {
+        return;
+      }
+      detailNotice.textContent = '';
+      detailNotice.classList.remove('is-visible', 'is-success', 'is-error', 'is-loading');
+    }
+
+    function showDetailNotice(message, tone = 'success') {
+      if (!detailNotice || !message) {
+        return;
+      }
+      detailNotice.textContent = message;
+      detailNotice.classList.remove('is-success', 'is-error', 'is-loading');
+      detailNotice.classList.add('is-visible', tone === 'error' ? 'is-error' : (tone === 'loading' ? 'is-loading' : 'is-success'));
+    }
 
     const diagnosisOptionGroups = {
       hairTexture: [
@@ -603,6 +708,46 @@
       }
 
       return date.toLocaleDateString();
+    }
+
+    function getPreviewImageUrl(item) {
+      if (!item) {
+        return '';
+      }
+      return String(
+        item.simulation_image_url
+        || item.synthetic_image_url
+        || item.display_image_url
+        || item.sample_image_url
+        || ''
+      ).trim();
+    }
+
+    function getReanalysisBlockMessage(reason, fallbackMessage = '') {
+      const messageMap = {
+        reusable_preference_missing: '설문과 얼굴 분석 데이터가 모두 준비된 뒤 다시 시도해 주세요.',
+        consultation_started: '현재 상담 세션이 진행 중입니다. 먼저 세션을 종료해 주세요.',
+        recommendation_already_selected: '이미 추천이 확정된 고객입니다. 상담 상태를 정리한 뒤 다시 시도해 주세요.',
+        retry_already_used: '기존 취향 유지 재분석은 한 번만 사용할 수 있습니다.',
+        initial_recommendations_missing: '초기 추천 결과가 준비된 뒤 재분석을 진행할 수 있습니다.',
+        legacy_result_only: '이전 결과만 남아 있어 새 재분석을 바로 진행할 수 없습니다.'
+      };
+      return messageMap[reason] || fallbackMessage || '현재 상태에서는 진행할 수 없습니다.';
+    }
+
+    function getReanalysisGuideMessage(customer, hasReusablePreference) {
+      const reanalysis = customer && customer.reanalysis ? customer.reanalysis : {};
+      const sessionStatus = customer && customer.session_status ? customer.session_status : {};
+      if (sessionStatus.is_active) {
+        return '현재 상담 세션이 진행 중이라 재분석이 잠겨 있습니다. 상담 마무리 후 아래 세션 종료 버튼을 누르면 다시 열립니다.';
+      }
+      if (reanalysis.user_message) {
+        return reanalysis.user_message;
+      }
+      if (hasReusablePreference) {
+        return '저장된 설문과 얼굴 분석이 있어 기존 취향 유지 재분석을 바로 실행할 수 있습니다.';
+      }
+      return '기존 취향 유지 재분석은 설문과 얼굴 분석이 모두 있을 때 사용할 수 있습니다.';
     }
 
     function maskPhone(phone) {
@@ -1006,19 +1151,29 @@
         resetBtn.style.opacity = canWriteDiagnosis ? '1' : '0.55';
       }
       if (sessionHint) {
-        sessionHint.textContent = sessionActive
-          ? '세션 진행 중인 고객입니다. 디자이너 진단 카드를 작성하고 저장할 수 있습니다.'
-          : '세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다. 현재는 저장된 내용을 읽기 전용으로만 확인할 수 있습니다.';
+        if (!storageReady) {
+          sessionHint.textContent = '디자이너 진단 카드 저장소가 아직 준비되지 않았습니다. 마이그레이션 적용 뒤 다시 확인해 주세요.';
+        } else if (sessionActive) {
+          sessionHint.textContent = '세션 진행 중입니다. 디자이너가 진단 카드를 바로 작성하고 저장할 수 있습니다.';
+        } else if (canWriteDiagnosis) {
+          sessionHint.textContent = '상담 세션이 종료된 뒤에도 진단 카드를 수정하고 저장할 수 있습니다.';
+        } else {
+          sessionHint.textContent = '지금은 진단 카드를 수정할 수 없습니다.';
+        }
       }
 
       if (!storageReady) {
-        setDiagnosisStatus('디자이너 진단 카드 저장 테이블이 아직 준비되지 않았습니다. 마이그레이션 적용 후 다시 시도해 주세요.', 'muted');
+        setDiagnosisStatus('디자이너 진단 카드 저장소가 아직 준비되지 않았습니다. 마이그레이션 적용 뒤 다시 확인해 주세요.', 'muted');
+      } else if (!canWriteDiagnosis) {
+        setDiagnosisStatus('지금은 진단 카드를 수정할 수 없습니다.', 'muted');
+      } else if (!sessionActive && hasSavedDiagnosis) {
+        setDiagnosisStatus('세션이 종료된 상태입니다. 저장된 진단 카드를 바로 수정할 수 있습니다.', 'success');
       } else if (!sessionActive) {
-        setDiagnosisStatus('세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다.', 'muted');
+        setDiagnosisStatus('세션이 종료된 상태입니다. 지금 진단 카드를 새로 작성할 수 있습니다.', 'muted');
       } else if (hasSavedDiagnosis) {
         setDiagnosisStatus('저장된 진단 카드 내용을 불러왔습니다.', 'success');
       } else {
-        setDiagnosisStatus('아직 저장 전입니다.', 'muted');
+        setDiagnosisStatus('아직 저장된 진단 카드가 없습니다.', 'muted');
       }
 
       chips.forEach((chip) => {
@@ -1177,17 +1332,26 @@
         `;
       }
 
-      const previewCards = items.slice(0, 3).map((item) => `
-        <div class="preview-card">
-          <strong>${escapeHtml(item.style_name || '추천 스타일')}</strong>
-          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-            매칭률 ${escapeHtml(item.match_score ?? 0)}%
+      const previewCards = items.slice(0, 3).map((item) => {
+        const imageUrl = getPreviewImageUrl(item);
+        return `
+          <div class="preview-card">
+            <div class="preview-image-wrap">
+              ${imageUrl
+                ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.style_name || '추천 스타일')}" class="preview-image">`
+                : '<div class="preview-image-empty">이미지 준비 중</div>'
+              }
+            </div>
+            <strong>${escapeHtml(item.style_name || '추천 스타일')}</strong>
+            <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+              매칭률 ${escapeHtml(item.match_score ?? 0)}%
+            </div>
+            <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+              ${escapeHtml(item.reasoning || item.style_description || '추천 설명이 준비 중입니다.')}
+            </div>
           </div>
-          <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: 8px;">
-            ${escapeHtml(item.reasoning || item.style_description || '추천 설명이 준비 중입니다.')}
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
       return `
         <div class="info-group">
@@ -1214,11 +1378,17 @@
       const firstAnalysis = Array.isArray(customer.face_analyses) ? customer.face_analyses[0] : null;
       const firstCapture = Array.isArray(customer.captures) ? customer.captures[0] : null;
       const reanalysis = customer.reanalysis || {};
+      const sessionStatus = customer.session_status || {};
+      const diagnosisPayload = customer.designer_diagnosis || {};
+      const activeConsultation = customer.active_consultation || null;
+      const isSessionActive = Boolean(sessionStatus.is_active);
+      const canEditDiagnosis = Boolean(sessionStatus.can_write_designer_diagnosis) && diagnosisPayload.storage_ready !== false;
       const hasReusablePreference = (
         reanalysis.has_reusable_preference !== undefined
           ? Boolean(reanalysis.has_reusable_preference)
           : (hasSurveyData(customer) && hasFaceAnalysis(customer))
       );
+      const reanalysisGuideMessage = getReanalysisGuideMessage(customer, hasReusablePreference);
 
       detailContent.innerHTML = `
         <div class="info-group">
@@ -1227,9 +1397,21 @@
             ${escapeHtml(maskPhone(customer.phone))} | 최근 분석일 ${escapeHtml(formatDate(surveyCreatedAt || (firstAnalysis && firstAnalysis.created_at) || (firstCapture && firstCapture.created_at)))}
           </p>
           <div style="margin-top: 12px;">
-            <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:${customer.session_status && customer.session_status.is_active ? 'rgba(21, 128, 61, 0.12)' : 'rgba(71, 85, 105, 0.12)'}; color:${customer.session_status && customer.session_status.is_active ? '#166534' : '#475569'}; font-size:12px; font-weight:700;">
-              ${customer.session_status && customer.session_status.is_active ? '세션 진행 중 · 진단 카드 작성 가능' : '세션 없음 · 진단 카드 읽기 전용'}
+            <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:${isSessionActive ? 'rgba(21, 128, 61, 0.12)' : 'rgba(71, 85, 105, 0.12)'}; color:${isSessionActive ? '#166534' : '#475569'}; font-size:12px; font-weight:700;">
+              ${isSessionActive ? '세션 진행 중 · 진단 카드 작성 가능' : (canEditDiagnosis ? '세션 종료 · 진단 카드 수정 가능' : '세션 종료 · 진단 카드 읽기 전용')}
             </span>
+          </div>
+          <div class="session-action-row">
+            <div class="session-action-copy">
+              ${isSessionActive
+                ? `현재 상담 세션이 열려 있습니다. 고객 화면의 <strong>상담 종료</strong> 또는 여기의 <strong>세션 종료</strong>를 눌러야 세션이 닫히고 재분석이 다시 가능해집니다.`
+                : '세션이 종료된 상태입니다. 필요하면 재분석을 다시 시작할 수 있습니다.'
+              }
+            </div>
+            ${isSessionActive && activeConsultation && activeConsultation.consultation_id
+              ? `<button id="closeConsultationBtn" class="btn btn-dark" style="height: 42px; padding: 0 18px;">세션 종료</button>`
+              : ''
+            }
           </div>
         </div>
 
@@ -1255,7 +1437,7 @@
               <span class="info-label">재분석</span>
               <p>고객 취향을 그대로 유지하거나, 취향을 다시 선택한 뒤 새로운 추천 흐름으로 이어갈 수 있습니다.</p>
               <div class="retry-hint">
-                ${hasReusablePreference ? '저장된 설문과 얼굴 분석이 있어 기존 취향 유지 재분석을 바로 실행할 수 있습니다.' : '기존 취향 유지 재분석은 설문과 얼굴 분석이 모두 있을 때 사용할 수 있습니다.'}
+                ${escapeHtml(reanalysisGuideMessage)}
               </div>
             </div>
             <button id="openRetryChoiceBtn" class="btn btn-primary" style="height: 48px; padding: 0 24px;">재분석</button>
@@ -1275,6 +1457,21 @@
       const openRetryChoiceBtn = document.getElementById('openRetryChoiceBtn');
       if (openRetryChoiceBtn) {
         openRetryChoiceBtn.addEventListener('click', () => openRetryChoice(customer));
+      }
+
+      const closeConsultationBtn = document.getElementById('closeConsultationBtn');
+      if (closeConsultationBtn && activeConsultation && activeConsultation.consultation_id) {
+        closeConsultationBtn.addEventListener('click', async () => {
+          closeConsultationBtn.disabled = true;
+          closeConsultationBtn.textContent = '종료 중...';
+          try {
+            await closeConsultation(activeConsultation.consultation_id);
+          } catch (error) {
+            showDetailNotice(error.message || '세션 종료에 실패했습니다.', 'error');
+            closeConsultationBtn.disabled = false;
+            closeConsultationBtn.textContent = '세션 종료';
+          }
+        });
       }
 
       bindDiagnosisCard();
@@ -1339,6 +1536,61 @@
       });
     }
 
+    function applyClosedConsultationState() {
+      if (!currentCustomer) {
+        return;
+      }
+
+      const diagnosisStorageReady = !(currentCustomer.designer_diagnosis && currentCustomer.designer_diagnosis.storage_ready === false);
+      const nextReanalysis = { ...(currentCustomer.reanalysis || {}) };
+      nextReanalysis.consultation_locked = false;
+      nextReanalysis.can_choose_again = true;
+      nextReanalysis.choose_again_block_reason = null;
+      if (nextReanalysis.keep_preference_block_reason === 'consultation_started') {
+        nextReanalysis.keep_preference_block_reason = null;
+        if (nextReanalysis.has_reusable_preference) {
+          nextReanalysis.can_keep_preference = true;
+        }
+      }
+      nextReanalysis.user_message = '상담 세션이 종료되어 재분석을 다시 진행할 수 있습니다.';
+
+      currentCustomer = {
+        ...currentCustomer,
+        active_consultation: null,
+        session_status: {
+          ...(currentCustomer.session_status || {}),
+          is_active: false,
+          can_write_designer_diagnosis: diagnosisStorageReady,
+        },
+        reanalysis: nextReanalysis,
+      };
+      renderCustomerDetail(currentCustomer);
+    }
+
+    async function closeConsultation(consultationId) {
+      showDetailNotice('상담 세션을 종료하는 중입니다...', 'loading');
+
+      const response = await fetch(consultationCloseApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ consultation_id: consultationId })
+      });
+      const rawData = await response.json();
+      const data = rawData.data || rawData;
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || '세션 종료에 실패했습니다.');
+      }
+
+      applyClosedConsultationState();
+      showDetailNotice(data.message || '상담 세션을 종료했습니다.', 'success');
+      window.setTimeout(() => {
+        loadCustomerDetail().catch(() => null);
+      }, 250);
+    }
+
     function openRetryChoice(customer) {
       const reanalysis = customer && customer.reanalysis ? customer.reanalysis : {};
       const keepPreferenceAvailable = (
@@ -1355,14 +1607,28 @@
       retryKeepPreferenceBtn.disabled = !keepPreferenceAvailable;
       retryKeepPreferenceBtn.style.opacity = keepPreferenceAvailable ? '1' : '0.55';
       retryKeepPreferenceBtn.title = keepPreferenceAvailable ? '' : (
-        reanalysis.keep_preference_block_reason || '설문과 얼굴 분석 데이터가 있어야 기존 취향 유지 재분석을 실행할 수 있습니다.'
+        getReanalysisBlockMessage(
+          reanalysis.keep_preference_block_reason,
+          '설문과 얼굴 분석 데이터가 있어야 기존 취향 유지 재분석을 실행할 수 있습니다.'
+        )
       );
       retryChooseAgainBtn.disabled = !chooseAgainAvailable;
       retryChooseAgainBtn.style.opacity = chooseAgainAvailable ? '1' : '0.55';
       retryChooseAgainBtn.title = chooseAgainAvailable ? '' : (
-        reanalysis.choose_again_block_reason || '현재 상태에서는 취향 다시 선택을 진행할 수 없습니다.'
+        getReanalysisBlockMessage(
+          reanalysis.choose_again_block_reason,
+          '현재 상태에서는 취향 다시 선택을 진행할 수 없습니다.'
+        )
       );
       resetRetryStatus();
+      if (!keepPreferenceAvailable && !chooseAgainAvailable) {
+        showRetryStatus(
+          getReanalysisBlockMessage(
+            reanalysis.choose_again_block_reason || reanalysis.keep_preference_block_reason,
+            '현재 상태에서는 재분석을 진행할 수 없습니다.'
+          )
+        );
+      }
       retryChoiceModal.classList.remove('is-hidden');
       retryChoiceModal.setAttribute('aria-hidden', 'false');
     }
@@ -1382,6 +1648,7 @@
       retryChooseAgainBtn.disabled = true;
       retryKeepPreferenceBtn.textContent = '재분석 중...';
       showRetryStatus('저장된 취향 데이터를 사용해 재분석을 진행하고 있습니다.');
+      showDetailNotice('저장된 취향으로 재분석하는 중입니다...', 'loading');
 
       try {
         const response = await fetch('/api/v1/analysis/retry-recommendations/', {
@@ -1398,14 +1665,19 @@
           throw new Error(data.detail || data.message || '재분석에 실패했습니다.');
         }
 
-        latestRetryPreviewHtml = buildRetryPreview(data.items || []);
-        renderCustomerDetail(currentCustomer);
         hideRetryChoice();
-        alert('기존 취향 유지 재분석이 완료되었습니다.');
+        latestRetryPreviewHtml = buildRetryPreview(data.items || []);
+        showDetailNotice('기존 취향 유지 재분석이 완료되었습니다.', 'success');
+        try {
+          await loadCustomerDetail();
+        } catch (refreshError) {
+          console.warn('customer detail refresh after retry failed', refreshError);
+        }
       } catch (error) {
         retryKeepPreferenceBtn.disabled = false;
         retryChooseAgainBtn.disabled = false;
         retryKeepPreferenceBtn.textContent = '바로 재분석';
+        showDetailNotice(error.message || '재분석에 실패했습니다.', 'error');
         showRetryStatus(error.message);
       }
     }
@@ -1413,7 +1685,12 @@
     function retryWithNewPreference() {
       const reanalysis = currentCustomer && currentCustomer.reanalysis ? currentCustomer.reanalysis : {};
       if (reanalysis.can_choose_again === false) {
-        showRetryStatus(reanalysis.choose_again_block_reason || '취향 다시 선택은 현재 상태에서 진행할 수 없습니다.');
+        showRetryStatus(
+          getReanalysisBlockMessage(
+            reanalysis.choose_again_block_reason,
+            '취향 다시 선택은 현재 상태에서 진행할 수 없습니다.'
+          )
+        );
         return;
       }
       retryChooseAgainBtn.disabled = true;
@@ -1430,7 +1707,7 @@
       }
     });
 
-    (async function fetchCustomerDetail() {
+    async function loadCustomerDetail() {
       try {
         const response = await fetch(`/api/v1/customers/${clientId}/`);
         const data = await response.json();
@@ -1447,7 +1724,9 @@
       } catch (error) {
         detailContent.innerHTML = `<div style="text-align: center; padding: 60px; color: var(--status-red);">${escapeHtml(error.message)}</div>`;
       }
-    })();
+    }
+
+    loadCustomerDetail();
   })();
 </script>
 {% endblock %}

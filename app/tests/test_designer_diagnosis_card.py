@@ -51,6 +51,7 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         cls.consultation_id = cls.active_consultation["consultation_id"]
 
     def _login_shop_session(self):
+        self.client.cookies["browser_active"] = "1"
         session = self.client.session
         session[ADMIN_ID_SESSION_KEY] = self.shop.id
         session[ADMIN_LEGACY_ID_SESSION_KEY] = get_legacy_admin_id(admin=self.shop)
@@ -99,7 +100,7 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         self.assertTrue(customer_note["storage_ready"])
 
         self.assertFalse(session_status["is_active"])
-        self.assertFalse(session_status["can_write_designer_diagnosis"])
+        self.assertTrue(session_status["can_write_designer_diagnosis"])
         self.assertEqual(session_status["customer_note_scope"], "client")
 
     def test_legacy_customer_detail_defers_heavy_history_payload_by_default(self):
@@ -185,6 +186,15 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         self.assertContains(response, 'id="mirraiChatbot"', count=1)
         self.assertContains(response, 'shared/js/chatbot.js')
 
+    def test_designer_dashboard_session_stays_valid_after_first_dashboard_entry(self):
+        self._login_designer_session()
+
+        first_response = self.client.get("/partner/staff/")
+        second_response = self.client.get("/partner/staff/")
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+
     def test_analysis_designer_selection_keeps_designer_session_but_requires_pin_for_staff_dashboard(self):
         self._login_shop_session()
         designer = get_designers_for_admin(admin=self.shop)[0]
@@ -229,7 +239,7 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         self.assertContains(response, 'data-chatbot-placement="customer-detail-extension"')
         self.assertContains(response, 'shared/js/chatbot.js')
 
-    def test_designer_diagnosis_card_rejects_save_without_active_session(self):
+    def test_designer_diagnosis_card_can_save_without_active_session(self):
         self._login_shop_session()
 
         response = self.client.post(
@@ -245,10 +255,33 @@ class DesignerDiagnosisCardFlowTests(TestCase):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertIn("세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다.", payload["detail"])
-        self.assertFalse(DesignerDiagnosisCard.objects.filter(client_ref_id=self.client_id).exists())
+        self.assertEqual(payload["designer_diagnosis"]["hair_texture"], "fine")
+        self.assertEqual(payload["designer_diagnosis"]["damage_level"], "level2")
+        self.assertEqual(payload["designer_diagnosis"]["special_notes"], ["bleach_history"])
+        self.assertEqual(payload["designer_diagnosis"]["special_memo"], "세션 없는 고객은 저장이 막혀야 합니다.")
+        self.assertTrue(payload["session_status"]["can_write_designer_diagnosis"])
+        self.assertTrue(DesignerDiagnosisCard.objects.filter(client_ref_id=self.client_id).exists())
+
+    def test_customer_detail_can_close_active_consultation_session(self):
+        self._login_shop_session()
+
+        response = self.client.post(
+            f"/api/v1/customers/{self.consultation_client_id}/consultation-close/",
+            data=json.dumps({"consultation_id": self.consultation_id}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        detail_response = self.client.get(f"/api/v1/customers/{self.consultation_client_id}/")
+        self.assertEqual(detail_response.status_code, 200)
+        detail_payload = detail_response.json()
+
+        self.assertFalse(detail_payload["session_status"]["is_active"])
+        self.assertTrue(detail_payload["session_status"]["can_write_designer_diagnosis"])
+        self.assertIsNone(detail_payload["active_consultation"])
+        self.assertTrue(detail_payload["reanalysis"]["can_choose_again"])
 
     def test_designer_diagnosis_card_save_and_detail_roundtrip_for_active_session(self):
         self._login_shop_session()
@@ -361,7 +394,7 @@ class DesignerDiagnosisCardFlowTests(TestCase):
         self.assertEqual(customer_note["content"], "재방문 전 고객 메모를 저장했습니다.")
         self.assertTrue(customer_note["has_content"])
         self.assertFalse(payload["session_status"]["is_active"])
-        self.assertFalse(payload["session_status"]["can_write_designer_diagnosis"])
+        self.assertTrue(payload["session_status"]["can_write_designer_diagnosis"])
 
     def test_customer_note_blank_payload_clears_saved_note(self):
         self._login_shop_session()

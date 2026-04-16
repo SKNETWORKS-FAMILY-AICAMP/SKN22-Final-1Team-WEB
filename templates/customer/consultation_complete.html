@@ -6,7 +6,7 @@
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
   <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>상담 요청 접수 완료</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">상담 요청이 성공적으로 접수되었습니다. 결과를 다시 검토하거나 상담을 종료할 수 있습니다.</p>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">상담 요청이 성공적으로 접수되었습니다. 결과를 다시 검토하거나 상담을 종료해 세션을 마무리할 수 있습니다.</p>
 </div>
 {% endblock %}
 
@@ -14,7 +14,8 @@
 <div class="customer-layout" style="display: block;">
   <div class="panel" style="max-width: 930px; margin: 0 auto; padding: 60px 48px !important; border-radius: 24px !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;">
     <h3 class="section-title" style="margin-bottom: 16px; text-align: center;">{{ client.name }}님의 상담 요청이 성공적으로 접수되었습니다.</h3>
-    <p class="section-copy" style="margin-bottom: 48px; text-align: center;">선택하신 스타일 정보가 디자이너에게 전달되었습니다. 잠시만 기다려 주시면 디자이너가 안내해 드릴 예정입니다.</p>
+    <p class="section-copy" style="margin-bottom: 20px; text-align: center;">선택하신 스타일 정보가 디자이너에게 전달되었습니다. 잠시만 기다려 주시면 디자이너가 안내해 드릴 예정입니다.</p>
+    <p class="section-copy" style="margin-bottom: 48px; text-align: center; font-size: 13px; color: var(--text-secondary);">상담이 끝났다면 <strong>상담 종료</strong>를 눌러 현재 상담 세션을 닫아 주세요. 세션이 열려 있으면 재분석이 잠길 수 있습니다.</p>
 
     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
       <a href="{% url 'customer_menu' %}" class="btn btn-dark" style="height: 56px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-size: 16px; background: #fff; color: var(--bg-dark); border: 1.5px solid var(--line);">
