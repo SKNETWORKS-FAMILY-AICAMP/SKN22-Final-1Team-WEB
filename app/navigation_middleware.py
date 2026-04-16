@@ -104,15 +104,15 @@ class CurrentFlowNavigationMiddleware:
 
     def _handle_customer_trend(self, request):
         current_main_route = self._resolve_current_main_route(request=request)
-        if current_main_route is None:
-            return redirect("index")
+        back_url = reverse(current_main_route) if current_main_route else reverse("index")
         client = get_session_customer(request=request)
         return render(
             request,
             "customer/trend.html",
             {
                 "client": client,
-                "trend_main_url": reverse(current_main_route),
+                "back_url": back_url,
+                "trend_main_url": back_url,
             },
         )
 

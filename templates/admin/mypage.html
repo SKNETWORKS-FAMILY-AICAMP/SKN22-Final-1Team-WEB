@@ -10,7 +10,7 @@
   }
 
   .mypage-panel {
-    max-width: 640px;
+    max-width: 720px;
     margin: 0 auto;
     padding: 48px !important;
     border-radius: 24px !important;
@@ -63,6 +63,12 @@
     text-align: right;
   }
 
+  .mypage-security-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
   .mypage-security-card {
     padding: 24px;
     background: var(--bg-light);
@@ -70,6 +76,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
+    justify-content: space-between;
   }
 
   .mypage-security-icon {
@@ -82,6 +89,10 @@
     justify-content: center;
     font-size: 24px;
     flex: 0 0 auto;
+  }
+
+  .mypage-security-meta {
+    flex: 1 1 auto;
   }
 
   .mypage-security-title {
@@ -98,7 +109,20 @@
     line-height: 1.6;
   }
 
+  .mypage-security-action {
+    flex: 0 0 auto;
+    height: 40px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .mypage-section-head > #openKeypadBtn {
+    display: none;
+  }
+
   .pin-change-overlay,
+  .password-change-overlay,
   #warningOverlay {
     position: fixed;
     inset: 0;
@@ -115,27 +139,42 @@
     z-index: 2000;
   }
 
+  .password-change-overlay {
+    z-index: 2050;
+  }
+
   #warningOverlay {
     z-index: 2100;
   }
 
   .pin-change-overlay.is-active,
+  .password-change-overlay.is-active,
   #warningOverlay.is-active {
     display: flex;
   }
 
   .pin-change-container,
+  .password-change-container,
   .warning-container {
-    width: min(100%, 340px);
     background: var(--bg-dark);
     border: 1px solid var(--line);
     border-radius: 24px;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
   }
 
+  .pin-change-container,
+  .warning-container {
+    width: min(100%, 340px);
+  }
+
   .pin-change-container {
     padding: 32px;
     text-align: center;
+  }
+
+  .password-change-container {
+    width: min(100%, 420px);
+    padding: 32px;
   }
 
   .pin-change-title {
@@ -219,6 +258,62 @@
     text-decoration: underline;
   }
 
+  .password-change-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .password-change-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .password-change-input {
+    width: 100%;
+    height: 48px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
+  }
+
+  .password-change-input:focus {
+    border-color: var(--accent-neon);
+  }
+
+  .password-change-help,
+  .password-change-message {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .password-change-message.is-error {
+    color: #ff8f8f;
+  }
+
+  .password-change-message.is-success {
+    color: var(--accent-neon);
+  }
+
+  .password-change-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .password-change-actions .btn {
+    flex: 1 1 0;
+    height: 48px;
+  }
+
   .warning-container {
     padding: 40px 32px;
     text-align: center;
@@ -269,13 +364,19 @@
 
     .mypage-section-head,
     .mypage-row,
-    .mypage-security-card {
+    .mypage-security-card,
+    .password-change-actions {
       flex-direction: column;
       align-items: flex-start;
     }
 
     .mypage-value {
       text-align: left;
+    }
+
+    .mypage-security-action,
+    .password-change-actions .btn {
+      width: 100%;
     }
   }
 </style>
@@ -284,7 +385,7 @@
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
   <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>내 페이지</span></h2>
-  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">관리자 정보 확인 및 보안 설정을 관리합니다.</p>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">매장 관리자 정보와 보안 설정을 관리합니다.</p>
 </div>
 {% endblock %}
 
@@ -321,11 +422,22 @@
         <button id="openKeypadBtn" type="button" class="btn btn-dark" style="height: 36px; padding: 0 16px; font-size: 13px; font-weight: 600;">보안키 변경</button>
       </div>
 
-      <div class="mypage-security-card">
-        <div class="mypage-security-icon">🔑</div>
-        <div>
-          <p class="mypage-security-title">관리자 보안키 (PIN)</p>
-          <p class="mypage-security-copy">매장 내 민감한 정보 접근 시 사용되는 4자리 보안키입니다.</p>
+      <div class="mypage-security-stack">
+        <div class="mypage-security-card">
+          <div class="mypage-security-icon">🔑</div>
+          <div class="mypage-security-meta">
+            <p class="mypage-security-title">관리자 보안키 (PIN)</p>
+            <p class="mypage-security-copy">매장 내 민감한 정보 접근 시 사용하는 4자리 보안키입니다.</p>
+          </div>
+        </div>
+
+        <div class="mypage-security-card">
+          <div class="mypage-security-icon">🔒</div>
+          <div class="mypage-security-meta">
+            <p class="mypage-security-title">관리자 로그인 비밀번호</p>
+            <p class="mypage-security-copy">파트너 센터 로그인에 사용하는 비밀번호를 내 페이지에서 바로 변경할 수 있습니다.</p>
+          </div>
+          <button id="openPasswordChangeBtn" type="button" class="btn btn-dark mypage-security-action">비밀번호 변경</button>
         </div>
       </div>
     </section>
@@ -363,11 +475,37 @@
   </div>
 </div>
 
+<div id="passwordChangeOverlay" class="password-change-overlay">
+  <div class="password-change-container">
+    <div class="pin-change-title">비밀번호 변경</div>
+    <div class="pin-change-subtitle">현재 비밀번호를 확인한 뒤 새 비밀번호로 변경해 주세요.</div>
+
+    <form id="passwordChangeForm" class="password-change-form">
+      <label for="currentPasswordInput" class="password-change-label">현재 비밀번호</label>
+      <input id="currentPasswordInput" name="current_password" type="password" class="password-change-input" autocomplete="current-password" placeholder="현재 비밀번호">
+
+      <label for="newPasswordInput" class="password-change-label">새 비밀번호</label>
+      <input id="newPasswordInput" name="new_password" type="password" class="password-change-input" autocomplete="new-password" placeholder="8자 이상 입력">
+
+      <label for="confirmPasswordInput" class="password-change-label">새 비밀번호 확인</label>
+      <input id="confirmPasswordInput" name="new_password_confirm" type="password" class="password-change-input" autocomplete="new-password" placeholder="한 번 더 입력">
+
+      <p class="password-change-help">영문, 숫자, 특수문자 조합을 권장합니다.</p>
+      <p id="passwordChangeMessage" class="password-change-message"></p>
+
+      <div class="password-change-actions">
+        <button id="closePasswordChangeBtn" type="button" class="btn btn-dark">취소</button>
+        <button type="submit" class="btn btn-primary">변경하기</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="warningOverlay">
   <div class="warning-container">
     <span class="warning-icon">⚠️</span>
-    <div class="warning-title">보안 위험 알림</div>
-    <p class="warning-text">현재 보안키가 0000으로 설정되어 있습니다.<br>보안이 취약하오니 보안키를 변경해 주세요.</p>
+    <div class="warning-title">보안 주의 알림</div>
+    <p class="warning-text">현재 보안키가 기본값 0000으로 설정되어 있습니다.<br>안전한 이용을 위해 보안키를 먼저 변경해 주세요.</p>
     <button id="goToChangePinBtn" type="button" class="warning-btn">보안키 변경하기</button>
   </div>
 </div>
@@ -380,21 +518,46 @@
 
     const isMypageVerified = {% if is_mypage_owner %}true{% else %}false{% endif %};
     let isDefaultAdminPin = {% if is_default_admin_pin %}true{% else %}false{% endif %};
-    const overlay = document.getElementById('pinChangeOverlay');
+
+    const pinOverlay = document.getElementById('pinChangeOverlay');
+    const passwordOverlay = document.getElementById('passwordChangeOverlay');
     const warningOverlay = document.getElementById('warningOverlay');
+
     const goToChangePinBtn = document.getElementById('goToChangePinBtn');
-    const openBtn = document.getElementById('openKeypadBtn');
-    const closeBtn = document.getElementById('closePinChangeBtn');
+    const openPinBtn = document.getElementById('openKeypadBtn');
+    const closePinBtn = document.getElementById('closePinChangeBtn');
+    const openPasswordBtn = document.getElementById('openPasswordChangeBtn');
+    const closePasswordBtn = document.getElementById('closePasswordChangeBtn');
+    const pinSecurityCard = document.querySelector('.mypage-security-card');
+
     const dots = document.querySelectorAll('.pin-change-dot');
     const titleEl = document.getElementById('pinChangeStepTitle');
     const subEl = document.getElementById('pinChangeStepSub');
     const keypadButtons = document.querySelectorAll('.pin-change-btn[data-val]');
     const backBtn = document.getElementById('pinChangeBack');
 
+    const passwordForm = document.getElementById('passwordChangeForm');
+    const passwordMessageEl = document.getElementById('passwordChangeMessage');
+
+    if (openPinBtn && pinSecurityCard) {
+      openPinBtn.classList.add('mypage-security-action');
+      openPinBtn.style.height = '';
+      openPinBtn.style.padding = '';
+      openPinBtn.style.fontSize = '';
+      openPinBtn.style.fontWeight = '';
+      pinSecurityCard.appendChild(openPinBtn);
+    }
+
     let state = 'VERIFY_CURRENT';
     let inputBuffer = '';
     let verifiedCurrentPin = '';
     let newPinBuffer = '';
+
+    function restoreWarningIfNeeded() {
+      if (isMypageVerified && isDefaultAdminPin && warningOverlay && !pinOverlay.classList.contains('is-active')) {
+        warningOverlay.classList.add('is-active');
+      }
+    }
 
     window.addEventListener('load', () => {
       if (isMypageVerified && isDefaultAdminPin && warningOverlay) {
@@ -407,14 +570,15 @@
       if (warningOverlay) {
         warningOverlay.classList.remove('is-active');
       }
-      overlay.classList.add('is-active');
+      if (passwordOverlay) {
+        passwordOverlay.classList.remove('is-active');
+      }
+      pinOverlay.classList.add('is-active');
     }
 
     function closeKeypad() {
-      overlay.classList.remove('is-active');
-      if (isMypageVerified && isDefaultAdminPin && warningOverlay) {
-        warningOverlay.classList.add('is-active');
-      }
+      pinOverlay.classList.remove('is-active');
+      restoreWarningIfNeeded();
     }
 
     function resetKeypad() {
@@ -422,19 +586,19 @@
       inputBuffer = '';
       verifiedCurrentPin = '';
       newPinBuffer = '';
-      updateUI();
+      updatePinUI();
     }
 
-    function updateUI() {
+    function updatePinUI() {
       if (state === 'VERIFY_CURRENT') {
         titleEl.textContent = '현재 보안키 확인';
         subEl.textContent = '현재 사용 중인 보안키 4자리를 입력해 주세요.';
       } else if (state === 'ENTER_NEW') {
         titleEl.textContent = '새 보안키 설정';
         subEl.textContent = '변경할 새로운 보안키 4자리를 입력해 주세요.';
-      } else if (state === 'CONFIRM_NEW') {
+      } else {
         titleEl.textContent = '보안키 재확인';
-        subEl.textContent = '확인을 위해 새 보안키를 다시 입력해 주세요.';
+        subEl.textContent = '확인을 위해 새 보안키를 한 번 더 입력해 주세요.';
       }
 
       dots.forEach((dot, idx) => {
@@ -442,26 +606,25 @@
       });
     }
 
-    function handleInput(value) {
+    function handlePinInput(value) {
       if (inputBuffer.length >= 4) {
         return;
       }
 
       inputBuffer += value;
-      updateUI();
+      updatePinUI();
 
       if (inputBuffer.length === 4) {
-        setTimeout(processStep, 250);
+        setTimeout(processPinStep, 250);
       }
     }
 
-    function handleBack() {
+    function handlePinBack() {
       if (!inputBuffer.length) {
         return;
       }
-
       inputBuffer = inputBuffer.slice(0, -1);
-      updateUI();
+      updatePinUI();
     }
 
     async function verifyCurrentPin(pin) {
@@ -486,19 +649,19 @@
       return true;
     }
 
-    async function processStep() {
+    async function processPinStep() {
       if (state === 'VERIFY_CURRENT') {
         const verified = await verifyCurrentPin(inputBuffer);
         if (verified) {
           verifiedCurrentPin = inputBuffer;
           state = 'ENTER_NEW';
           inputBuffer = '';
-          updateUI();
+          updatePinUI();
           return;
         }
 
         inputBuffer = '';
-        updateUI();
+        updatePinUI();
         return;
       }
 
@@ -506,20 +669,20 @@
         newPinBuffer = inputBuffer;
         state = 'CONFIRM_NEW';
         inputBuffer = '';
-        updateUI();
+        updatePinUI();
         return;
       }
 
       if (inputBuffer !== newPinBuffer) {
-        alert('새 보안키가 일치하지 않습니다. 처음부터 다시 시도해 주세요.');
+        alert('새 보안키 확인이 일치하지 않습니다. 처음부터 다시 진행해 주세요.');
         resetKeypad();
         return;
       }
 
-      await finalizeChange(newPinBuffer);
+      await finalizePinChange(newPinBuffer);
     }
 
-    async function finalizeChange(pin) {
+    async function finalizePinChange(pin) {
       try {
         const formData = new URLSearchParams();
         formData.append('action', 'change_pin');
@@ -541,7 +704,7 @@
           alert(data.message || '보안키 변경 중 오류가 발생했습니다.');
           state = 'ENTER_NEW';
           inputBuffer = '';
-          updateUI();
+          updatePinUI();
           return;
         }
 
@@ -559,24 +722,120 @@
       }
     }
 
+    function openPasswordModal() {
+      if (warningOverlay) {
+        warningOverlay.classList.remove('is-active');
+      }
+      resetPasswordForm();
+      passwordOverlay.classList.add('is-active');
+    }
+
+    function closePasswordModal() {
+      passwordOverlay.classList.remove('is-active');
+      restoreWarningIfNeeded();
+    }
+
+    function setPasswordMessage(message, type = '') {
+      if (!passwordMessageEl) {
+        return;
+      }
+      passwordMessageEl.textContent = message || '';
+      passwordMessageEl.classList.remove('is-error', 'is-success');
+      if (type) {
+        passwordMessageEl.classList.add(type === 'error' ? 'is-error' : 'is-success');
+      }
+    }
+
+    function resetPasswordForm() {
+      if (passwordForm) {
+        passwordForm.reset();
+      }
+      setPasswordMessage('');
+    }
+
+    async function submitPasswordChange(event) {
+      event.preventDefault();
+
+      const currentPassword = document.getElementById('currentPasswordInput').value.trim();
+      const newPassword = document.getElementById('newPasswordInput').value.trim();
+      const confirmPassword = document.getElementById('confirmPasswordInput').value.trim();
+
+      if (!currentPassword) {
+        setPasswordMessage('현재 비밀번호를 입력해 주세요.', 'error');
+        return;
+      }
+      if (newPassword.length < 8) {
+        setPasswordMessage('새 비밀번호를 8자 이상 입력해 주세요.', 'error');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setPasswordMessage('새 비밀번호 확인이 일치하지 않습니다.', 'error');
+        return;
+      }
+
+      try {
+        const formData = new URLSearchParams();
+        formData.append('action', 'change_password');
+        formData.append('current_password', currentPassword);
+        formData.append('new_password', newPassword);
+        formData.append('new_password_confirm', confirmPassword);
+
+        const response = await fetch(window.location.pathname, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': '{{ csrf_token }}',
+          },
+          body: formData.toString(),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          setPasswordMessage(data.message || '비밀번호 변경 중 오류가 발생했습니다.', 'error');
+          return;
+        }
+
+        setPasswordMessage(data.message || '비밀번호가 성공적으로 변경되었습니다.', 'success');
+        window.setTimeout(() => {
+          closePasswordModal();
+          alert(data.message || '비밀번호가 성공적으로 변경되었습니다.');
+        }, 150);
+      } catch (error) {
+        console.error('Password change error:', error);
+        setPasswordMessage('서버 처리 중 오류가 발생했습니다.', 'error');
+      }
+    }
+
     if (goToChangePinBtn) {
       goToChangePinBtn.addEventListener('click', openKeypad);
     }
 
-    if (openBtn) {
-      openBtn.addEventListener('click', openKeypad);
+    if (openPinBtn) {
+      openPinBtn.addEventListener('click', openKeypad);
     }
 
-    if (closeBtn) {
-      closeBtn.addEventListener('click', closeKeypad);
+    if (closePinBtn) {
+      closePinBtn.addEventListener('click', closeKeypad);
+    }
+
+    if (openPasswordBtn) {
+      openPasswordBtn.addEventListener('click', openPasswordModal);
+    }
+
+    if (closePasswordBtn) {
+      closePasswordBtn.addEventListener('click', closePasswordModal);
+    }
+
+    if (passwordForm) {
+      passwordForm.addEventListener('submit', submitPasswordChange);
     }
 
     keypadButtons.forEach((button) => {
-      button.addEventListener('click', () => handleInput(button.dataset.val));
+      button.addEventListener('click', () => handlePinInput(button.dataset.val));
     });
 
     if (backBtn) {
-      backBtn.addEventListener('click', handleBack);
+      backBtn.addEventListener('click', handlePinBack);
     }
   })();
 </script>

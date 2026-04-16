@@ -1,26 +1,61 @@
+<style>
+  .footer-service-link {
+    display: block;
+    font-size: 14px;
+  }
+
+  .footer-partner-link {
+    display: block;
+    margin-top: 4px;
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+</style>
+
 <footer class="site-footer" style="margin-top: 80px; padding: 48px 24px; border-top: 1px solid var(--line); background: var(--bg-light);">
   <div style="max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 48px;">
     <div class="stack" style="gap: 16px;">
       <h2 class="brand-mark" style="color: var(--bg-dark); font-size: 24px;">Mirr<span>AI</span></h2>
       <p class="section-copy" style="max-width: 320px;">
-        인공지능 기술을 통해 당신에게 가장 완벽한 헤어 스타일을 제안합니다. 
-        데이터 기반의 정교한 분석으로 새로운 아름다움을 발견하세요.
+        고객 인식 기술을 통해 자신에게 어울리는 헤어 스타일을 제안합니다.
+        데이터 기반의 정교한 분석으로 새로운 아름다움을 발견해보세요.
       </p>
     </div>
-    
+
     <div style="display: flex; gap: 64px;">
       <div class="stack" style="gap: 12px;">
         <h4 style="font-size: 14px; font-weight: 700; color: var(--bg-dark); margin: 0 0 8px;">Service</h4>
-        <a href="/customer/" class="section-copy" style="font-size: 14px;">스타일 분석</a>
-        <a href="/partner/" class="nav-link" style="color: var(--text-secondary); font-size: 14px;">파트너 센터</a>
+        {% if request.session.customer_id %}
+        <a href="{% url 'customer_camera' %}" class="section-copy footer-service-link">스타일 분석</a>
+        {% elif request.session.designer_id %}
+        <a href="{% url 'customer_index' %}" class="section-copy footer-service-link">스타일 분석</a>
+        {% elif request.session.admin_id %}
+        <a href="{% url 'partner_designer_select' %}?next={% url 'customer_index' %}" class="section-copy footer-service-link">스타일 분석</a>
+        {% else %}
+        <a href="{% url 'partner_login' %}?next=/partner/designer-select/?next=/customer/" class="section-copy footer-service-link">스타일 분석</a>
+        {% endif %}
+
+        {% if request.session.designer_id %}
+          {% if request.session.designer_dashboard_allowed %}
+        <a href="{% url 'partner_staff_dashboard' %}" class="nav-link footer-partner-link">파트너 센터</a>
+          {% else %}
+        <a href="{% url 'partner_designer_select' %}?designer_id={{ request.session.designer_id }}&next={% url 'partner_staff_dashboard' %}" class="nav-link footer-partner-link">파트너 센터</a>
+          {% endif %}
+        {% elif request.session.admin_id %}
+        <a href="{% url 'partner_dashboard' %}" class="nav-link footer-partner-link" data-admin-gate="true" data-admin-gate-scope="dashboard">파트너 센터</a>
+        {% else %}
+        <a href="{% url 'partner_login' %}?next={% url 'partner_dashboard' %}" class="nav-link footer-partner-link">파트너 센터</a>
+        {% endif %}
       </div>
+
       <div class="stack" style="gap: 12px;">
         <h4 style="font-size: 14px; font-weight: 700; color: var(--bg-dark); margin: 0 0 8px;">Support</h4>
-        <a href="{% url 'terms' %}" class="section-copy" style="font-size: 14px;">이용약관</a>
-        <a href="{% url 'privacy_policy' %}" class="section-copy" style="font-size: 14px;">개인정보처리방침</a>
+        <a href="{% url 'terms' %}" class="section-copy footer-service-link">이용약관</a>
+        <a href="{% url 'privacy_policy' %}" class="section-copy footer-service-link">개인정보처리방침</a>
       </div>
     </div>
   </div>
+
   <div style="max-width: 1200px; margin: 48px auto 0; padding-top: 24px; border-top: 1px solid var(--line);">
     <p class="section-copy" style="font-size: 13px; opacity: 0.6;">© 2026 MirrAI Team. All rights reserved.</p>
   </div>

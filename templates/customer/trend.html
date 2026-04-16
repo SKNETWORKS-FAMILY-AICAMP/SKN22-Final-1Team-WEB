@@ -1,10 +1,10 @@
 {% extends "layouts/base_site.html" %}
 
-{% block page_title %}MirrAI | 최신 헤어 트렌드{% endblock %}
+{% block page_title %}MirrAI | 요즘 뜨는 헤어 트렌드{% endblock %}
 
 {% block hero_content %}
 <div style="max-width: 1200px; margin: 0 auto; width: 100%;">
-  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>최신 헤어 트렌드 5선</span></h2>
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>요즘 뜨는 헤어 트렌드</span></h2>
 </div>
 {% endblock %}
 
@@ -104,13 +104,30 @@
     overflow: hidden;
   }
 
-  .trend-feed-source {
+  .trend-feed-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
     margin: 0 0 -6px;
+  }
+
+  .trend-feed-source {
+    margin: 0;
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+  }
+
+  .trend-feed-date {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
   }
 
   .trend-feed-keywords {
@@ -291,6 +308,10 @@
           return;
         }
 
+        if (event.target.closest("a[href], button, input, textarea, select, label")) {
+          return;
+        }
+
         if (track.scrollWidth <= track.clientWidth + 1) {
           return;
         }
@@ -349,6 +370,42 @@
       }[char]));
     }
 
+    function normalizeArticleUrl(value) {
+      const raw = String(value ?? "").trim();
+      if (!raw || raw === "#") {
+        return "";
+      }
+      if (/^https?:\/\//i.test(raw)) {
+        return raw;
+      }
+      if (raw.startsWith("//")) {
+        return `https:${raw}`;
+      }
+      return "";
+    }
+
+    function formatTrendDate(value) {
+      const raw = String(value ?? "").trim();
+      if (!raw) {
+        return "";
+      }
+
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        const year = parsed.getFullYear();
+        const month = String(parsed.getMonth() + 1).padStart(2, "0");
+        const day = String(parsed.getDate()).padStart(2, "0");
+        return `${year}.${month}.${day}`;
+      }
+
+      const match = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        return `${match[1]}.${match[2]}.${match[3]}`;
+      }
+
+      return "";
+    }
+
     function renderEmpty(message) {
       loading.remove();
       sliderShell.style.display = "block";
@@ -379,26 +436,38 @@
 
         track.innerHTML = items.map((item) => {
           const imageUrl = item.image_url || placeholderSvg;
-          const articleUrl = item.article_url || "#";
+          const articleUrl = normalizeArticleUrl(
+            item.article_url || item.url || item.source_url || item.link
+          );
           const title = item.title_ko || item.title || "제목 없음";
           const sourceName = item.source_name || item.source || "";
+          const publishedDate = formatTrendDate(item.published_at || item.crawled_at || item.date);
           const keywords = Array.isArray(item.keywords) ? item.keywords.slice(0, 2) : [];
-          const sourceMarkup = sourceName
-            ? `<p class="trend-feed-source">${escapeHtml(sourceName)}</p>`
+          const metaMarkup = (sourceName || publishedDate)
+            ? `
+                <div class="trend-feed-meta">
+                  ${sourceName ? `<p class="trend-feed-source">${escapeHtml(sourceName)}</p>` : "<span></span>"}
+                  ${publishedDate ? `<p class="trend-feed-date">${escapeHtml(publishedDate)}</p>` : ""}
+                </div>
+              `
             : "";
           const keywordMarkup = keywords.length
             ? `<div class="trend-feed-keywords">${keywords.map((keyword) => `<span class="trend-feed-keyword">${escapeHtml(keyword)}</span>`).join("")}</div>`
             : "";
+          const cardTag = articleUrl ? "a" : "article";
+          const cardAttrs = articleUrl
+            ? `href="${escapeHtml(articleUrl)}" rel="noopener noreferrer"`
+            : 'aria-disabled="true"';
 
           return `
-            <a href="${articleUrl}" target="_blank" rel="noopener noreferrer" class="panel trend-feed-card" style="padding: 20px;">
+            <${cardTag} ${cardAttrs} class="panel trend-feed-card" style="padding: 20px;">
               <div class="trend-feed-media">
                 <img src="${imageUrl}" alt="${escapeHtml(title)}" loading="lazy" draggable="false" onerror="this.src='${placeholderSvg}'">
               </div>
-              ${sourceMarkup}
+              ${metaMarkup}
               <h4 class="trend-feed-title">${escapeHtml(title)}</h4>
               ${keywordMarkup}
-            </a>
+            </${cardTag}>
           `;
         }).join("");
       } catch (error) {
