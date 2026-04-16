@@ -301,7 +301,6 @@
         dragState.startX = event.clientX;
         dragState.startScrollLeft = track.scrollLeft;
         window.clearTimeout(dragState.suppressClickTimer);
-        track.setPointerCapture?.(event.pointerId);
       });
 
       track.addEventListener("pointermove", (event) => {
@@ -314,6 +313,7 @@
           dragState.dragging = true;
           dragState.suppressClick = true;
           track.classList.add("is-dragging");
+          track.setPointerCapture?.(event.pointerId);
         }
 
         if (!dragState.dragging) {
