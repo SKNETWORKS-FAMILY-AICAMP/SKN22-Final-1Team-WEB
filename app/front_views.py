@@ -322,7 +322,8 @@ def home_page(request):
     # 홈으로 나가면 파트너센터/내 페이지 PIN 인증 세션을 revoke
     # → 다시 진입할 때 PIN 재인증 필요
     revoke_all_owner_scopes(request=request)
-    return render(request, "index.html", {"start_url": "/customer/", "partner_url": "/partner/login/"})
+    start_url = f"{reverse('partner_login')}?next={reverse('partner_designer_select')}?next={reverse('customer_index')}"
+    return render(request, "index.html", {"start_url": start_url, "partner_url": reverse("partner_login")})
 
 
 def terms_page(request):

@@ -267,6 +267,17 @@ class FrontCompatibilityTests(APITestCase):
             html=True,
         )
 
+    def test_home_primary_cta_uses_partner_login_flow_for_public_user(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'href="/partner/login/?next=/partner/designer-select/?next=/customer/"',
+            count=2,
+            html=False,
+        )
+
     def test_customer_logout_redirect_sets_never_cache_headers(self):
         client = self._create_client(name="Logout Client", phone="01011113333")
         session = self.client.session
