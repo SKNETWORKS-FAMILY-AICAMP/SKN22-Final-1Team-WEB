@@ -257,6 +257,27 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "window.addEventListener('pageshow'", html=False)
 
+    def test_footer_style_analysis_link_uses_designer_select_flow_for_public_user(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            '<a href="/partner/login/?next=/partner/designer-select/?next=/customer/" class="section-copy" style="font-size: 14px;">스타일 분석</a>',
+            html=True,
+        )
+
+    def test_home_primary_cta_uses_partner_login_flow_for_public_user(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'href="/partner/login/?next=/partner/designer-select/?next=/customer/"',
+            count=2,
+            html=False,
+        )
+
     def test_customer_logout_redirect_sets_never_cache_headers(self):
         client = self._create_client(name="Logout Client", phone="01011113333")
         session = self.client.session
@@ -360,7 +381,7 @@ class FrontCompatibilityTests(APITestCase):
         DEBUG=True,
         STATICFILES_STORAGE="django.contrib.staticfiles.storage.StaticFilesStorage",
     )
-    def test_partner_dashboard_renders_pin_gate_for_shop_only_session(self):
+    def test_partner_dashboard_redirects_shop_only_session_to_owner_gate(self):
         admin = self._create_admin(
             name="Dashboard Owner",
             store_name="MirrAI Dashboard",
@@ -378,9 +399,9 @@ class FrontCompatibilityTests(APITestCase):
 
         response = self.client.get("/partner/dashboard/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.context["is_shop_owner"])
-        self.assertContains(response, 'data-admin-gate-scope="dashboard"', html=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/partner/owner-gate/", response["Location"])
+        self.assertIn("scope=dashboard", response["Location"])
 
     @override_settings(
         DEBUG=True,
@@ -519,6 +540,38 @@ class FrontCompatibilityTests(APITestCase):
         self.assertEqual(response.json()["status"], "success")
         self.assertTrue(check_password("2468", persisted_admin.admin_pin))
         self.assertFalse(response.json()["is_default_admin_pin"])
+
+    def test_partner_mypage_change_password_hashes_new_value(self):
+        admin = self._create_admin(
+            name="Password Owner",
+            store_name="MirrAI Password",
+            role="owner",
+            phone="01055556660",
+            business_number=build_valid_business_number("917456780"),
+            password_hash=make_password("pw1234!!"),
+            consent_snapshot={
+                "agree_terms": True,
+                "agree_privacy": True,
+                "agree_third_party_sharing": True,
+            },
+        )
+        self._set_admin_session(admin)
+
+        response = self.client.post(
+            "/partner/mypage/",
+            {
+                "action": "change_password",
+                "current_password": "pw1234!!",
+                "new_password": "newpw5678!",
+                "new_password_confirm": "newpw5678!",
+            },
+        )
+        persisted_admin = AdminAccount.objects.get(backend_admin_id=admin.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "success")
+        self.assertTrue(check_password("newpw5678!", persisted_admin.password_hash))
+        self.assertTrue(check_password("newpw5678!", persisted_admin.password))
 
     def test_partner_dashboard_redirects_designer_to_staff_dashboard(self):
         admin = self._create_admin(

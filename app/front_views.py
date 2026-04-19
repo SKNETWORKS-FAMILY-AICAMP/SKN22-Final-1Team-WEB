@@ -92,6 +92,20 @@ def _is_default_admin_pin(stored_pin: str | None) -> bool:
     return _matches_admin_pin(raw_pin="0000", stored_pin=stored_pin)
 
 
+def _hash_admin_password(value: str) -> str:
+    return make_password(value)
+
+
+def _matches_admin_password(*, raw_password: str, stored_password: str | None) -> bool:
+    normalized_password = (raw_password or "").strip()
+    normalized_stored_password = (stored_password or "").strip()
+    if not normalized_stored_password:
+        return False
+    if _is_hashed_secret(normalized_stored_password):
+        return check_password(normalized_password, normalized_stored_password)
+    return normalized_password == normalized_stored_password
+
+
 def _get_admin_account_for_runtime_admin(admin):
     from app.models_django import AdminAccount
 
@@ -141,6 +155,29 @@ def _upgrade_plain_admin_pin_if_needed(*, request: HttpRequest, admin_obj, raw_p
     return True
 
 
+def _upgrade_plain_admin_password_if_needed(*, request: HttpRequest, admin_obj, raw_password: str) -> bool:
+    stored_password = (
+        (getattr(admin_obj, "password_hash", "") or "").strip()
+        or (getattr(admin_obj, "password", "") or "").strip()
+    )
+    if not stored_password:
+        return False
+    if _is_hashed_secret(stored_password):
+        return False
+    if stored_password != (raw_password or "").strip():
+        return False
+
+    hashed_password = _hash_admin_password(stored_password)
+    admin_obj.password_hash = hashed_password
+    if hasattr(admin_obj, "password"):
+        admin_obj.password = hashed_password
+        admin_obj.save(update_fields=["password_hash", "password"])
+    else:
+        admin_obj.save(update_fields=["password_hash"])
+    _sync_admin_account_state(request=request, admin_obj=admin_obj)
+    return True
+
+
 def _birth_year_from_age(age_value: str) -> int | None:
     if not age_value:
         return None
@@ -160,6 +197,36 @@ def _popup_message_from_notice(notice: str | None) -> str | None:
         "designer_created": "신규 디자이너 계정이 생성되었습니다. 목록에서 선택 후 로그인해 주세요.",
     }
     return messages.get((notice or "").strip())
+
+
+def _safe_internal_next_url(value: str | None, *, default: str) -> str:
+    candidate = (value or "").strip()
+    if candidate.startswith("/") and not candidate.startswith("//"):
+        return candidate
+    return default
+
+
+def _owner_gate_path(*, request: HttpRequest, scope: str = "dashboard", next_url: str | None = None) -> str:
+    normalized_scope = "mypage" if (scope or "").strip().lower() == "mypage" else "dashboard"
+    default_target = reverse("partner_mypage") if normalized_scope == "mypage" else reverse("partner_dashboard")
+    target_url = _safe_internal_next_url(next_url or request.get_full_path(), default=default_target)
+    return f"{reverse('partner_owner_gate')}?{urlencode({'scope': normalized_scope, 'next': target_url})}"
+
+
+def _owner_scope_gate_response(*, request: HttpRequest, scope: str = "dashboard", next_url: str | None = None):
+    if request.method != "GET":
+        return None
+
+    normalized_scope = "mypage" if (scope or "").strip().lower() == "mypage" else "dashboard"
+    has_scope = (
+        can_access_owner_mypage(request=request)
+        if normalized_scope == "mypage"
+        else can_access_owner_dashboard(request=request)
+    )
+    if has_scope:
+        return None
+
+    return redirect(_owner_gate_path(request=request, scope=normalized_scope, next_url=next_url))
 
 
 def _render_customer_login(
@@ -255,7 +322,8 @@ def home_page(request):
     # 홈으로 나가면 파트너센터/내 페이지 PIN 인증 세션을 revoke
     # → 다시 진입할 때 PIN 재인증 필요
     revoke_all_owner_scopes(request=request)
-    return render(request, "index.html", {"start_url": "/customer/", "partner_url": "/partner/login/"})
+    start_url = f"{reverse('partner_login')}?next={reverse('partner_designer_select')}?next={reverse('customer_index')}"
+    return render(request, "index.html", {"start_url": start_url, "partner_url": reverse("partner_login")})
 
 
 def terms_page(request):
@@ -400,7 +468,14 @@ def client_recommendation_history_page(request):
 @never_cache
 def client_trend_page(request):
     client = get_session_customer(request=request)
-    back_url = reverse("index")
+    if client is not None:
+        back_url = reverse("customer_menu")
+    elif get_session_designer(request=request) is not None:
+        back_url = reverse("partner_staff_dashboard")
+    elif get_session_admin(request=request) is not None:
+        back_url = reverse("partner_dashboard")
+    else:
+        back_url = reverse("index")
 
     return render(
         request,
@@ -462,6 +537,46 @@ def partner_designer_select_page(request: HttpRequest):
 
 
 @never_cache
+def partner_owner_gate_page(request: HttpRequest):
+    if _has_standalone_customer_session(request=request):
+        return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
+
+    if get_session_designer(request=request) is not None:
+        return redirect("partner_staff_dashboard")
+
+    scope = "mypage" if (request.GET.get("scope") or "").strip().lower() == "mypage" else "dashboard"
+    default_target = reverse("partner_mypage") if scope == "mypage" else reverse("partner_dashboard")
+    target_url = _safe_internal_next_url(request.GET.get("next"), default=default_target)
+
+    admin = get_session_admin(request=request)
+    if admin is None:
+        login_url = reverse("partner_login")
+        query = urlencode({"next": request.get_full_path()})
+        return redirect(f"{login_url}?{query}")
+
+    if scope == "mypage" and can_access_owner_mypage(request=request):
+        return redirect(target_url)
+    if scope == "dashboard" and can_access_owner_dashboard(request=request):
+        return redirect(target_url)
+
+    gate_message = (
+        "내 페이지 접근을 위해 관리자 보안키(PIN) 4자리를 입력해 주세요."
+        if scope == "mypage"
+        else "파트너 센터 접근을 위해 관리자 보안키(PIN) 4자리를 입력해 주세요."
+    )
+    return render(
+        request,
+        "admin/owner_gate.html",
+        {
+            "target_scope": scope,
+            "target_url": target_url,
+            "gate_message": gate_message,
+            "cancel_url": reverse("index"),
+        },
+    )
+
+
+@never_cache
 def partner_customer_detail_page(request: HttpRequest, pk: int):
     if _has_standalone_customer_session(request=request):
         return redirect(f"{reverse('customer_resume')}?notice=partner_forbidden_customer")
@@ -469,6 +584,10 @@ def partner_customer_detail_page(request: HttpRequest, pk: int):
     admin, designer = _resolve_active_shop_and_designer(request=request)
     if admin is None:
         return redirect("partner_index")
+    if designer is None:
+        gate_response = _owner_scope_gate_response(request=request, scope="dashboard")
+        if gate_response is not None:
+            return gate_response
 
     client = get_client_by_identifier(identifier=pk)
     if client is None:
@@ -500,6 +619,10 @@ def customer_reanalysis_start_page(request, pk: int):
     admin, designer = _resolve_active_shop_and_designer(request=request)
     if admin is None:
         return redirect("partner_index")
+    if designer is None:
+        gate_response = _owner_scope_gate_response(request=request, scope="dashboard")
+        if gate_response is not None:
+            return gate_response
 
     client = get_client_by_identifier(identifier=pk)
     if client is None:
@@ -592,6 +715,9 @@ def designer_signup_page(request):
     admin = get_session_admin(request=request)
     if admin is None or get_session_designer(request=request) is not None:
         return redirect("partner_index")
+    gate_response = _owner_scope_gate_response(request=request, scope="dashboard")
+    if gate_response is not None:
+        return gate_response
 
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
@@ -660,6 +786,9 @@ def designer_management_page(request):
     admin = get_session_admin(request=request)
     if admin is None or get_session_designer(request=request) is not None:
         return redirect("partner_index")
+    gate_response = _owner_scope_gate_response(request=request, scope="dashboard")
+    if gate_response is not None:
+        return gate_response
 
     designers = get_designers_for_admin(admin=admin)
     return render(
@@ -681,6 +810,9 @@ def designer_delete_page(request):
     admin = get_session_admin(request=request)
     if admin is None or get_session_designer(request=request) is not None:
         return redirect("partner_index")
+    gate_response = _owner_scope_gate_response(request=request, scope="dashboard")
+    if gate_response is not None:
+        return gate_response
 
     if request.method == "POST":
         designer_id = (request.POST.get("designer_id") or "").strip()
@@ -725,6 +857,47 @@ def admin_mypage_page(request):
         admin_obj = _get_admin_account_for_runtime_admin(admin)
         if admin_obj is None:
             return JsonResponse({"status": "error", "message": "관리자 정보를 찾을 수 없습니다."}, status=404)
+
+        if action == "change_password":
+            current_password = (request.POST.get("current_password") or "").strip()
+            new_password = (request.POST.get("new_password") or "").strip()
+            confirm_password = (request.POST.get("new_password_confirm") or "").strip()
+            stored_password = (
+                (getattr(admin_obj, "password_hash", "") or "").strip()
+                or (getattr(admin_obj, "password", "") or "").strip()
+            )
+
+            if not current_password:
+                return JsonResponse({"status": "error", "message": "현재 비밀번호를 입력해 주세요."}, status=400)
+            if not _matches_admin_password(raw_password=current_password, stored_password=stored_password):
+                return JsonResponse({"status": "error", "message": "현재 비밀번호가 일치하지 않습니다."}, status=401)
+
+            _upgrade_plain_admin_password_if_needed(request=request, admin_obj=admin_obj, raw_password=current_password)
+
+            if len(new_password) < 8:
+                return JsonResponse({"status": "error", "message": "새 비밀번호를 8자 이상 입력해 주세요."}, status=400)
+            if new_password != confirm_password:
+                return JsonResponse({"status": "error", "message": "새 비밀번호 확인이 일치하지 않습니다."}, status=400)
+            if _matches_admin_password(
+                raw_password=new_password,
+                stored_password=(getattr(admin_obj, "password_hash", "") or "").strip()
+                or (getattr(admin_obj, "password", "") or "").strip(),
+            ):
+                return JsonResponse(
+                    {"status": "error", "message": "현재 사용 중인 비밀번호와 다른 비밀번호를 입력해 주세요."},
+                    status=400,
+                )
+
+            new_password_hash = _hash_admin_password(new_password)
+            admin_obj.password_hash = new_password_hash
+            if hasattr(admin_obj, "password"):
+                admin_obj.password = new_password_hash
+                admin_obj.save(update_fields=["password_hash", "password"])
+            else:
+                admin_obj.save(update_fields=["password_hash"])
+            _sync_admin_account_state(request=request, admin_obj=admin_obj)
+            allow_owner_mypage(request=request)
+            return JsonResponse({"status": "success", "message": "비밀번호가 성공적으로 변경되었습니다."})
 
         current_pin = (request.POST.get("current_pin") or "").strip()
         if not re.fullmatch(r"\d{4}", current_pin):

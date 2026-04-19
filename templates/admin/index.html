@@ -1230,13 +1230,30 @@
 
     if (enterOwnerDashboardBtn) {
       enterOwnerDashboardBtn.onclick = () => {
-        window.openAdminPinModal('dashboard', '', '디자이너 관리를 위해 관리자 보안키를 입력해 주세요.');
+        window.openAdminPinModal('header', "{% url 'partner_designer_management' %}", '디자이너 관리를 위해 관리자 보안키를 입력해 주세요.', 'dashboard');
       };
     }
 
     window.verifyAdminBeforeDetail = function(customerId) {
       window.openAdminPinModal('detail', customerId, '고객 상세 정보 확인을 위해 관리자 보안키를 입력해 주세요.');
     };
+
+    if (enterOwnerDashboardBtn) {
+      enterOwnerDashboardBtn.style.cursor = 'pointer';
+      enterOwnerDashboardBtn.style.boxShadow = '0 8px 18px rgba(17, 24, 39, 0.14)';
+      enterOwnerDashboardBtn.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
+      enterOwnerDashboardBtn.onmouseenter = () => {
+        enterOwnerDashboardBtn.style.transform = 'translateY(-1px)';
+        enterOwnerDashboardBtn.style.boxShadow = '0 10px 24px rgba(17, 24, 39, 0.18)';
+      };
+      enterOwnerDashboardBtn.onmouseleave = () => {
+        enterOwnerDashboardBtn.style.transform = 'translateY(0)';
+        enterOwnerDashboardBtn.style.boxShadow = '0 8px 18px rgba(17, 24, 39, 0.14)';
+      };
+      enterOwnerDashboardBtn.onclick = () => {
+        window.openAdminPinModal('header', "{% url 'partner_designer_management' %}", '디자이너 관리를 위해 관리자 보안키를 입력해 주세요.', 'dashboard');
+      };
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
       if (isDashboard) {
