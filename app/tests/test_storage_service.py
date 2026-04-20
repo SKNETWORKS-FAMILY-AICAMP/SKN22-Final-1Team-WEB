@@ -84,3 +84,32 @@ class StorageServiceTests(SimpleTestCase):
                 self.assertEqual(persisted, "chatbot/ncs/remote-image.png")
                 local_file = Path(temp_dir) / "chatbot" / "ncs" / "sample" / "img-01.png"
                 self.assertFalse(local_file.exists())
+
+    def test_store_generated_asset_in_supabase_normalizes_windows_style_path_separators(self):
+        with override_settings(
+            SUPABASE_USE_REMOTE_STORAGE=True,
+            SUPABASE_BUCKET="mirrai-assets",
+        ):
+            upload_bucket = Mock()
+            upload_bucket.upload = Mock()
+            client = Mock()
+            client.storage.from_.return_value = upload_bucket
+
+            with patch.object(storage_service, "get_supabase_client", return_value=client), patch.object(
+                storage_service,
+                "ensure_supabase_bucket",
+                return_value=True,
+            ):
+                persisted = storage_service._store_generated_asset_in_supabase(
+                    asset_bytes=b"fake",
+                    extension=".jpg",
+                    subdir=r"chatbot\ncs\designer_c_curl_sequence\c-curl-blow-1",
+                    mime_type="image/jpeg",
+                )
+
+        self.assertIsNotNone(persisted)
+        upload_bucket.upload.assert_called_once()
+        stored_key = upload_bucket.upload.call_args.args[0]
+        self.assertNotIn("\\", stored_key)
+        self.assertTrue(stored_key.startswith("chatbot/ncs/designer_c_curl_sequence/c-curl-blow-1/"))
+        self.assertEqual(persisted, stored_key)

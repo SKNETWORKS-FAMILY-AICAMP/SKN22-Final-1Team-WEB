@@ -188,7 +188,11 @@ def _s3_bucket_is_accessible() -> bool:
     try:
         client.head_bucket(Bucket=bucket)
     except (BotoCoreError, ClientError, ValueError) as exc:
-        logger.warning("[storage] S3 bucket unavailable bucket=%s: %s", bucket, exc)
+        logger.warning(
+            "[storage] S3 bucket unavailable bucket=%s: %s (set S3_BUCKET_NAME blank to disable S3 fallback)",
+            bucket,
+            exc,
+        )
         return False
     return True
 
@@ -281,7 +285,10 @@ def _store_generated_asset_in_supabase(*, asset_bytes: bytes, extension: str, su
         logger.warning("[storage] Supabase 버킷 준비 실패, 로컬 저장으로 전환합니다: %s", exc)
         return None
 
-    key = f"{subdir}/{uuid.uuid4()}{extension}"
+    key = _normalize_relative_storage_path(
+        subdir=subdir,
+        filename=f"{uuid.uuid4()}{extension}",
+    )
     bucket = client.storage.from_(settings.SUPABASE_BUCKET)
     try:
         bucket.upload(

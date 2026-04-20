@@ -221,6 +221,12 @@ PARTNER_REPORT_CACHE_SECONDS=90
 PARTNER_LOOKUP_CACHE_SECONDS=45
 ```
 
+디자이너 챗봇 참고이미지 저장 기준:
+
+- PDF 원본은 EFS에서 읽습니다.
+- PDF에서 추출한 참고이미지는 기본적으로 Supabase Storage에 저장하고 signed URL로 노출합니다.
+- S3를 따로 쓰지 않으면 `S3_BUCKET_NAME` 은 비워 두세요. 값이 남아 있으면 애플리케이션이 먼저 S3를 확인한 뒤 Supabase로 fallback 합니다.
+
 NCS PDF 운영 동기화:
 
 - 디자이너 챗봇 PDF 원본은 런타임 기준 `data/rag/sources/ncs` 경로를 직접 읽습니다.
