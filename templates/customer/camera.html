@@ -111,6 +111,46 @@
     cursor: default;
   }
 
+  .camera-guidance-action-row {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    pointer-events: auto;
+  }
+  .camera-guidance-action-row .camera-guidance-actions {
+    margin-top: 0;
+  }
+
+  .camera-guidance-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #f8fafc;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  }
+  .camera-guidance-upload-btn:hover {
+    background: rgba(0, 255, 157, 0.1);
+    border-color: rgba(0, 255, 157, 0.45);
+    color: #fff;
+  }
+  .camera-guidance-upload-btn:active { transform: scale(0.98); }
+  .camera-guidance-upload-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
   .camera-main-panel {
     padding: 12px;
   }
@@ -266,8 +306,14 @@
   <div id="cameraGuidanceChip" class="camera-guidance-chip">실시간 안내</div>
   <p id="cameraGuidanceTitle" class="camera-guidance-title">카메라를 켜고 얼굴 위치를 맞춰 주세요.</p>
   <p id="cameraGuidanceBody" class="camera-guidance-body">얼굴이 안정적으로 잡히면 자동 촬영 안내가 바로 표시됩니다.</p>
-  <div id="cameraGuidanceActions" class="camera-guidance-actions" hidden>
-    <button id="cameraGuidanceRetakeBtn" class="camera-guidance-btn" type="button">다시 촬영</button>
+  <div class="camera-guidance-action-row">
+    <a href="/customer/upload/" class="camera-guidance-upload-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      사진 업로드하기
+    </a>
+    <div id="cameraGuidanceActions" class="camera-guidance-actions" hidden>
+      <button id="cameraGuidanceRetakeBtn" class="camera-guidance-btn" type="button">다시 촬영</button>
+    </div>
   </div>
 </div>
 
