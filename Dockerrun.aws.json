@@ -9,5 +9,11 @@
       "ContainerPort": 8000,
       "HostPort": 80
     }
+  ],
+  "Volumes": [
+    {
+      "HostDirectory": "/mnt/mirrai-ncs-pdfs",
+      "ContainerDirectory": "/mnt/mirrai-ncs-pdfs"
+    }
   ]
 }

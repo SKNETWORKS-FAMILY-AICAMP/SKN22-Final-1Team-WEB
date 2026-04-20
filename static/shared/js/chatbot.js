@@ -1,247 +1,72 @@
 /**
- * MirrAI Admin Chatbot Service
- * Handles UI interactions and API communication for the hair styling guide.
+ * MirrAI Chatbot Service
+ * Supports designer-only chatbot and customer trend chatbot with page-level configuration.
  */
 (function () {
   'use strict';
 
-  const QUICK_PROMPTS = [
-    { label: 'C\uceec \uc2dc\uc220 \uc21c\uc11c', message: 'C\uceec \uc2dc\uc220 \uc21c\uc11c\ub97c \uc54c\ub824\uc918' },
-    { label: '\uc5fc\uc0c9 \uc804 \uc8fc\uc758\uc0ac\ud56d', message: '\uc5fc\uc0c9 \uc804 \uc8fc\uc758\uc0ac\ud56d\uc744 \uc54c\ub824\uc918' },
-    { label: '\ub808\uc774\uc5b4\ub4dc \ucef7 \uac00\uc774\ub4dc', message: '\ub808\uc774\uc5b4\ub4dc \ucef7 \uac00\uc774\ub4dc\ub97c \uc54c\ub824\uc918' },
+  const DESIGNER_DEFAULT_PROMPTS = [
+    { label: 'C컬 시술 순서', message: 'C컬 시술 순서를 알려줘' },
+    { label: '염색 전 주의사항', message: '염색 전 주의사항을 알려줘' },
+    { label: '레이어드 컷 가이드', message: '레이어드 컷 가이드를 알려줘' },
   ];
 
-  function getElements() {
+  function getChatbotRoots(target) {
+    if (target && target.nodeType === 1 && target.matches('[data-chatbot-component]')) {
+      return [target];
+    }
+    return Array.from(document.querySelectorAll('[data-chatbot-component]'));
+  }
+
+  function getElements(root) {
     return {
-      chatbotPanel: document.getElementById('chatbotPanel'),
-      chatbotTrigger: document.getElementById('chatbotTrigger'),
-      chatMessages: document.getElementById('chatMessages'),
-      chatForm: document.getElementById('chatForm'),
-      chatInput: document.getElementById('chatInput'),
-      typingIndicator: document.getElementById('typingIndicator'),
-      chatStartTime: document.getElementById('chatStartTime'),
-      chatbotQuickPrompts: document.getElementById('chatbotQuickPrompts'),
+      panel: root.querySelector('[data-chatbot-panel]'),
+      trigger: root.querySelector('[data-chatbot-trigger]'),
+      close: root.querySelector('[data-chatbot-close]'),
+      messages: root.querySelector('[data-chatbot-messages]'),
+      form: root.querySelector('[data-chatbot-form]'),
+      input: root.querySelector('[data-chatbot-input]'),
+      typing: root.querySelector('[data-chatbot-typing]'),
+      startTime: root.querySelector('[data-chatbot-start-time]'),
+      quickPrompts: root.querySelector('[data-chatbot-quick-prompts]'),
     };
   }
 
-  function init() {
-    const {
-      chatbotPanel,
-      chatbotTrigger,
-      chatForm,
-      chatStartTime,
-      chatMessages,
-    } = getElements();
-
-    if (!chatbotPanel || !chatbotTrigger || !chatForm || !chatMessages) {
-      return;
-    }
-
-    ensureQuickPrompts();
-
-    if (chatbotTrigger.dataset.chatbotBound === 'true') {
-      return;
-    }
-
-    chatbotTrigger.addEventListener('click', window.toggleChatbot);
-    chatForm.addEventListener('submit', handleChatSubmit);
-    chatbotTrigger.dataset.chatbotBound = 'true';
-
-    if (chatStartTime && !chatStartTime.textContent) {
-      chatStartTime.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      '\'': '&#39;',
+    }[char]));
   }
 
-  window.initMirraiChatbot = init;
-
-  window.toggleChatbot = function () {
-    const { chatbotPanel, chatInput } = getElements();
-    if (!chatbotPanel) {
-      return;
-    }
-
-    chatbotPanel.classList.toggle('active');
-    if (chatbotPanel.classList.contains('active') && chatInput) {
-      chatInput.focus();
-      scrollToBottom();
-    }
-  };
-
-  window.openMirraiChatbot = function () {
-    const { chatbotPanel, chatInput } = getElements();
-    if (!chatbotPanel) {
-      return;
-    }
-
-    chatbotPanel.classList.add('active');
-    if (chatInput) {
-      chatInput.focus();
-    }
-    scrollToBottom();
-  };
-
-  window.sendQuickMessage = function (text) {
-    const { chatInput } = getElements();
-    if (!chatInput) {
-      return;
-    }
-
-    chatInput.value = text;
-    handleChatSubmit(new Event('submit'));
-  };
-
-  function applyQuickPromptStyles(button) {
-    if (!button) {
-      return;
-    }
-
-    Object.assign(button.style, {
-      appearance: 'none',
-      WebkitAppearance: 'none',
-      border: '1px solid rgba(245, 209, 13, 0.26)',
-      background: 'linear-gradient(180deg, rgba(26, 26, 26, 0.98) 0%, rgba(17, 17, 17, 0.92) 100%)',
-      color: 'rgba(255, 255, 255, 0.94)',
-      borderRadius: '999px',
-      padding: '11px 18px',
-      minHeight: '44px',
-      fontSize: '13px',
-      fontWeight: '700',
-      lineHeight: '1.2',
-      letterSpacing: '-0.01em',
-      boxShadow: '0 10px 22px rgba(17, 17, 17, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
-      cursor: 'pointer',
-      transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease',
-      whiteSpace: 'nowrap',
-    });
-
-    button.addEventListener('mouseenter', () => {
-      button.style.transform = 'translateY(-2px) scale(1.01)';
-      button.style.borderColor = 'rgba(245, 209, 13, 0.58)';
-      button.style.color = '#f5d10d';
-      button.style.background = 'linear-gradient(180deg, rgba(31, 31, 31, 0.98) 0%, rgba(15, 15, 15, 0.94) 100%)';
-      button.style.boxShadow = '0 14px 28px rgba(17, 17, 17, 0.22), 0 0 0 1px rgba(245, 209, 13, 0.08)';
-    });
-
-    button.addEventListener('mouseleave', () => {
-      button.style.transform = 'translateY(0) scale(1)';
-      button.style.borderColor = 'rgba(245, 209, 13, 0.26)';
-      button.style.color = 'rgba(255, 255, 255, 0.94)';
-      button.style.background = 'linear-gradient(180deg, rgba(26, 26, 26, 0.98) 0%, rgba(17, 17, 17, 0.92) 100%)';
-      button.style.boxShadow = '0 10px 22px rgba(17, 17, 17, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06)';
-    });
-
-    button.addEventListener('mousedown', () => {
-      button.style.transform = 'translateY(0) scale(0.99)';
-    });
-
-    button.addEventListener('mouseup', () => {
-      button.style.transform = 'translateY(-2px) scale(1.01)';
-    });
+  function normalizeDisplayText(value) {
+    return String(value ?? '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\\n/g, '\n');
   }
 
-  function ensureQuickPrompts() {
-    const { chatMessages, chatbotQuickPrompts } = getElements();
-    if (!chatMessages) {
-      return;
-    }
-
-    let container = chatbotQuickPrompts;
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'chatbotQuickPrompts';
-      container.dataset.chatbotQuickPrompts = 'true';
-      container.className = 'chatbot-quick-prompts';
-      chatMessages.appendChild(container);
-    }
-
-    container.innerHTML = '';
-    QUICK_PROMPTS.forEach((item) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'chatbot-quick-prompt';
-      button.textContent = item.label;
-      applyQuickPromptStyles(button);
-      button.addEventListener('click', () => {
-        window.sendQuickMessage(item.message);
-      });
-      container.appendChild(button);
-    });
-  }
-
-  async function handleChatSubmit(event) {
-    if (event) {
-      event.preventDefault();
-    }
-
-    const { chatInput } = getElements();
-    if (!chatInput) {
-      return;
-    }
-
-    const message = chatInput.value.trim();
-    if (!message) {
-      return;
-    }
-
-    const conversationHistory = collectConversationHistory();
-    addMessage(message, 'user');
-    chatInput.value = '';
-    showTyping(true);
-    scrollToBottom();
-
-    try {
-      const response = await fetch('/api/v1/admin/chatbot/ask/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': getCookie('csrftoken'),
-        },
-        body: JSON.stringify({ message, conversation_history: conversationHistory }),
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('\ucc57\ubd07 API\uac00 \uc544\uc9c1 \uc900\ube44\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4. \ubc31\uc5d4\ub4dc \uc0c1\ud0dc\ub97c \ud655\uc778\ud574 \uc8fc\uc138\uc694.');
+  function parseQuickPrompts(root) {
+    const raw = String(root.dataset.chatbotQuickPrompts || '').trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((item) => item && item.label && item.message);
         }
-        throw new Error('\uc11c\ubc84 \uc751\ub2f5 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.');
+      } catch (error) {
+        console.warn('Failed to parse chatbot quick prompts:', error);
       }
-
-      const data = await response.json();
-      const payload = normalizeChatbotResponse(data);
-      showTyping(false);
-      addMessage(payload.reply || payload.message, 'bot');
-    } catch (error) {
-      console.error('Chatbot Error:', error);
-      showTyping(false);
-      addMessage(error.message || '\uc8c4\uc1a1\ud569\ub2c8\ub2e4. \ud1b5\uc2e0 \uc911 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.', 'bot');
     }
 
-    scrollToBottom();
-  }
-
-  function addMessage(text, side) {
-    const { chatMessages } = getElements();
-    if (!chatMessages) {
-      return;
+    const endpoint = String(root.dataset.chatbotEndpoint || '').trim();
+    if (endpoint === '/api/v1/admin/chatbot/ask/') {
+      return DESIGNER_DEFAULT_PROMPTS;
     }
-
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `message ${side}`;
-    const rawText = String(text || '').trim();
-    const formattedText = rawText.replace(/\n/g, '<br>');
-    msgDiv.dataset.role = side === 'user' ? 'user' : 'bot';
-    msgDiv.dataset.messageText = rawText;
-
-    const bodyDiv = document.createElement('div');
-    bodyDiv.className = 'message-body';
-    bodyDiv.innerHTML = formattedText;
-    msgDiv.appendChild(bodyDiv);
-
-    const timeSpan = document.createElement('span');
-    timeSpan.className = 'time';
-    timeSpan.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    msgDiv.appendChild(timeSpan);
-    chatMessages.appendChild(msgDiv);
+    return [];
   }
 
   function normalizeChatbotResponse(data) {
@@ -256,53 +81,269 @@
     return data;
   }
 
-  function collectConversationHistory() {
-    const { chatMessages } = getElements();
-    if (!chatMessages) {
-      return [];
-    }
-
-    return Array.from(chatMessages.querySelectorAll('.message'))
-      .map((node) => {
-        const content = String(node.dataset.messageText || '').trim();
-        if (!content) {
-          return null;
-        }
-        const role = node.dataset.role === 'user' ? 'user' : 'bot';
-        return { role, content };
-      })
-      .filter(Boolean)
-      .slice(-8);
-  }
-
-  function showTyping(show) {
-    const { typingIndicator } = getElements();
-    if (!typingIndicator) {
-      return;
-    }
-
-    typingIndicator.classList.toggle('is-hidden', !show);
-  }
-
-  function scrollToBottom() {
-    const { chatMessages } = getElements();
-    if (!chatMessages) {
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-    });
-  }
-
   function getCookie(name) {
     const escapedName = name.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
     const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
     return match ? decodeURIComponent(match[1]) : '';
   }
 
+  function scrollToBottom(root) {
+    const { messages } = getElements(root);
+    if (!messages) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      messages.scrollTop = messages.scrollHeight;
+    });
+  }
+
+  function showTyping(root, show) {
+    const { typing } = getElements(root);
+    if (!typing) {
+      return;
+    }
+    typing.classList.toggle('is-hidden', !show);
+  }
+
+  function setPanelOpen(root, shouldOpen) {
+    const { panel, input } = getElements(root);
+    if (!panel) {
+      return;
+    }
+
+    panel.classList.toggle('active', Boolean(shouldOpen));
+    if (shouldOpen) {
+      if (input) {
+        input.focus();
+      }
+      scrollToBottom(root);
+    }
+  }
+
+  function togglePanel(root) {
+    const { panel } = getElements(root);
+    if (!panel) {
+      return;
+    }
+    setPanelOpen(root, !panel.classList.contains('active'));
+  }
+
+  function buildAttachmentCard(image) {
+    const title = escapeHtml(image.title || '참고 이미지');
+    const caption = String(image.caption || '').trim();
+    const figure = String(image.figure || '').trim();
+    const sourcePdf = String(image.source_pdf || '').trim();
+    const page = image.page ? `p.${image.page}` : '';
+    const meta = [figure, sourcePdf, page].filter(Boolean).join(' · ');
+    const href = escapeHtml(image.url || '#');
+
+    return `
+      <a class="chatbot-attachment-card" href="${href}" target="_blank" rel="noopener noreferrer">
+        <img class="chatbot-attachment-thumb" src="${href}" alt="${title}" loading="lazy">
+        <div class="chatbot-attachment-title">${title}</div>
+        ${caption ? `<div class="chatbot-attachment-caption">${escapeHtml(caption)}</div>` : ''}
+        ${meta ? `<div class="chatbot-attachment-meta">${escapeHtml(meta)}</div>` : ''}
+      </a>
+    `;
+  }
+
+  function addMessage(root, { text, side, images }) {
+    const { messages } = getElements(root);
+    if (!messages) {
+      return;
+    }
+
+    const messageNode = document.createElement('div');
+    messageNode.className = `message ${side}`;
+    const rawText = normalizeDisplayText(text).trim();
+    messageNode.dataset.role = side === 'user' ? 'user' : 'bot';
+    messageNode.dataset.messageText = rawText;
+
+    const bodyNode = document.createElement('div');
+    bodyNode.className = 'message-body';
+    bodyNode.innerHTML = escapeHtml(rawText).replace(/\n/g, '<br>');
+    messageNode.appendChild(bodyNode);
+
+    if (Array.isArray(images) && images.length) {
+      const attachmentNode = document.createElement('div');
+      attachmentNode.className = 'chatbot-attachment-grid';
+      attachmentNode.innerHTML = images
+        .filter((item) => item && item.url)
+        .map((item) => buildAttachmentCard(item))
+        .join('');
+      if (attachmentNode.innerHTML.trim()) {
+        messageNode.appendChild(attachmentNode);
+      }
+    }
+
+    const timeNode = document.createElement('span');
+    timeNode.className = 'time';
+    timeNode.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    messageNode.appendChild(timeNode);
+
+    messages.appendChild(messageNode);
+    scrollToBottom(root);
+  }
+
+  function collectConversationHistory(root) {
+    const { messages } = getElements(root);
+    if (!messages) {
+      return [];
+    }
+
+    return Array.from(messages.querySelectorAll('.message'))
+      .map((node) => {
+        const content = String(node.dataset.messageText || '').trim();
+        if (!content) {
+          return null;
+        }
+        return {
+          role: node.dataset.role === 'user' ? 'user' : 'bot',
+          content,
+        };
+      })
+      .filter(Boolean)
+      .slice(-8);
+  }
+
+  function renderQuickPrompts(root) {
+    const { quickPrompts } = getElements(root);
+    if (!quickPrompts) {
+      return;
+    }
+
+    const prompts = parseQuickPrompts(root);
+    quickPrompts.innerHTML = '';
+
+    prompts.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chatbot-quick-prompt';
+      button.textContent = item.label;
+      button.addEventListener('click', () => {
+        const { input } = getElements(root);
+        if (!input) {
+          return;
+        }
+        input.value = item.message;
+        void submitMessage(root);
+      });
+      quickPrompts.appendChild(button);
+    });
+  }
+
+  async function submitMessage(root, event) {
+    if (event) {
+      event.preventDefault();
+    }
+
+    const { input } = getElements(root);
+    if (!input) {
+      return;
+    }
+
+    const endpoint = String(root.dataset.chatbotEndpoint || '').trim();
+    const message = input.value.trim();
+    if (!endpoint || !message) {
+      return;
+    }
+
+    const conversationHistory = collectConversationHistory(root);
+    addMessage(root, { text: message, side: 'user', images: [] });
+    input.value = '';
+    showTyping(root, true);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken'),
+        },
+        body: JSON.stringify({
+          message,
+          conversation_history: conversationHistory,
+        }),
+      });
+
+      const rawData = await response.json();
+      const payload = normalizeChatbotResponse(rawData);
+      if (!response.ok) {
+        throw new Error(payload.detail || payload.message || '서버 응답 오류가 발생했습니다.');
+      }
+
+      addMessage(root, {
+        text: payload.reply || payload.message || '답변을 불러오지 못했습니다.',
+        side: 'bot',
+        images: payload.images || [],
+      });
+    } catch (error) {
+      console.error('Chatbot Error:', error);
+      addMessage(root, {
+        text: error.message || '죄송합니다. 통신 중 오류가 발생했습니다.',
+        side: 'bot',
+        images: [],
+      });
+    } finally {
+      showTyping(root, false);
+    }
+  }
+
+  function initRoot(root) {
+    const elements = getElements(root);
+    if (!elements.panel || !elements.trigger || !elements.form || !elements.messages) {
+      return;
+    }
+
+    elements.messages.querySelectorAll('.message').forEach((node) => {
+      const normalizedText = normalizeDisplayText(node.dataset.messageText || '').trim();
+      node.dataset.messageText = normalizedText;
+      const bodyNode = node.querySelector('.message-body');
+      if (bodyNode) {
+        bodyNode.innerHTML = escapeHtml(normalizedText).replace(/\n/g, '<br>');
+      }
+    });
+
+    renderQuickPrompts(root);
+
+    if (root.dataset.chatbotBound === 'true') {
+      return;
+    }
+
+    elements.trigger.addEventListener('click', () => togglePanel(root));
+    if (elements.close) {
+      elements.close.addEventListener('click', () => setPanelOpen(root, false));
+    }
+    elements.form.addEventListener('submit', (event) => {
+      void submitMessage(root, event);
+    });
+
+    if (elements.startTime && !elements.startTime.textContent) {
+      elements.startTime.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    root.dataset.chatbotBound = 'true';
+  }
+
+  function init(target) {
+    getChatbotRoots(target).forEach((root) => {
+      initRoot(root);
+    });
+  }
+
+  window.initMirraiChatbot = init;
+  window.openMirraiChatbot = function () {
+    const root = document.querySelector('[data-chatbot-component]');
+    if (!root) {
+      return;
+    }
+    initRoot(root);
+    setPanelOpen(root, true);
+  };
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => init());
   } else {
     init();
   }

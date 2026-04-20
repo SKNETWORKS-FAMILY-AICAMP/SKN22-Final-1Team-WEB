@@ -379,7 +379,7 @@ def _latest_trends_cache_key(limit: int) -> str:
     prefix = os.environ.get("REDIS_KEY_PREFIX") or _get_django_setting("REDIS_KEY_PREFIX", "mirrai")
     normalized_prefix = str(prefix or "mirrai").strip() or "mirrai"
     remote_enabled = "1" if _runpod_latest_enabled() else "0"
-    return f"{normalized_prefix}:cache:latest-trends:v2:limit:{int(limit)}:remote-enabled:{remote_enabled}"
+    return f"{normalized_prefix}:cache:latest-trends:v3:limit:{int(limit)}:remote-enabled:{remote_enabled}"
 
 
 def _get_latest_trends_cached(limit: int) -> dict[str, Any] | None:
@@ -889,6 +889,24 @@ def _attach_korean_fields(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return localized_items
 
 
+def _apply_translation_cache_overrides(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cache = _load_translation_cache()
+    if not cache:
+        return items
+
+    overridden_items: list[dict[str, Any]] = []
+    for item in items:
+        translation = cache.get(_translation_cache_key(item), {})
+        overridden_items.append(
+            {
+                **item,
+                "title_ko": translation.get("title_ko") or item.get("title_ko") or item.get("title", ""),
+                "summary_ko": translation.get("summary_ko") or item.get("summary_ko") or item.get("summary", ""),
+            }
+        )
+    return overridden_items
+
+
 def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
     limit = max(1, min(int(limit), 5))
     cached_payload = _get_latest_trends_cached(limit)
@@ -968,6 +986,7 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
         for row in normalized_items[: max(1, min(int(limit), 5))]
     ]
 
+    selected_items = _apply_translation_cache_overrides(selected_items)
     localized_items = _attach_korean_fields(selected_items)
 
     payload = {

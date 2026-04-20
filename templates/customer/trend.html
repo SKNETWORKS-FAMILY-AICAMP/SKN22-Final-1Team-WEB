@@ -1,4 +1,5 @@
 {% extends "layouts/base_site.html" %}
+{% load static %}
 
 {% block page_title %}MirrAI | 요즘 뜨는 헤어 트렌드{% endblock %}
 
@@ -217,10 +218,15 @@
   <div id="trendSliderShell" class="trend-slider-shell" style="display: none;">
     <div id="trendTrack" class="trend-slider-track"></div>
   </div>
+
+  {% with chatbot_endpoint='/api/v1/analysis/trend/chatbot/ask/' chatbot_title='고객 트렌드 상담 AI' chatbot_status_text='최신 트렌드 기반 안내' chatbot_trigger_title='트렌드 챗봇 열기' chatbot_greeting='안녕하세요. 고객 트렌드 상담 AI입니다.\n지금 보이는 헤어 트렌드나 어울리는 스타일을 편하게 물어보세요.' chatbot_placeholder='트렌드 스타일 질문을 입력해 주세요' chatbot_quick_prompts_json='[{"label":"요즘 뜨는 레이어드컷","message":"요즘 뜨는 레이어드컷 트렌드를 알려줘"},{"label":"얼굴형별 추천","message":"얼굴형별로 어울리는 최신 헤어스타일을 추천해줘"},{"label":"손질 쉬운 스타일","message":"손질이 쉬운 최신 헤어스타일을 추천해줘"}]' %}
+    {% include "components/chatbot.html" %}
+  {% endwith %}
 </div>
 {% endblock %}
 
 {% block page_scripts %}
+<script src="{% static 'shared/js/chatbot.js' %}?v=20260420-02"></script>
 <script>
   (function () {
     const loading = document.getElementById("trendLoading");
