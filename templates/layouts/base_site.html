@@ -57,6 +57,141 @@
       .keypad-btn.btn-empty { background: transparent; border: none; cursor: default; }
       .keypad-btn.btn-back { font-size: 14px; color: var(--status-red); }
       .keypad-close { margin-top: 24px; font-size: 14px; color: rgba(255, 255, 255, 0.4); background: none; border: none; cursor: pointer; text-decoration: underline; }
+
+      /* 분석 시작하기 launcher: nav-link 형태의 버튼 (a 태그와 시각적으로 동일) */
+      .nav-link-button {
+        display: inline-flex;
+        align-items: center;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1;
+        color: rgba(255, 255, 255, 0.8);
+        cursor: pointer;
+        appearance: none;
+        -webkit-appearance: none;
+      }
+      .nav-link-button:hover { color: var(--accent-neon); }
+      .nav-link-button:focus-visible {
+        outline: 2px solid var(--accent-neon, #00ff9d);
+        outline-offset: 4px;
+        border-radius: 4px;
+      }
+      @media (max-width: 1024px) { .nav-link-button { font-size: 13px; } }
+      @media (max-width: 768px)  { .nav-link-button { font-size: 12px; } }
+      @media (max-width: 480px)  { .nav-link-button { font-size: 11px; } }
+
+      /* 분석 시작 선택 모달 */
+      .analysis-launcher-overlay {
+        position: fixed; inset: 0;
+        background: rgba(5, 8, 7, 0.72);
+        backdrop-filter: blur(10px);
+        display: none; align-items: center; justify-content: center;
+        z-index: 10050;
+        padding: 20px;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+      .analysis-launcher-overlay.active { display: flex; opacity: 1; }
+
+      .analysis-launcher-modal {
+        width: 100%;
+        max-width: 420px;
+        background: var(--bg-dark, #0e1311);
+        border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+        border-radius: 24px;
+        padding: 28px 24px 22px;
+        color: #fff;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        transform: translateY(8px) scale(0.98);
+        transition: transform 0.18s ease;
+      }
+      .analysis-launcher-overlay.active .analysis-launcher-modal {
+        transform: translateY(0) scale(1);
+      }
+
+      .analysis-launcher-title {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 800;
+        line-height: 1.45;
+        word-break: keep-all;
+      }
+      .analysis-launcher-subtitle {
+        margin: 0 0 22px;
+        font-size: 13px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.62);
+        line-height: 1.55;
+        word-break: keep-all;
+      }
+
+      .analysis-launcher-options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      @media (max-width: 380px) {
+        .analysis-launcher-options { grid-template-columns: 1fr; }
+      }
+
+      .analysis-launcher-option {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 18px 14px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        text-align: center;
+        text-decoration: none;
+        transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+        word-break: keep-all;
+        line-height: 1.4;
+      }
+      .analysis-launcher-option:hover {
+        background: rgba(0, 255, 157, 0.08);
+        border-color: rgba(0, 255, 157, 0.45);
+      }
+      .analysis-launcher-option:active { transform: scale(0.98); }
+      .analysis-launcher-option svg {
+        width: 28px; height: 28px;
+        color: var(--accent-neon, #00ff9d);
+      }
+      .analysis-launcher-option-desc {
+        font-size: 11.5px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.55);
+        line-height: 1.45;
+      }
+
+      .analysis-launcher-close {
+        margin-top: 20px;
+        width: 100%;
+        background: none;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        color: rgba(255, 255, 255, 0.7);
+        height: 42px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+      }
+      .analysis-launcher-close:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: #fff;
+      }
     </style>
 
     {% block extra_head %}{% endblock %}
@@ -76,7 +211,7 @@
               
               {# 분석 시작하기 버튼 #}
               {% if request.session.customer_id %}
-                <a href="{% url 'customer_camera' %}" class="nav-link">분석 시작하기</a>
+                <button type="button" class="nav-link nav-link-button" data-analysis-launcher="true">분석 시작하기</button>
               {% elif request.session.designer_id %}
                 <a href="{% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
               {% elif request.session.admin_id %}
@@ -180,6 +315,60 @@
     {% endif %}
 
     <script>
+      // 분석 시작하기 랜딩 선택 모달
+      function __initAnalysisLauncher() {
+        var triggers = document.querySelectorAll('[data-analysis-launcher="true"]');
+        var modal = document.getElementById('analysisLauncherModal');
+        if (!modal || triggers.length === 0) return;
+
+        var lastFocused = null;
+
+        function openModal() {
+          lastFocused = document.activeElement;
+          modal.hidden = false;
+          // 다음 프레임에 active 클래스를 추가해서 transition이 동작하도록 함
+          requestAnimationFrame(function () { modal.classList.add('active'); });
+          document.body.style.overflow = 'hidden';
+          var firstOption = modal.querySelector('.analysis-launcher-option');
+          if (firstOption) firstOption.focus();
+        }
+
+        function closeModal() {
+          modal.classList.remove('active');
+          document.body.style.overflow = '';
+          window.setTimeout(function () { modal.hidden = true; }, 180);
+          if (lastFocused && typeof lastFocused.focus === 'function') {
+            lastFocused.focus();
+          }
+        }
+
+        triggers.forEach(function (btn) {
+          btn.addEventListener('click', function (event) {
+            event.preventDefault();
+            openModal();
+          });
+        });
+
+        modal.addEventListener('click', function (event) {
+          if (event.target === modal) closeModal();
+          if (event.target.closest('[data-analysis-launcher-close="true"]')) closeModal();
+        });
+
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+          }
+        });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', __initAnalysisLauncher);
+      } else {
+        __initAnalysisLauncher();
+      }
+    </script>
+
+    <script>
       window.addEventListener('pageshow', function (event) {
         const restoredFromBackForward = event.persisted || (
           window.performance &&
@@ -261,6 +450,29 @@
         });
       });
     </script>
+
+    {% if request.session.customer_id %}
+    <!-- 분석 시작하기: 랜딩 선택 모달 -->
+    <div id="analysisLauncherModal" class="analysis-launcher-overlay" role="dialog" aria-modal="true" aria-labelledby="analysisLauncherTitle" hidden>
+      <div class="analysis-launcher-modal">
+        <h3 id="analysisLauncherTitle" class="analysis-launcher-title">분석 방법을 선택해 주세요</h3>
+        <p class="analysis-launcher-subtitle">사진을 새로 촬영하거나, 기기에 저장된 사진을 업로드해서 새로운 스타일 추천을 받을 수 있습니다.</p>
+        <div class="analysis-launcher-options">
+          <a href="{% url 'customer_camera' %}" class="analysis-launcher-option" data-analysis-launcher-target="camera">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span>사진 촬영</span>
+            <span class="analysis-launcher-option-desc">카메라로 바로 분석을 시작합니다.</span>
+          </a>
+          <a href="{% url 'customer_upload' %}" class="analysis-launcher-option" data-analysis-launcher-target="upload">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>사진 업로드</span>
+            <span class="analysis-launcher-option-desc">기기에 있는 사진으로 분석합니다.</span>
+          </a>
+        </div>
+        <button type="button" class="analysis-launcher-close" data-analysis-launcher-close="true">취소</button>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- 글로벌 관리자 보안키 인증 모달 -->
     <div id="adminPinModal" class="keypad-overlay">

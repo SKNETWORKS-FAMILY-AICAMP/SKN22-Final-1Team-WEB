@@ -141,6 +141,49 @@
     word-break: break-word;
   }
 
+  /* Prompt Debug 접기/펼치기 (details 기반) */
+  details#promptDebugPanel { padding: 0 !important; }
+  details#promptDebugPanel > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 18px 22px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    border-radius: inherit;
+    transition: background-color 0.15s ease;
+  }
+  details#promptDebugPanel > summary::-webkit-details-marker { display: none; }
+  details#promptDebugPanel > summary:hover { background: rgba(0, 0, 0, 0.03); }
+  details#promptDebugPanel > summary:focus-visible {
+    outline: 2px solid var(--accent-neon, #00ff9d);
+    outline-offset: 2px;
+  }
+  .prompt-debug-summary-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .prompt-debug-chevron {
+    width: 20px;
+    height: 20px;
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+  details#promptDebugPanel[open] .prompt-debug-chevron {
+    transform: rotate(180deg);
+  }
+  .prompt-debug-body {
+    padding: 0 22px 20px;
+  }
+  @media (max-width: 480px) {
+    details#promptDebugPanel > summary { padding: 16px; }
+    .prompt-debug-body { padding: 0 16px 16px; }
+  }
+
   #toast {
     position: fixed;
     bottom: 40px;
@@ -281,8 +324,10 @@
   </div>
 </div>
 
-<div id="promptDebugPanel" class="panel is-hidden" style="margin: 0 auto 24px; max-width: 1080px; padding: 20px 24px;">
-  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+<div id="resultGrid" class="result-grid is-hidden"></div>
+
+<details id="promptDebugPanel" class="panel is-hidden" style="margin: 24px auto; max-width: 1080px;">
+  <summary>
     <div>
       <p
         style="font-size: 11px; font-weight: 800; color: var(--text-secondary); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px;">
@@ -291,18 +336,21 @@
       <p class="section-copy" style="font-size: 13px; margin-bottom: 0;">RunPod로 보내는 실제 prompt preview, request preview,
         `xx% 매칭` 산식을 같이 확인할 수 있어요.</p>
     </div>
-    <span id="promptDebugStageChip"
-      style="display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 14px; border-radius: var(--radius-pill); background: rgba(0,0,0,0.06); color: var(--bg-dark); font-size: 12px; font-weight: 800;">초기
-      추천</span>
+    <span class="prompt-debug-summary-meta">
+      <span id="promptDebugStageChip"
+        style="display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 14px; border-radius: var(--radius-pill); background: rgba(0,0,0,0.06); color: var(--bg-dark); font-size: 12px; font-weight: 800;">초기
+        추천</span>
+      <svg class="prompt-debug-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </span>
+  </summary>
+  <div class="prompt-debug-body">
+    <div id="promptDebugSummary" class="prompt-debug-summary"></div>
+    <details style="margin-top: 18px;">
+      <summary style="cursor: pointer; font-size: 13px; font-weight: 700; color: var(--bg-dark);">원본 payload 보기</summary>
+      <pre id="promptDebugJson" class="prompt-debug-json"></pre>
+    </details>
   </div>
-  <div id="promptDebugSummary" class="prompt-debug-summary"></div>
-  <details style="margin-top: 18px;">
-    <summary style="cursor: pointer; font-size: 13px; font-weight: 700; color: var(--bg-dark);">원본 payload 보기</summary>
-    <pre id="promptDebugJson" class="prompt-debug-json"></pre>
-  </details>
-</div>
-
-<div id="resultGrid" class="result-grid is-hidden"></div>
+</details>
 
 <div id="selectionSummary" class="selection-bar is-hidden">
   <div style="display: flex; flex-direction: column; gap: 4px;">

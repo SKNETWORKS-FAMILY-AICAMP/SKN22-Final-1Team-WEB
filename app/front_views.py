@@ -436,6 +436,18 @@ def client_camera_page(request):
 
 
 @never_cache
+def client_upload_page(request):
+    client = get_session_customer(request=request)
+    if not client:
+        return redirect("customer_index")
+    return render(
+        request,
+        "customer/upload.html",
+        {"client": client, "popup_message": _popup_message_from_notice(request.GET.get("notice"))},
+    )
+
+
+@never_cache
 def client_recommendation_page(request):
     client = get_session_customer(request=request)
     if not client:
