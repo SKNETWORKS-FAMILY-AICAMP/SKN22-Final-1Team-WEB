@@ -30,6 +30,58 @@ _AI_HEALTH_CACHE: dict[str, object] = {
     "payload": None,
 }
 
+_STYLE_SD_PROMPT_CACHE: dict[str, dict] | None = None
+_PERM_CURL_CONFLICT_KEYWORDS = frozenset({"no perm", "no curl"})
+
+
+def _style_sd_prompt_map() -> dict[str, dict]:
+    global _STYLE_SD_PROMPT_CACHE
+    if _STYLE_SD_PROMPT_CACHE is not None:
+        return _STYLE_SD_PROMPT_CACHE
+    try:
+        from app.trend_pipeline.paths import STYLE_SEED_FILE
+        with STYLE_SEED_FILE.open("r", encoding="utf-8") as fh:
+            styles = json.load(fh)
+        result: dict[str, dict] = {}
+        for style in styles:
+            name = str(style.get("style_name") or "").strip()
+            sd_positive = str(style.get("sd_positive") or "").strip()
+            if not name or not sd_positive:
+                continue
+            entry: dict = {"sd_positive": sd_positive}
+            sd_negative = str(style.get("sd_negative") or "").strip()
+            if sd_negative:
+                entry["sd_negative"] = sd_negative
+            raw_guidance = style.get("sd_guidance")
+            if raw_guidance is not None:
+                try:
+                    entry["sd_guidance"] = float(raw_guidance)
+                except (TypeError, ValueError):
+                    pass
+            result[name] = entry
+        _STYLE_SD_PROMPT_CACHE = result
+        logger.info("[style_sd_prompt_map] loaded %s entries", len(result))
+        return result
+    except Exception as exc:
+        logger.warning("[style_sd_prompt_map] failed to load seed file: %s", exc)
+        _STYLE_SD_PROMPT_CACHE = {}
+        return {}
+
+
+def _get_sd_prompt_data(style_name: str | None) -> dict | None:
+    name = str(style_name or "").strip()
+    if not name:
+        return None
+    return _style_sd_prompt_map().get(name) or None
+
+
+def _filter_perm_curl_conflict(preference_text: str | None, sd_prompt_data: dict | None) -> str | None:
+    if not preference_text or not sd_prompt_data:
+        return preference_text
+    parts = [p.strip() for p in preference_text.split(",")]
+    filtered = [p for p in parts if p.lower() not in _PERM_CURL_CONFLICT_KEYWORDS]
+    return ", ".join(filtered) or None
+
 
 def _normalized_survey_data(survey_data: dict | None) -> dict:
     source = dict(survey_data or {})
@@ -1849,123 +1901,129 @@ def _augment_items_with_runpod(
     preference = _build_runpod_preference_payload(survey_data)
     preference_text = _build_preference_text(survey_data)
 
-    runpod_payload = {
-        **image_payload,
-        "hairstyle_text": hairstyle_text,
-        "top_k": min(len(items), 5),
-        "return_base64": True,
-    }
-    if color_text:
-        runpod_payload["color_text"] = color_text
-    if preference:
-        runpod_payload["preference"] = preference
-    if preference_text:
-        runpod_payload["preference_text"] = preference_text
-
     logger.info(
-        "[runpod_augment] hairstyle_text=%s color_text=%s preference_text=%s top_k=%s",
+        "[runpod_augment] hairstyle_text=%s color_text=%s preference_text=%s item_count=%s",
         hairstyle_text,
         color_text or None,
         preference_text,
-        runpod_payload["top_k"],
+        len(items),
     )
-
-    remote = _post_runpod(runpod_payload)
-    if not remote:
-        return items
-
-    results = remote.get("results")
-    if not isinstance(results, list) or not results:
-        _log_runpod_result_diagnostics(
-            context="runpod_augment",
-            remote=remote,
-            requested_top_k=runpod_payload["top_k"],
-            normalized_items=[],
-        )
-        logger.warning("[runpod_augment] no results in response. remote_keys=%s", sorted(remote.keys()))
-        return items
-
-    recommendations = remote.get("recommendations") if isinstance(remote.get("recommendations"), list) else []
-    rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
-    build_tag = str(remote.get("build_tag") or "").strip() or None
-    runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
-    request_id = _runpod_response_metadata(remote)["request_id"]
 
     augmented: list[dict] = []
     for index, item in enumerate(items):
         enriched = dict(item)
-        if index < len(results):
-            result = results[index] or {}
-            matched_recommendation = _match_runpod_recommendation(
-                recommendations=recommendations,
-                index=index,
-                result=result,
-            ) if recommendations else None
-            direct_simulation_image_url = _normalize_recommendation_image_reference(
-                result.get("simulation_image_url") or result.get("synthetic_image_url")
-            )
-            direct_sample_image_url = _normalize_recommendation_image_reference(result.get("sample_image_url"))
-            if direct_sample_image_url and not enriched.get("sample_image_url"):
-                enriched["sample_image_url"] = direct_sample_image_url
-            if direct_simulation_image_url:
-                enriched["simulation_image_url"] = direct_simulation_image_url
-                enriched["synthetic_image_url"] = direct_simulation_image_url
-            image_base64 = result.get("image_base64")
-            if image_base64 and not direct_simulation_image_url:
-                data_url = _recommendation_image_data_url(
-                    image_base64=str(image_base64).strip(),
-                    source="runpod_augment",
-                    source_key="image_base64",
-                    style_id=enriched.get("style_id"),
-                    rank=enriched.get("rank"),
-                )
-                enriched["simulation_image_url"] = data_url
-                enriched["synthetic_image_url"] = data_url
-            description = (
-                str((matched_recommendation or {}).get("description") or "").strip()
-                if isinstance(matched_recommendation, dict)
-                else ""
-            )
-            if description:
-                if not enriched.get("llm_explanation"):
-                    enriched["llm_explanation"] = description
-                if not enriched.get("reasoning"):
-                    enriched["reasoning"] = description
-            snapshot = dict(enriched.get("reasoning_snapshot") or {})
-            snapshot["runpod"] = {
-                "provider": "runpod",
-                "clip_score": result.get("clip_score"),
-                "mask_used": result.get("mask_used"),
-                "elapsed_seconds": remote.get("elapsed_seconds"),
-                "request_id": request_id,
-                "build_tag": build_tag,
-                "runtime": runpod_runtime,
-                "face_shape_detected": (
-                    matched_recommendation.get("face_shape_detected")
-                    if isinstance(matched_recommendation, dict)
-                    else None
-                ),
-                "golden_ratio_score": (
-                    matched_recommendation.get("golden_ratio_score")
-                    if isinstance(matched_recommendation, dict)
-                    else None
-                ),
-                "rag_context_excerpt": rag_context_excerpt,
-            }
-            enriched["reasoning_snapshot"] = snapshot
-        augmented.append(
-            sanitize_recommendation_item_payload(
-                enriched,
-                log_context="runpod_augment",
-            )
+        style_name = str(item.get("style_name") or "").strip()
+        sd_prompt_data = _get_sd_prompt_data(style_name)
+
+        # When the style has its own SD prompt data, strip perm/curl negation keywords
+        # from preference_text to avoid prompt conflicts (e.g. perm style + "no perm").
+        item_preference_text = _filter_perm_curl_conflict(preference_text, sd_prompt_data)
+
+        card_payload: dict = {
+            **image_payload,
+            "hairstyle_text": hairstyle_text,
+            "top_k": 1,
+            "return_base64": True,
+        }
+        if color_text:
+            card_payload["color_text"] = color_text
+        if preference:
+            card_payload["preference"] = preference
+        if item_preference_text:
+            card_payload["preference_text"] = item_preference_text
+        if sd_prompt_data:
+            card_payload["sd_prompt_data"] = sd_prompt_data
+
+        logger.info(
+            "[runpod_augment_card] index=%s style_id=%s style_name=%s has_sd_prompt_data=%s",
+            index,
+            item.get("style_id"),
+            style_name or None,
+            bool(sd_prompt_data),
         )
 
-    _log_runpod_result_diagnostics(
-        context="runpod_augment",
-        remote=remote,
-        requested_top_k=runpod_payload["top_k"],
-        normalized_items=augmented,
-    )
+        remote = _post_runpod(card_payload)
+        if not remote:
+            augmented.append(sanitize_recommendation_item_payload(enriched, log_context="runpod_augment"))
+            continue
+
+        results = remote.get("results")
+        if not isinstance(results, list) or not results:
+            logger.warning(
+                "[runpod_augment_card] no results. index=%s style_id=%s remote_keys=%s",
+                index,
+                item.get("style_id"),
+                sorted(remote.keys()),
+            )
+            augmented.append(sanitize_recommendation_item_payload(enriched, log_context="runpod_augment"))
+            continue
+
+        result = results[0] or {}
+        recommendations = remote.get("recommendations") if isinstance(remote.get("recommendations"), list) else []
+        matched_recommendation = _match_runpod_recommendation(
+            recommendations=recommendations,
+            index=0,
+            result=result,
+        ) if recommendations else None
+        rag_context_excerpt = _rag_context_excerpt(remote.get("rag_context"))
+        build_tag = str(remote.get("build_tag") or "").strip() or None
+        runpod_runtime = remote.get("runpod") if isinstance(remote.get("runpod"), dict) else {}
+        request_id = _runpod_response_metadata(remote)["request_id"]
+
+        direct_simulation_image_url = _normalize_recommendation_image_reference(
+            result.get("simulation_image_url") or result.get("synthetic_image_url")
+        )
+        direct_sample_image_url = _normalize_recommendation_image_reference(result.get("sample_image_url"))
+        if direct_sample_image_url and not enriched.get("sample_image_url"):
+            enriched["sample_image_url"] = direct_sample_image_url
+        if direct_simulation_image_url:
+            enriched["simulation_image_url"] = direct_simulation_image_url
+            enriched["synthetic_image_url"] = direct_simulation_image_url
+        image_base64 = result.get("image_base64")
+        if image_base64 and not direct_simulation_image_url:
+            data_url = _recommendation_image_data_url(
+                image_base64=str(image_base64).strip(),
+                source="runpod_augment",
+                source_key="image_base64",
+                style_id=enriched.get("style_id"),
+                rank=enriched.get("rank"),
+            )
+            enriched["simulation_image_url"] = data_url
+            enriched["synthetic_image_url"] = data_url
+        description = (
+            str((matched_recommendation or {}).get("description") or "").strip()
+            if isinstance(matched_recommendation, dict)
+            else ""
+        )
+        if description:
+            if not enriched.get("llm_explanation"):
+                enriched["llm_explanation"] = description
+            if not enriched.get("reasoning"):
+                enriched["reasoning"] = description
+        snapshot = dict(enriched.get("reasoning_snapshot") or {})
+        snapshot["runpod"] = {
+            "provider": "runpod",
+            "clip_score": result.get("clip_score"),
+            "mask_used": result.get("mask_used"),
+            "elapsed_seconds": remote.get("elapsed_seconds"),
+            "request_id": request_id,
+            "build_tag": build_tag,
+            "runtime": runpod_runtime,
+            "face_shape_detected": (
+                matched_recommendation.get("face_shape_detected")
+                if isinstance(matched_recommendation, dict)
+                else None
+            ),
+            "golden_ratio_score": (
+                matched_recommendation.get("golden_ratio_score")
+                if isinstance(matched_recommendation, dict)
+                else None
+            ),
+            "rag_context_excerpt": rag_context_excerpt,
+        }
+        enriched["reasoning_snapshot"] = snapshot
+        augmented.append(sanitize_recommendation_item_payload(enriched, log_context="runpod_augment"))
+
     logger.info(
         "[runpod_augment] done. items=%s simulated=%s",
         len(augmented),
