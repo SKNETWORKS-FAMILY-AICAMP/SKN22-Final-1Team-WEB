@@ -604,7 +604,7 @@ def partner_customer_detail_page(request: HttpRequest, pk: int):
         "admin/customer_detail.html",
         {
             "client_id": pk,
-            "show_customer_detail_chatbot": True,
+            "show_customer_detail_chatbot": bool(designer is not None),
             "skip_owner_gate_for_current_view": bool(designer is not None),
             "is_designer_session": bool(designer is not None),
         },

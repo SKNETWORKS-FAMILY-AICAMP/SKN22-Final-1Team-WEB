@@ -5,7 +5,9 @@ from rest_framework.response import Response
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 
+from app.api.v1.admin_serializers import ChatbotAskSerializer
 from app.api.v1.response_helpers import CompatEnvelopeAPIView
+from app.services.chatbot.service import build_customer_trend_chatbot_reply
 from app.trend_pipeline.latest_feed import get_latest_crawled_trends
 
 
@@ -45,4 +47,22 @@ class LatestTrendView(CompatEnvelopeAPIView):
         except (TypeError, ValueError):
             limit = 5
         payload = get_latest_crawled_trends(limit=limit)
+        return Response(payload)
+
+
+class CustomerTrendChatbotAskView(CompatEnvelopeAPIView):
+    @extend_schema(
+        summary="Ask customer trend chatbot for latest style guidance",
+        request=ChatbotAskSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        serializer = ChatbotAskSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = build_customer_trend_chatbot_reply(
+            message=serializer.validated_data["message"],
+            store_name="MirrAI 트렌드 페이지",
+            conversation_history=serializer.validated_data.get("conversation_history") or [],
+        )
+        payload["actor_type"] = "customer"
         return Response(payload)

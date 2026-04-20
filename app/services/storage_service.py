@@ -13,6 +13,13 @@ from storage3.types import CreateOrUpdateBucketOptions
 
 from app.services.supabase_client import get_supabase_client
 
+try:  # pragma: no cover - boto3 is optional in local test environments
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+except Exception:  # pragma: no cover - graceful fallback when boto3 is unavailable
+    boto3 = None
+    BotoCoreError = ClientError = Exception
+
 
 logger = logging.getLogger(__name__)
 
@@ -103,13 +110,133 @@ def _resolve_local_asset_path(reference: str) -> Path | None:
     return None
 
 
-def _store_generated_asset_locally(*, asset_bytes: bytes, extension: str, subdir: str) -> str:
-    filename = f"{uuid.uuid4()}{extension}"
-    asset_dir = Path(settings.MEDIA_ROOT) / subdir
+def _normalize_relative_storage_path(*, subdir: str, filename: str | None = None) -> str:
+    base = Path(str(subdir or "").strip())
+    if filename:
+        base = base / str(filename or "").strip()
+    normalized = str(base).replace("\\", "/").lstrip("/")
+    return normalized
+
+
+def _store_generated_asset_locally(
+    *,
+    asset_bytes: bytes,
+    extension: str,
+    subdir: str,
+    filename: str | None = None,
+) -> str:
+    relative_path = _normalize_relative_storage_path(
+        subdir=subdir,
+        filename=filename or f"{uuid.uuid4()}{extension}",
+    )
+    asset_dir = Path(settings.MEDIA_ROOT) / Path(relative_path).parent
     asset_dir.mkdir(parents=True, exist_ok=True)
-    stored_path = asset_dir / filename
+    stored_path = Path(settings.MEDIA_ROOT) / relative_path
     stored_path.write_bytes(asset_bytes)
-    return f"{settings.MEDIA_URL.rstrip('/')}/{subdir}/{filename}"
+    return f"{settings.MEDIA_URL.rstrip('/')}/{relative_path}"
+
+
+def _is_s3_reference(reference: str | None) -> bool:
+    return str(reference or "").strip().startswith("s3://")
+
+
+def _parse_s3_reference(reference: str | None) -> tuple[str | None, str | None]:
+    normalized_reference = str(reference or "").strip()
+    if not normalized_reference.startswith("s3://"):
+        return None, None
+
+    bucket_and_key = normalized_reference[5:]
+    bucket, _, key = bucket_and_key.partition("/")
+    bucket = bucket.strip()
+    key = key.strip()
+    if not bucket or not key:
+        return None, None
+    return bucket, key
+
+
+def _s3_reference(bucket: str, key: str) -> str:
+    return f"s3://{bucket}/{key.lstrip('/')}"
+
+
+def _s3_enabled() -> bool:
+    return bool(getattr(settings, "S3_BUCKET_NAME", "").strip()) and boto3 is not None
+
+
+@lru_cache(maxsize=1)
+def _get_s3_client():
+    if not _s3_enabled():
+        return None
+
+    kwargs: dict[str, str] = {}
+    region = str(getattr(settings, "S3_REGION", "") or "").strip()
+    if region:
+        kwargs["region_name"] = region
+    return boto3.client("s3", **kwargs)
+
+
+def _store_generated_asset_in_s3(
+    *,
+    asset_bytes: bytes,
+    mime_type: str,
+    subdir: str,
+    filename: str,
+) -> str | None:
+    client = _get_s3_client()
+    bucket = str(getattr(settings, "S3_BUCKET_NAME", "") or "").strip()
+    if client is None or not bucket:
+        return None
+
+    key = _normalize_relative_storage_path(subdir=subdir, filename=filename)
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+        return _s3_reference(bucket, key)
+    except ClientError as exc:
+        error_code = str(((exc.response or {}).get("Error") or {}).get("Code") or "")
+        if error_code not in {"404", "NoSuchKey", "NotFound"}:
+            logger.warning("[storage] S3 head_object failed bucket=%s key=%s: %s", bucket, key, exc)
+
+    try:
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=asset_bytes,
+            ContentType=mime_type,
+        )
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        logger.warning("[storage] S3 upload failed bucket=%s key=%s: %s", bucket, key, exc)
+        return None
+    return _s3_reference(bucket, key)
+
+
+def persist_named_asset_reference(
+    asset_bytes: bytes | None,
+    *,
+    relative_path: str,
+    mime_type: str = "image/png",
+) -> str | None:
+    if not asset_bytes:
+        return None
+
+    normalized_relative_path = str(relative_path or "").replace("\\", "/").lstrip("/")
+    if not normalized_relative_path:
+        return None
+
+    storage_path = Path(normalized_relative_path)
+    remote_reference = _store_generated_asset_in_s3(
+        asset_bytes=asset_bytes,
+        mime_type=mime_type,
+        subdir=str(storage_path.parent),
+        filename=storage_path.name,
+    )
+    if remote_reference:
+        return remote_reference
+
+    return _store_generated_asset_locally(
+        asset_bytes=asset_bytes,
+        extension=storage_path.suffix or mimetypes.guess_extension(mime_type) or ".bin",
+        subdir=str(storage_path.parent),
+        filename=storage_path.name,
+    )
 
 
 def _store_generated_asset_in_supabase(*, asset_bytes: bytes, extension: str, subdir: str, mime_type: str) -> str | None:
@@ -228,6 +355,17 @@ def load_storage_reference_bytes(reference: str | None) -> bytes | None:
     if decoded is not None:
         asset_bytes, _, _ = decoded
         return asset_bytes
+
+    bucket, key = _parse_s3_reference(normalized_reference)
+    if bucket and key:
+        client = _get_s3_client()
+        if client is None:
+            return None
+        try:
+            response = client.get_object(Bucket=bucket, Key=key)
+            return response["Body"].read()
+        except (BotoCoreError, ClientError, KeyError, ValueError):
+            return None
 
     local_asset_path = _resolve_local_asset_path(normalized_reference)
     if local_asset_path is None:
@@ -370,6 +508,21 @@ def resolve_storage_reference(reference: str | None) -> str | None:
     if normalized_reference.startswith(("http://", "https://", "/")):
         return normalized_reference
 
+    bucket, key = _parse_s3_reference(normalized_reference)
+    if bucket and key:
+        client = _get_s3_client()
+        if client is None:
+            return normalized_reference
+        try:
+            return client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket, "Key": key},
+                ExpiresIn=int(getattr(settings, "S3_SIGNED_URL_EXPIRES_IN", 3600) or 3600),
+            )
+        except (BotoCoreError, ClientError, ValueError) as exc:
+            logger.warning("[storage] unable to resolve S3 signed url for reference=%s: %s", normalized_reference, exc)
+            return None
+
     if not settings.SUPABASE_USE_REMOTE_STORAGE:
         return normalized_reference
 
@@ -410,6 +563,22 @@ def _resolve_storage_reference_with_status(reference: str | None) -> tuple[str |
 
     if normalized_reference.startswith(("http://", "https://", "/")):
         return normalized_reference, "already_resolved"
+
+    bucket, key = _parse_s3_reference(normalized_reference)
+    if bucket and key:
+        client = _get_s3_client()
+        if client is None:
+            return normalized_reference, "s3_client_unavailable"
+        try:
+            resolved = client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket, "Key": key},
+                ExpiresIn=int(getattr(settings, "S3_SIGNED_URL_EXPIRES_IN", 3600) or 3600),
+            )
+        except (BotoCoreError, ClientError, ValueError) as exc:
+            logger.warning("[storage] unable to resolve S3 signed url for reference=%s: %s", normalized_reference, exc)
+            return None, "s3_signed_url_failed"
+        return resolved, "s3_signed_url"
 
     if not settings.SUPABASE_USE_REMOTE_STORAGE:
         return normalized_reference, "local_reference"

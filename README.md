@@ -221,6 +221,27 @@ PARTNER_REPORT_CACHE_SECONDS=90
 PARTNER_LOOKUP_CACHE_SECONDS=45
 ```
 
+NCS PDF 운영 동기화:
+
+- 디자이너 챗봇 PDF 원본은 런타임 기준 `data/rag/sources/ncs` 경로를 직접 읽습니다.
+- 배포 이미지에 PDF를 포함하지 않을 경우, 컨테이너가 접근 가능한 별도 디렉터리(예: EFS, 호스트 마운트, 배포 후 동기화 폴더)에 PDF를 먼저 넣어둡니다.
+- Elastic Beanstalk 환경 변수에 아래 값을 추가하면 컨테이너 시작 시 해당 폴더의 `*.pdf` 파일을 `/app/data/rag/sources/ncs/` 로 복사합니다.
+
+```text
+NCS_PDF_SYNC_SOURCE_DIR=/mnt/mirrai-ncs-pdfs
+NCS_PDF_SYNC_OVERWRITE=0
+NCS_PDF_SYNC_STRICT=1
+```
+
+- `NCS_PDF_SYNC_SOURCE_DIR`: 컨테이너 안에서 보이는 외부 PDF 폴더 경로
+- `NCS_PDF_SYNC_OVERWRITE=1`: 같은 이름 PDF가 이미 있어도 덮어씀
+- `NCS_PDF_SYNC_STRICT=1`: 소스 폴더가 없거나 PDF가 없으면 컨테이너 시작을 실패시킴
+- 수동 실행이 필요하면 아래 명령으로 같은 동기화를 즉시 수행할 수 있습니다.
+
+```bash
+python manage.py sync_ncs_source_pdfs --source-dir /mnt/mirrai-ncs-pdfs --strict
+```
+
 GitHub Actions 배포 트리거:
 
 - 배포는 `main` 브랜치에 대한 `push`에서만 실행
