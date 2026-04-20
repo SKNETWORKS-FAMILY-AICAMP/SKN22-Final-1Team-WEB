@@ -242,12 +242,45 @@ NCS_PDF_SYNC_STRICT=1
 python manage.py sync_ncs_source_pdfs --source-dir /mnt/mirrai-ncs-pdfs --strict
 ```
 
+Elastic Beanstalk에서 `/mnt/mirrai-ncs-pdfs` 를 실제로 보이게 하려면:
+
+- 이 저장소의 `.platform/hooks/predeploy/10_mount_ncs_efs.sh` 와 `.platform/confighooks/predeploy/10_mount_ncs_efs.sh` 가 배포/환경설정 변경 시 호스트에 EFS를 마운트합니다.
+- `Dockerrun.aws.json` 의 `Volumes` 가 호스트의 `/mnt/mirrai-ncs-pdfs` 를 컨테이너의 같은 경로로 전달합니다.
+- 컨테이너 시작 시 `docker-entrypoint.sh` 가 `NCS_PDF_SYNC_SOURCE_DIR` 의 PDF를 `/app/data/rag/sources/ncs/` 로 복사합니다.
+
+Elastic Beanstalk 환경 변수에 아래 값을 추가하세요:
+
+```text
+NCS_PDF_SYNC_SOURCE_DIR=/mnt/mirrai-ncs-pdfs
+NCS_PDF_SYNC_OVERWRITE=0
+NCS_PDF_SYNC_STRICT=1
+NCS_EFS_FILE_SYSTEM_ID=fs-xxxxxxxx
+NCS_EFS_REGION=ap-northeast-2
+NCS_EFS_ACCESS_POINT_ID=fsap-xxxxxxxx   # 선택
+NCS_EFS_MOUNT_POINT=/mnt/mirrai-ncs-pdfs
+```
+
+운영 설정 순서:
+
+- EFS 파일 시스템을 만들고, Elastic Beanstalk 인스턴스와 같은 VPC/서브넷 대역에 마운트 타깃을 생성합니다.
+- EFS 보안 그룹 인바운드에 NFS `2049` 를 열고, 소스로 Elastic Beanstalk EC2 인스턴스 보안 그룹을 허용합니다.
+- 위 환경 변수를 Elastic Beanstalk 환경 속성에 등록합니다.
+- 필요하면 PDF 원본을 EFS 루트 또는 Access Point 경로 아래에 먼저 업로드합니다.
+- 새 버전을 배포하거나 환경 속성을 저장하면, 호스트에서 EFS가 `/mnt/mirrai-ncs-pdfs` 로 마운트되고 컨테이너에서도 같은 경로가 보입니다.
+- 앱 시작 시 PDF가 `/app/data/rag/sources/ncs/` 로 동기화됩니다.
+
+주의:
+
+- `NCS_EFS_ACCESS_POINT_ID` 를 쓰면 EFS Access Point 기준 경로/권한으로 마운트됩니다.
+- `NCS_EFS_FILE_SYSTEM_ID` 가 비어 있으면 훅은 아무 것도 하지 않고 넘어갑니다.
+- 현재 GitHub Actions 배포 패키지는 `.platform` 디렉터리까지 함께 압축하도록 수정되어야 훅이 배포 환경에 포함됩니다.
+
 GitHub Actions 배포 트리거:
 
 - 배포는 `main` 브랜치에 대한 `push`에서만 실행
 - `develop` 병합만으로는 자동 배포되지 않음
 - `main` 병합 시에도 아래 path filter에 걸린 파일이 포함될 때만 배포
-  `app/**`, `mirrai_project/**`, `static/**`, `templates/**`, `data/**`, `Dockerfile`, `.dockerignore`, `docker-entrypoint.sh`, `manage.py`, `requirements.txt`, `requirements-deploy.txt`, `requirements-trends.txt`, `Dockerrun.aws.json`, `.github/workflows/deploy.yml`
+  `app/**`, `mirrai_project/**`, `static/**`, `templates/**`, `data/**`, `Dockerfile`, `.dockerignore`, `docker-entrypoint.sh`, `manage.py`, `requirements.txt`, `requirements-deploy.txt`, `requirements-trends.txt`, `Dockerrun.aws.json`, `.platform/**`, `.github/workflows/deploy.yml`
 - `README.md` 또는 `.gitignore`만 변경된 경우에는 배포가 트리거되지 않음
 
 트렌드 데이터가 바뀌었다면 갱신된 `chromadb_trends` 저장소까지 함께 커밋한 뒤 `main`에 반영해 주세요.
