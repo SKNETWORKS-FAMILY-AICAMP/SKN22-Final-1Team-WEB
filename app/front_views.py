@@ -858,6 +858,36 @@ def admin_mypage_page(request):
         if admin_obj is None:
             return JsonResponse({"status": "error", "message": "관리자 정보를 찾을 수 없습니다."}, status=404)
 
+        if action == "update_info":
+            current_pin = (request.POST.get("current_pin") or "").strip()
+            if not _matches_admin_pin(raw_pin=current_pin, stored_pin=admin_obj.admin_pin):
+                return JsonResponse({"status": "error", "message": "보안키가 일치하지 않습니다."}, status=401)
+
+            store_name = (request.POST.get("store_name") or "").strip()
+            manager_name = (request.POST.get("name") or "").strip()
+            phone = (request.POST.get("phone") or "").strip()
+
+            if not store_name or not manager_name or not phone:
+                return JsonResponse({"status": "error", "message": "모든 필드를 입력해 주세요."}, status=400)
+
+            updated_fields = []
+            if admin_obj.store_name != store_name:
+                admin_obj.store_name = store_name
+                updated_fields.append("store_name")
+            if admin_obj.name != manager_name:
+                admin_obj.name = manager_name
+                updated_fields.append("name")
+            if admin_obj.phone != phone:
+                admin_obj.phone = phone
+                updated_fields.append("phone")
+
+            if updated_fields:
+                admin_obj.save(update_fields=updated_fields)
+                _sync_admin_account_state(request=request, admin_obj=admin_obj)
+                return JsonResponse({"status": "success", "message": "기본 정보가 성공적으로 수정되었습니다."})
+            
+            return JsonResponse({"status": "success", "message": "변경사항이 없습니다."})
+
         if action == "change_password":
             current_password = (request.POST.get("current_password") or "").strip()
             new_password = (request.POST.get("new_password") or "").strip()

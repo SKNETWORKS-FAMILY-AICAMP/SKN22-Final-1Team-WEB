@@ -395,7 +395,8 @@ a {
   position: fixed;
   bottom: 110px;
   right: 32px;
-  width: 400px;
+  width: 800px;
+  max-width: calc(100vw - 64px);
   height: 600px;
   max-height: calc(100vh - 150px);
   background: white;
