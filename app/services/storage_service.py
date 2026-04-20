@@ -158,8 +158,12 @@ def _s3_reference(bucket: str, key: str) -> str:
     return f"s3://{bucket}/{key.lstrip('/')}"
 
 
+def _s3_bucket_name() -> str:
+    return str(getattr(settings, "S3_BUCKET_NAME", "") or "").strip()
+
+
 def _s3_enabled() -> bool:
-    return bool(getattr(settings, "S3_BUCKET_NAME", "").strip()) and boto3 is not None
+    return bool(_s3_bucket_name()) and boto3 is not None
 
 
 @lru_cache(maxsize=1)
@@ -174,6 +178,21 @@ def _get_s3_client():
     return boto3.client("s3", **kwargs)
 
 
+@lru_cache(maxsize=1)
+def _s3_bucket_is_accessible() -> bool:
+    client = _get_s3_client()
+    bucket = _s3_bucket_name()
+    if client is None or not bucket:
+        return False
+
+    try:
+        client.head_bucket(Bucket=bucket)
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        logger.warning("[storage] S3 bucket unavailable bucket=%s: %s", bucket, exc)
+        return False
+    return True
+
+
 def _store_generated_asset_in_s3(
     *,
     asset_bytes: bytes,
@@ -182,8 +201,8 @@ def _store_generated_asset_in_s3(
     filename: str,
 ) -> str | None:
     client = _get_s3_client()
-    bucket = str(getattr(settings, "S3_BUCKET_NAME", "") or "").strip()
-    if client is None or not bucket:
+    bucket = _s3_bucket_name()
+    if client is None or not bucket or not _s3_bucket_is_accessible():
         return None
 
     key = _normalize_relative_storage_path(subdir=subdir, filename=filename)
@@ -227,6 +246,15 @@ def persist_named_asset_reference(
         mime_type=mime_type,
         subdir=str(storage_path.parent),
         filename=storage_path.name,
+    )
+    if remote_reference:
+        return remote_reference
+
+    remote_reference = _store_generated_asset_in_supabase(
+        asset_bytes=asset_bytes,
+        extension=storage_path.suffix or mimetypes.guess_extension(mime_type) or ".bin",
+        subdir=str(storage_path.parent),
+        mime_type=mime_type,
     )
     if remote_reference:
         return remote_reference
