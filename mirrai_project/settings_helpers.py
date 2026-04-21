@@ -65,12 +65,14 @@ def resolve_active_database_url(
     local_database_url: str,
     database_url: str,
 ) -> str:
-    if supabase_use_remote_db and str(supabase_db_url or "").strip():
+    # Prefer an explicitly provided Supabase URL even if the legacy flag is
+    # omitted in production environment properties.
+    if str(supabase_db_url or "").strip():
         return str(supabase_db_url).strip()
-    if str(local_database_url or "").strip():
-        return str(local_database_url).strip()
     if str(database_url or "").strip():
         return str(database_url).strip()
+    if str(local_database_url or "").strip():
+        return str(local_database_url).strip()
     return "sqlite:///db.sqlite3"
 
 
