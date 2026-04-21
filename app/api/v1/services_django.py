@@ -37,7 +37,6 @@ from app.services.age_profile import build_client_age_profile, client_matches_ag
 from app.services.capture_validation import infer_capture_reason_code
 from app.services.ai_facade import (
     analyze_face_with_runpod,
-    build_recommendation_debug_payload,
     generate_recommendation_batch,
     get_ai_runtime_config_snapshot,
     sanitize_recommendation_item_payload,
@@ -1377,42 +1376,6 @@ def _scoring_weights_for_recommendation_stage(recommendation_stage: str):
     return DEFAULT_SCORING_WEIGHTS
 
 
-def _build_recommendation_debug_prompt_payload_from_snapshot(
-    *,
-    snapshot: dict,
-    recommendation_stage: str,
-) -> dict:
-    survey_snapshot = snapshot.get("survey") or {}
-    analysis_snapshot = snapshot.get("analysis") or {}
-    return build_recommendation_debug_payload(
-        survey_data=(
-            {
-                "target_length": survey_snapshot.get("target_length"),
-                "target_vibe": survey_snapshot.get("target_vibe"),
-                "scalp_type": survey_snapshot.get("scalp_type"),
-                "hair_colour": survey_snapshot.get("hair_colour"),
-                "budget_range": survey_snapshot.get("budget_range"),
-                "gender_branch": survey_snapshot.get("gender_branch"),
-                "question_answers": dict(survey_snapshot.get("question_answers") or {}),
-                "survey_profile": dict(survey_snapshot.get("survey_profile") or {}),
-            }
-            if survey_snapshot.get("present")
-            else None
-        ),
-        analysis_data=(
-            {
-                "face_shape": analysis_snapshot.get("face_shape"),
-                "golden_ratio_score": analysis_snapshot.get("golden_ratio_score"),
-                "landmark_snapshot": dict(analysis_snapshot.get("landmark_snapshot") or {}),
-            }
-            if analysis_snapshot.get("present")
-            else None
-        ),
-        scoring_weights=_scoring_weights_for_recommendation_stage(recommendation_stage),
-        recommendation_stage=recommendation_stage,
-    )
-
-
 def _scoring_weights_for_stage(recommendation_stage: str):
     if recommendation_stage == "retry":
         return RETRY_SCORING_WEIGHTS
@@ -2547,15 +2510,7 @@ def _finalize_recommendation_payload(*, client: "Client", payload: dict, snapsho
     if payload.get("status") == "processing" and any(item.get("has_displayable_simulation") for item in normalized_items):
         payload["status"] = "ready"
 
-    recommendation_stage = str(
-        payload.get("recommendation_stage")
-        or _legacy_recommendation_stage(normalized_items)
-        or "initial"
-    )
-    payload["debug_prompt_payload"] = payload.get("debug_prompt_payload") or _build_recommendation_debug_prompt_payload_from_snapshot(
-        snapshot=snapshot,
-        recommendation_stage=recommendation_stage,
-    )
+    payload.pop("debug_prompt_payload", None)
 
     capture_snapshot = snapshot.get("capture") or {}
     analysis_snapshot = snapshot.get("analysis") or {}

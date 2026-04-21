@@ -25,7 +25,7 @@ flowchart LR
     Service[서비스 계층<br/>app/api/v1 + app/services]
     DB[(Supabase PostgreSQL)]
     Redis[(Redis Cache / Session)]
-    Storage[(Supabase Storage / Local Media)]
+    Storage[(S3 / Supabase Storage / Local Media)]
     Trend[(Trend Refresh Pipeline)]
     Trends[(ChromaDB Trends / NCS)]
     Chatbot[(ChromaDB Chatbot)]
@@ -224,14 +224,17 @@ PARTNER_LOOKUP_CACHE_SECONDS=45
 디자이너 챗봇 참고이미지 저장 기준:
 
 - PDF 원본은 EFS에서 읽습니다.
-- PDF에서 추출한 참고이미지는 기본적으로 Supabase Storage에 저장하고 signed URL로 노출합니다.
-- S3를 따로 쓰지 않으면 `S3_BUCKET_NAME` 은 비워 두세요. 값이 남아 있으면 애플리케이션이 먼저 S3를 확인한 뒤 Supabase로 fallback 합니다.
+- PDF에서 추출한 참고이미지는 `S3_BUCKET_NAME` 이 설정되어 있으면 S3에 먼저 저장합니다.
+- S3 저장이 불가능하면 Supabase Storage로 fallback 하고, 그것도 실패하면 마지막으로 로컬 media 경로를 사용합니다.
+- S3를 쓰지 않는 환경이면 `S3_BUCKET_NAME` 은 비워 두세요.
 
 NCS PDF 운영 동기화:
 
 - 디자이너 챗봇 PDF 원본은 런타임 기준 `data/rag/sources/ncs` 경로를 직접 읽습니다.
 - 배포 이미지에 PDF를 포함하지 않을 경우, 컨테이너가 접근 가능한 별도 디렉터리(예: EFS, 호스트 마운트, 배포 후 동기화 폴더)에 PDF를 먼저 넣어둡니다.
 - Elastic Beanstalk 환경 변수에 아래 값을 추가하면 컨테이너 시작 시 해당 폴더의 `*.pdf` 파일을 `/app/data/rag/sources/ncs/` 로 복사합니다.
+- `main` 브랜치 배포는 애플리케이션 이미지와 설정만 배포하며, 챗봇용 PDF 파일 자체를 EFS로 업로드하지는 않습니다.
+- 즉 배포 전에 EFS의 `/mnt/mirrai-ncs-pdfs` 같은 소스 경로에 PDF를 미리 올려 둬야 합니다.
 
 ```text
 NCS_PDF_SYNC_SOURCE_DIR=/mnt/mirrai-ncs-pdfs
