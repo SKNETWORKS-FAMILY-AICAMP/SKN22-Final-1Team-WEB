@@ -312,6 +312,26 @@ class RecommendationDiagnosticSnapshotTests(SimpleTestCase):
 
         self.assertEqual(payload["status"], "processing")
 
+    def test_get_current_recommendations_keeps_processing_after_batch_is_created_but_rows_are_not_ready(self):
+        client = SimpleNamespace(id=113, legacy_client_id="legacy-113", name="BatchGap", phone="01000011313")
+        latest_capture = SimpleNamespace(id=81, analysis_id=81, status="DONE", face_count=1, created_at=None, updated_at=None)
+        latest_analysis = SimpleNamespace(
+            id=81,
+            analysis_id=81,
+            status="DONE",
+            face_shape="oval",
+            golden_ratio_score=0.94,
+            image_url="/media/analysis-inputs/ready.png",
+            created_at=None,
+        )
+
+        with patch.object(services_django, "get_latest_capture_attempt", return_value=None), patch.object(services_django, "get_latest_survey", return_value=None), patch.object(services_django, "get_latest_capture", return_value=latest_capture), patch.object(services_django, "get_latest_analysis", return_value=latest_analysis), patch.object(services_django, "get_legacy_former_recommendation_items", side_effect=[[], []]), patch.object(services_django, "_has_active_consultation_state", return_value=False), patch.object(services_django, "get_ai_runtime_config_snapshot", return_value={"resolved_provider": "runpod"}), patch.object(services_django, "persist_simulation_image_reference", side_effect=lambda value: value), patch.object(services_django, "persist_generated_batch", return_value=("batch-gap", None)):
+            payload = services_django.get_current_recommendations(client)
+
+        self.assertEqual(payload["status"], "processing")
+        self.assertEqual(payload["source"], "current_recommendations")
+        self.assertEqual(payload.get("batch_id"), "batch-gap")
+
     def test_finalize_recommendation_payload_promotes_processing_to_ready_when_partial_images_exist(self):
         client = SimpleNamespace(id=99, legacy_client_id="legacy-99", name="Partial", phone="01000009999")
         payload = {
