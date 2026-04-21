@@ -14,6 +14,7 @@ set -eu
 : "${NCS_PDF_SYNC_SOURCE_DIR:=}"
 : "${NCS_PDF_SYNC_OVERWRITE:=0}"
 : "${NCS_PDF_SYNC_STRICT:=0}"
+: "${NCS_PACKAGED_EXAMPLE_PDF_BOOTSTRAP:=1}"
 
 export BOOTSTRAP_RAG_ASSETS
 export TIME_ZONE
@@ -26,6 +27,19 @@ export TREND_REFINER_MODEL
 export NCS_PDF_SYNC_SOURCE_DIR
 export NCS_PDF_SYNC_OVERWRITE
 export NCS_PDF_SYNC_STRICT
+export NCS_PACKAGED_EXAMPLE_PDF_BOOTSTRAP
+
+BUNDLED_NCS_PDF_DIR="/app/data/rag/sources/ncs"
+
+if [ -n "${NCS_PDF_SYNC_SOURCE_DIR}" ] && [ "${NCS_PACKAGED_EXAMPLE_PDF_BOOTSTRAP}" = "1" ]; then
+  mkdir -p "${NCS_PDF_SYNC_SOURCE_DIR}"
+  if ! find "${NCS_PDF_SYNC_SOURCE_DIR}" -maxdepth 1 -type f -name '*.pdf' | grep -q .; then
+    if find "${BUNDLED_NCS_PDF_DIR}" -maxdepth 1 -type f -name '*.pdf' | grep -q .; then
+      echo "[entrypoint] bootstrapping packaged example NCS PDFs into ${NCS_PDF_SYNC_SOURCE_DIR}"
+      cp -n "${BUNDLED_NCS_PDF_DIR}"/*.pdf "${NCS_PDF_SYNC_SOURCE_DIR}/"
+    fi
+  fi
+fi
 
 if [ -n "${NCS_PDF_SYNC_SOURCE_DIR}" ]; then
   echo "[entrypoint] syncing NCS PDFs from ${NCS_PDF_SYNC_SOURCE_DIR}"

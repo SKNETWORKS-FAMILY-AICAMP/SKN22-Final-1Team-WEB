@@ -231,20 +231,23 @@ PARTNER_LOOKUP_CACHE_SECONDS=45
 NCS PDF 운영 동기화:
 
 - 디자이너 챗봇 PDF 원본은 런타임 기준 `data/rag/sources/ncs` 경로를 직접 읽습니다.
+- 예시 질문에 연결된 4개 PDF(`헤어스타일_디자인.pdf`, `헤어컬러+디자인.pdf`, `헤어커트+디자인.pdf`, `헤어펌_콜드펌.pdf`)는 배포 이미지에 함께 포함됩니다.
+- EFS 소스 경로가 비어 있으면 컨테이너 시작 시 위 4개 PDF를 먼저 외부 소스 경로에 채운 뒤 기존 sync를 수행합니다.
 - 배포 이미지에 PDF를 포함하지 않을 경우, 컨테이너가 접근 가능한 별도 디렉터리(예: EFS, 호스트 마운트, 배포 후 동기화 폴더)에 PDF를 먼저 넣어둡니다.
 - Elastic Beanstalk 환경 변수에 아래 값을 추가하면 컨테이너 시작 시 해당 폴더의 `*.pdf` 파일을 `/app/data/rag/sources/ncs/` 로 복사합니다.
-- `main` 브랜치 배포는 애플리케이션 이미지와 설정만 배포하며, 챗봇용 PDF 파일 자체를 EFS로 업로드하지는 않습니다.
-- 즉 배포 전에 EFS의 `/mnt/mirrai-ncs-pdfs` 같은 소스 경로에 PDF를 미리 올려 둬야 합니다.
+- 즉 예시 질문용 4개 PDF는 `main` 배포만으로도 함께 반영되지만, 그 외 추가 PDF는 여전히 EFS의 `/mnt/mirrai-ncs-pdfs` 같은 소스 경로에 별도 적재해야 합니다.
 
 ```text
 NCS_PDF_SYNC_SOURCE_DIR=/mnt/mirrai-ncs-pdfs
 NCS_PDF_SYNC_OVERWRITE=0
 NCS_PDF_SYNC_STRICT=1
+NCS_PACKAGED_EXAMPLE_PDF_BOOTSTRAP=1
 ```
 
 - `NCS_PDF_SYNC_SOURCE_DIR`: 컨테이너 안에서 보이는 외부 PDF 폴더 경로
 - `NCS_PDF_SYNC_OVERWRITE=1`: 같은 이름 PDF가 이미 있어도 덮어씀
 - `NCS_PDF_SYNC_STRICT=1`: 소스 폴더가 없거나 PDF가 없으면 컨테이너 시작을 실패시킴
+- `NCS_PACKAGED_EXAMPLE_PDF_BOOTSTRAP=1`: 외부 소스 경로가 비어 있을 때 번들된 예시 질문용 PDF 4개를 먼저 채움
 - 수동 실행이 필요하면 아래 명령으로 같은 동기화를 즉시 수행할 수 있습니다.
 
 ```bash
@@ -263,6 +266,7 @@ Elastic Beanstalk 환경 변수에 아래 값을 추가하세요:
 NCS_PDF_SYNC_SOURCE_DIR=/mnt/mirrai-ncs-pdfs
 NCS_PDF_SYNC_OVERWRITE=0
 NCS_PDF_SYNC_STRICT=1
+NCS_PACKAGED_EXAMPLE_PDF_BOOTSTRAP=1
 NCS_EFS_FILE_SYSTEM_ID=fs-xxxxxxxx
 NCS_EFS_REGION=ap-northeast-2
 NCS_EFS_ACCESS_POINT_ID=fsap-xxxxxxxx   # 선택
