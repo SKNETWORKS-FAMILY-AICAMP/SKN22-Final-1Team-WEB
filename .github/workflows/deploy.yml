@@ -88,6 +88,8 @@ jobs:
         env:
           VERSION_LABEL: deploy-${{ github.sha }}-${{ github.run_number }}
         run: |
+          echo "EXPECTED_VERSION_LABEL=$VERSION_LABEL" >> $GITHUB_ENV
+
           echo "Waiting for Elastic Beanstalk environment to become Ready before deploy..."
           ATTEMPTS=0
           MAX_ATTEMPTS=60
@@ -134,6 +136,7 @@ jobs:
           echo "Waiting for Elastic Beanstalk deployment to finish..."
           ATTEMPTS=0
           MAX_ATTEMPTS=120
+          EXPECTED_VERSION_LABEL="${EXPECTED_VERSION_LABEL:?EXPECTED_VERSION_LABEL is required}"
           while true; do
             read -r STATUS HEALTH ABORTABLE VERSION_LABEL < <(aws elasticbeanstalk describe-environments \
               --application-name "$EB_APP_NAME" \
@@ -141,9 +144,31 @@ jobs:
               --query "Environments[0].[Status,Health,AbortableOperationInProgress,VersionLabel]" \
               --output text)
 
-            echo "Environment status=$STATUS health=$HEALTH abortable=$ABORTABLE version=$VERSION_LABEL"
+            echo "Environment status=$STATUS health=$HEALTH abortable=$ABORTABLE version=$VERSION_LABEL expected=$EXPECTED_VERSION_LABEL"
 
             if [ "$STATUS" = "Ready" ]; then
+              if [ "$VERSION_LABEL" != "$EXPECTED_VERSION_LABEL" ]; then
+                echo "Environment became Ready but is serving version '$VERSION_LABEL' instead of expected '$EXPECTED_VERSION_LABEL'."
+                echo "Recent Elastic Beanstalk events:"
+                aws elasticbeanstalk describe-events \
+                  --environment-name "$EB_ENV_NAME" \
+                  --max-records 20 || true
+                exit 1
+              fi
+
+              if [ "$HEALTH" = "Red" ]; then
+                echo "Environment became Ready but health is Red. Treating deployment as failed."
+                echo "Recent Elastic Beanstalk events:"
+                aws elasticbeanstalk describe-events \
+                  --environment-name "$EB_ENV_NAME" \
+                  --max-records 20 || true
+                echo "Elastic Beanstalk health details:"
+                aws elasticbeanstalk describe-environment-health \
+                  --environment-name "$EB_ENV_NAME" \
+                  --attribute-names All || true
+                exit 1
+              fi
+
               echo "Elastic Beanstalk deployment finished."
               break
             fi

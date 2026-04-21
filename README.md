@@ -160,6 +160,9 @@ python manage.py runserver
 
 - `NCS_PDF_SYNC_SOURCE_DIR=/mnt/mirrai-ncs-pdfs`
 - `NCS_PDF_SYNC_STRICT=1`
+- `OPTIONAL_STARTUP_TASKS_BLOCKING=0`
+- `NCS_PDF_SYNC_BLOCKING=0`
+- `BOOTSTRAP_RAG_ASSETS_BLOCKING=0`
 - `NCS_EFS_FILE_SYSTEM_ID`
 - `NCS_EFS_REGION`
 - `NCS_EFS_ACCESS_POINT_ID` (선택)
@@ -224,6 +227,7 @@ python manage.py runserver
 - EB는 `Dockerrun.aws.json`에서 host `80` -> container `8000`으로 연결한다.
 - health check 대응은 `/` 와 `/health/`에서 처리한다.
 - startup 체인은 `collectstatic -> verify_static_manifest -> migrate -> gunicorn` 이다.
+- NCS PDF sync / RAG bootstrap은 기본 non-blocking background 작업으로 분리할 수 있다.
 
 헬스가 깨질 때는 아래를 먼저 본다.
 
@@ -231,6 +235,7 @@ python manage.py runserver
 - startup migration 실패 여부
 - Redis 접속 지연 여부
 - EFS mount 경고 여부
+- optional startup task blocking 여부
 - EB 이벤트 / 컨테이너 로그
 
 ## 관련 문서

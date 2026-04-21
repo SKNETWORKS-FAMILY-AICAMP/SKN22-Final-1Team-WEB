@@ -99,6 +99,9 @@ NCS PDF를 EFS에서 읽을 때 확인:
 - `NCS_PDF_SYNC_OVERWRITE=0`
 - `NCS_PDF_SYNC_STRICT=1`
 - `NCS_PACKAGED_EXAMPLE_PDF_BOOTSTRAP=1`
+- `OPTIONAL_STARTUP_TASKS_BLOCKING=0`
+- `NCS_PDF_SYNC_BLOCKING=0`
+- `BOOTSTRAP_RAG_ASSETS_BLOCKING=0`
 - `NCS_EFS_FILE_SYSTEM_ID`
 - `NCS_EFS_REGION=ap-northeast-2`
 - `NCS_EFS_ACCESS_POINT_ID` (선택)
@@ -131,6 +134,16 @@ NCS PDF를 EFS에서 읽을 때 확인:
 3. migration 실패 여부
 4. static manifest 검증 실패 여부
 5. EFS mount warning/timeout 여부
+6. optional startup task가 blocking 모드로 묶여 startup을 지연시키는지 여부
+
+## 5-1. GitHub Actions 배포 판정 규칙
+
+현재 workflow는 아래 경우를 실패로 처리해야 한다.
+
+- 환경이 `Ready`가 되었지만 `VersionLabel`이 기대한 배포 버전과 다를 때
+- 환경이 `Ready`가 되었지만 `Health=Red`일 때
+
+즉 `Ready`만 보고 성공으로 끝내면 안 된다.
 
 ## 6. 다른 배포 repo에 업로드할 파일
 
