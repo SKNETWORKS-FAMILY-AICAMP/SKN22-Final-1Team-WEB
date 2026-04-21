@@ -35,22 +35,35 @@ class SettingsHelpersTests(SimpleTestCase):
         self.assertFalse(redis_cache_available(redis_url="redis://127.0.0.1:6399/1"))
         client.close.assert_called_once()
 
-    def test_resolve_active_database_url_prefers_remote_then_local_then_database_url(self):
-        self.assertEqual(
-            resolve_active_database_url(
-                supabase_use_remote_db=True,
-                supabase_db_url="postgresql://remote",
-                local_database_url="sqlite:///db.sqlite3",
-                database_url="postgresql://legacy",
-            ),
-            "postgresql://remote",
-        )
+    def test_resolve_active_database_url_prefers_supabase_even_without_flag(self):
         self.assertEqual(
             resolve_active_database_url(
                 supabase_use_remote_db=False,
-                supabase_db_url="postgresql://remote",
+                supabase_db_url="postgresql://supabase.example/db",
                 local_database_url="sqlite:///db.sqlite3",
                 database_url="postgresql://legacy",
+            ),
+            "postgresql://supabase.example/db",
+        )
+
+    def test_resolve_active_database_url_prefers_database_url_before_local(self):
+        self.assertEqual(
+            resolve_active_database_url(
+                supabase_use_remote_db=False,
+                supabase_db_url="",
+                local_database_url="sqlite:///db.sqlite3",
+                database_url="postgresql://runtime.example/db",
+            ),
+            "postgresql://runtime.example/db",
+        )
+
+    def test_resolve_active_database_url_falls_back_to_local(self):
+        self.assertEqual(
+            resolve_active_database_url(
+                supabase_use_remote_db=False,
+                supabase_db_url="",
+                local_database_url="sqlite:///db.sqlite3",
+                database_url="",
             ),
             "sqlite:///db.sqlite3",
         )
