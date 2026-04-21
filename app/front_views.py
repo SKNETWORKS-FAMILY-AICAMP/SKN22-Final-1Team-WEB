@@ -266,6 +266,15 @@ def _render_partner_login(
 
 
 def _customer_resume_route_for_client(*, client: Client) -> str:
+    from app.api.v1.services_django import get_latest_capture, get_latest_survey
+    from app.services.model_team_bridge import get_legacy_former_recommendation_items
+
+    survey = get_latest_survey(client)
+    if survey:
+        return "customer_result"
+    capture = get_latest_capture(client)
+    if capture:
+        return "customer_survey"
     return "customer_menu"
 
 
@@ -337,7 +346,7 @@ def privacy_policy_page(request):
 @never_cache
 def client_login_page(request):
     if request.method == "GET" and get_session_customer(request=request) is not None:
-        return redirect("customer_resume")
+        return redirect("customer_menu")
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
         gender = (request.POST.get("gender") or "").strip()
@@ -413,12 +422,34 @@ def client_menu_page(request):
     client = get_session_customer(request=request)
     if not client:
         return redirect("customer_index")
+
+    from app.api.v1.services_django import get_latest_capture, get_latest_survey
+
+    survey = get_latest_survey(client)
+    capture = get_latest_capture(client)
+
+    if survey:
+        resume_step = 3
+        resume_step_label = "추천 결과 확인"
+        resume_url = reverse("customer_result")
+    elif capture:
+        resume_step = 2
+        resume_step_label = "스타일 설문"
+        resume_url = reverse("customer_survey")
+    else:
+        resume_step = None
+        resume_step_label = None
+        resume_url = None
+
     return render(
         request,
         "customer/menu.html",
         {
             "client": client,
             "popup_message": _popup_message_from_notice(request.GET.get("notice")),
+            "resume_step": resume_step,
+            "resume_step_label": resume_step_label,
+            "resume_url": resume_url,
         },
     )
 
@@ -520,11 +551,41 @@ def customer_resume_page(request):
     client = get_session_customer(request=request)
     if not client:
         return redirect("customer_index")
-    target = reverse(_customer_resume_route_for_client(client=client))
+
     notice = (request.GET.get("notice") or "").strip()
+    # notice 파라미터가 있을 때는 기존처럼 해당 페이지로 바로 리다이렉트
     if notice:
+        target = reverse(_customer_resume_route_for_client(client=client))
         return redirect(f"{target}?notice={notice}")
-    return redirect(target)
+
+    from app.api.v1.services_django import get_latest_capture, get_latest_survey
+
+    capture = get_latest_capture(client)
+    survey = get_latest_survey(client)
+
+    if survey:
+        step = 3
+        step_label = "추천 결과 확인"
+        resume_url = reverse("customer_result")
+    elif capture:
+        step = 2
+        step_label = "스타일 설문"
+        resume_url = reverse("customer_survey")
+    else:
+        step = 1
+        step_label = "서비스 선택"
+        resume_url = reverse("customer_menu")
+
+    return render(
+        request,
+        "customer/continue.html",
+        {
+            "client": client,
+            "step": step,
+            "step_label": step_label,
+            "resume_url": resume_url,
+        },
+    )
 
 
 @never_cache

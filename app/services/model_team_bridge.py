@@ -1609,14 +1609,46 @@ def get_legacy_active_consultation_items(
     style_ids = {row.selected_hairstyle_id for row in rows if row.selected_hairstyle_id}
     style_map = {
         item.hairstyle_id: item
-        for item in LegacyHairstyle.objects.filter(hairstyle_id__in=style_ids)
+        for item in LegacyHairstyle.objects.filter(hairstyle_id__in=style_ids).only(
+            "hairstyle_id",
+            "name",
+            "style_name",
+            "image_url",
+            "description",
+        )
     } if _has_columns("hairstyle", LEGACY_HAIRSTYLE_MODEL_COLUMNS) else {}
-    detail_counts = {
-        item["result_id"]: item["count"]
-        for item in LegacyClientResultDetail.objects.filter(result_id__in=[row.result_id for row in rows])
-        .values("result_id")
-        .annotate(count=Count("detail_id"))
-    } if _has_columns("client_result_detail", LEGACY_RESULT_DETAIL_MODEL_COLUMNS) else {}
+    result_map = {row.result_id: row for row in rows}
+    detail_counts: dict[int, int] = {}
+    selected_detail_map: dict[int, LegacyClientResultDetail] = {}
+    if _has_columns("client_result_detail", LEGACY_RESULT_DETAIL_MODEL_COLUMNS):
+        detail_rows = list(
+            LegacyClientResultDetail.objects.filter(result_id__in=[row.result_id for row in rows])
+            .only(
+                "detail_id",
+                "result_id",
+                "hairstyle_id",
+                "backend_recommendation_id",
+                "is_chosen",
+                "created_at_ts",
+                "final_score",
+                "similarity_score",
+                "style_description_snapshot",
+                "sample_image_url",
+                "simulated_image_url",
+            )
+            .order_by("-created_at_ts", "-detail_id")
+        )
+        for detail in detail_rows:
+            detail_counts[detail.result_id] = int(detail_counts.get(detail.result_id, 0)) + 1
+            if detail.result_id in selected_detail_map:
+                continue
+            parent_row = result_map.get(detail.result_id)
+            if parent_row is None:
+                continue
+            if detail.hairstyle_id == parent_row.selected_hairstyle_id or bool(detail.is_chosen):
+                selected_detail_map[detail.result_id] = detail
+        for detail in detail_rows:
+            selected_detail_map.setdefault(detail.result_id, detail)
 
     items: list[dict] = []
     seen_clients: set[str] = set()
@@ -1635,9 +1667,38 @@ def get_legacy_active_consultation_items(
         status_text = str(row.status or "").upper()
         is_active = _row_is_active(row)
         is_read = bool(row.is_read) if row.is_read is not None else False
+        selected_detail = selected_detail_map.get(row.result_id)
         selected_style_name = (
             getattr(legacy_style, "name", None)
             or getattr(legacy_style, "style_name", None)
+        )
+        selected_style_image_url = None
+        selected_style_candidates = [
+            (getattr(selected_detail, "simulated_image_url", None) if selected_detail is not None else None),
+            (getattr(selected_detail, "sample_image_url", None) if selected_detail is not None else None),
+            getattr(legacy_style, "image_url", None),
+        ]
+        for selected_style_reference in selected_style_candidates:
+            if selected_style_reference in (None, ""):
+                continue
+            resolved_selected_style_reference = resolve_storage_reference(selected_style_reference)
+            if resolved_selected_style_reference not in (None, ""):
+                selected_style_image_url = resolved_selected_style_reference
+                break
+        raw_selected_score = None
+        if selected_detail is not None:
+            raw_selected_score = selected_detail.final_score
+            if raw_selected_score in (None, ""):
+                raw_selected_score = selected_detail.similarity_score
+        selected_style_score = None
+        if raw_selected_score not in (None, ""):
+            try:
+                selected_style_score = float(raw_selected_score)
+            except (TypeError, ValueError):
+                selected_style_score = None
+        selected_style_description = (
+            (getattr(selected_detail, "style_description_snapshot", None) if selected_detail is not None else None)
+            or getattr(legacy_style, "description", None)
         )
         age_profile = _build_legacy_age_profile(
             {
@@ -1662,7 +1723,16 @@ def get_legacy_active_consultation_items(
                     getattr(legacy_designer, "name", None)
                     or getattr(legacy_designer, "designer_name", None)
                 ),
+                "selected_style_id": row.selected_hairstyle_id,
                 "selected_style_name": selected_style_name,
+                "selected_style_image_url": selected_style_image_url,
+                "selected_style_score": selected_style_score,
+                "selected_style_description": selected_style_description,
+                "selected_recommendation_id": (
+                    (selected_detail.backend_recommendation_id or selected_detail.detail_id)
+                    if selected_detail is not None
+                    else None
+                ),
                 "recommendation_count": int(detail_counts.get(row.result_id, 0)),
                 "last_activity_at": _coerce_datetime(row.updated_at) or _coerce_datetime(row.created_at),
                 "is_active": bool(is_active),

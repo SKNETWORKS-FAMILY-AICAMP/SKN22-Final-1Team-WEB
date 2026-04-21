@@ -1,0 +1,278 @@
+{% extends "layouts/base_site.html" %}
+{% load static %}
+
+{% block page_title %}MirrAI | 이전 단계 이어하기{% endblock %}
+
+{% block hero_content %}
+<div class="resume-hero">
+  <p class="resume-kicker">CONTINUE SESSION</p>
+  <h2 class="hero-title">이전 분석을 <span>이어서</span> 진행할 수 있어요</h2>
+  <p class="resume-desc">
+    {{ client.name }} 고객님의 진행 중인 분석이 있습니다.<br>
+    아래에서 단계를 확인하고 이어서 시작하세요.
+  </p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="resume-wrap">
+
+  {# 진행 단계 시각화 #}
+  <div class="resume-steps">
+    <div class="resume-step {% if step >= 1 %}is-done{% endif %}">
+      <div class="resume-step-icon">
+        {% if step >= 1 %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}
+        <span>1</span>
+        {% endif %}
+      </div>
+      <p class="resume-step-label">고객 정보 입력</p>
+    </div>
+
+    <div class="resume-step-line {% if step >= 2 %}is-done{% endif %}"></div>
+
+    <div class="resume-step {% if step >= 2 %}is-done{% elif step == 1 %}is-current{% endif %}">
+      <div class="resume-step-icon">
+        {% if step >= 2 %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}
+        <span>2</span>
+        {% endif %}
+      </div>
+      <p class="resume-step-label">사진 촬영 / 업로드</p>
+    </div>
+
+    <div class="resume-step-line {% if step >= 3 %}is-done{% endif %}"></div>
+
+    <div class="resume-step {% if step >= 3 %}is-done{% elif step == 2 %}is-current{% endif %}">
+      <div class="resume-step-icon">
+        {% if step >= 3 %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}
+        <span>3</span>
+        {% endif %}
+      </div>
+      <p class="resume-step-label">스타일 설문</p>
+    </div>
+
+    <div class="resume-step-line {% if step >= 4 %}is-done{% endif %}"></div>
+
+    <div class="resume-step {% if step >= 4 %}is-done{% elif step == 3 %}is-current{% endif %}">
+      <div class="resume-step-icon">
+        {% if step >= 4 %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}
+        <span>4</span>
+        {% endif %}
+      </div>
+      <p class="resume-step-label">추천 결과 확인</p>
+    </div>
+  </div>
+
+  {# 현재 단계 안내 #}
+  <div class="resume-status-card">
+    <p class="resume-status-label">현재 단계</p>
+    <p class="resume-status-value">{{ step_label }}</p>
+  </div>
+
+  {# 액션 버튼 #}
+  <div class="resume-actions">
+    <a href="{{ resume_url }}" class="btn btn-primary resume-btn-main">
+      이전 단계부터 이어하기
+    </a>
+    <a href="{% url 'customer_menu' %}" class="btn resume-btn-ghost">
+      처음부터 다시 시작
+    </a>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* Hero */
+  .resume-hero {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 0 32px;
+  }
+  .resume-kicker {
+    margin: 0 0 12px;
+    color: var(--accent-neon);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .resume-hero .hero-title {
+    margin: 0 0 16px;
+  }
+  .resume-desc {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* Wrap */
+  .resume-wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  /* Steps */
+  .resume-steps {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    padding: 36px 28px;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-main);
+  }
+
+  .resume-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+
+  .resume-step-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--line);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 800;
+    transition: all 0.2s ease;
+  }
+  .resume-step-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .resume-step.is-done .resume-step-icon {
+    background: var(--accent-neon);
+    color: var(--bg-dark);
+  }
+  .resume-step.is-current .resume-step-icon {
+    background: var(--bg-dark);
+    color: var(--accent-neon);
+    border: 2px solid var(--accent-neon);
+    box-shadow: 0 0 14px rgba(245, 209, 13, 0.35);
+  }
+
+  .resume-step-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-align: center;
+    white-space: nowrap;
+  }
+  .resume-step.is-done .resume-step-label,
+  .resume-step.is-current .resume-step-label {
+    color: var(--text-primary);
+  }
+
+  .resume-step-line {
+    flex: 1;
+    height: 2px;
+    background: var(--line);
+    margin-top: 22px;
+    min-width: 24px;
+    border-radius: 1px;
+    transition: background 0.2s ease;
+  }
+  .resume-step-line.is-done {
+    background: var(--accent-neon);
+  }
+
+  /* Status card */
+  .resume-status-card {
+    padding: 20px 24px;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-main);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .resume-status-label {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .resume-status-value {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--bg-dark);
+  }
+
+  /* Actions */
+  .resume-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .resume-btn-main {
+    width: 100%;
+    justify-content: center;
+  }
+  .resume-btn-ghost {
+    width: 100%;
+    justify-content: center;
+    background: transparent;
+    border: 1.5px solid var(--line);
+    color: var(--text-secondary);
+    height: 56px;
+    border-radius: var(--radius-pill);
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .resume-btn-ghost:hover {
+    border-color: var(--bg-dark);
+    color: var(--bg-dark);
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .resume-steps {
+      padding: 24px 16px;
+      gap: 0;
+    }
+    .resume-step-label {
+      font-size: 10px;
+    }
+    .resume-step-icon {
+      width: 36px;
+      height: 36px;
+      font-size: 13px;
+    }
+    .resume-step-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+    .resume-step-line {
+      margin-top: 18px;
+      min-width: 12px;
+    }
+  }
+</style>
+{% endblock %}
