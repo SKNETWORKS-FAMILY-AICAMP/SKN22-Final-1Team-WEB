@@ -116,8 +116,8 @@ RETRY_RECOMMENDATION_POLICY = {
 }
 
 CURRENT_RECOMMENDATION_WAIT_POLICY = RecommendationWaitPolicy(
-    timeout_seconds=45.0,
-    interval_seconds=3.0,
+    timeout_seconds=12.0,
+    interval_seconds=1.5,
 )
 FAILED_RECOMMENDATION_INPUT_STATUSES = {"FAILED", "NEEDS_RETAKE", "ERROR"}
 
@@ -1809,7 +1809,10 @@ def _ensure_current_batch(
         return batch_id, refreshed_assets.items, None
     if refreshed_assets.has_pending_assets:
         return batch_id, refreshed_assets.items, "processing"
-    return batch_id, refreshed_assets.items, None
+    # A new batch was just persisted, but downstream rows/assets may not be
+    # visible yet. Keep the client in polling mode instead of surfacing an
+    # empty state too early.
+    return batch_id, refreshed_assets.items, "processing"
 
 
 def _build_local_mock_recommendations(*, client: "Client", latest_survey, latest_analysis: "FaceAnalysis | None") -> dict:
@@ -2248,13 +2251,21 @@ def _build_legacy_current_recommendations_payload(
     }
 
 
-def _build_processing_current_recommendations_payload(*, message: str, items: list[dict] | None = None) -> dict:
-    return {
+def _build_processing_current_recommendations_payload(
+    *,
+    message: str,
+    items: list[dict] | None = None,
+    batch_id: str | None = None,
+) -> dict:
+    payload = {
         "status": "processing",
         "source": "current_recommendations",
         "message": message,
         "items": list(items or []),
     }
+    if batch_id:
+        payload["batch_id"] = batch_id
+    return payload
 
 
 def _has_failed_recommendation_inputs(*, latest_capture_attempt, latest_capture, latest_analysis) -> bool:
@@ -2736,6 +2747,7 @@ def get_current_recommendations(client: "Client") -> dict:
             payload=_build_processing_current_recommendations_payload(
                 message="Recommendation images are still being generated. This usually takes about 1 to 2 minutes.",
                 items=rows,
+                batch_id=batch_id,
             ),
             snapshot=snapshot,
         )

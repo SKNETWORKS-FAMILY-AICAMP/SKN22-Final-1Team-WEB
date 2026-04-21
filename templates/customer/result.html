@@ -292,8 +292,8 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const freshTs = parseInt(urlParams.get('fresh') || '0', 10);
-    const POLL_INTERVAL_MS = 4000;
-    const POLL_TIMEOUT_MS = 120000;
+    const POLL_INTERVAL_MS = 2500;
+    const POLL_TIMEOUT_MS = 240000;
     let pollStartedAt = freshTs ? Date.now() : 0;
     let pollTimer = null;
 
@@ -478,10 +478,21 @@
     function shouldContinuePolling(data, items, elapsed) {
       const status = String((data && data.status) || '').toLowerCase();
       const displayGateStatus = String((data && data.display_gate_status) || '').toLowerCase();
+      const displayGateReason = String((data && data.display_gate_reason) || '').toLowerCase();
       if (elapsed >= POLL_TIMEOUT_MS) {
         return false;
       }
       if (status === 'processing' || displayGateStatus === 'processing') {
+        return elapsed < POLL_TIMEOUT_MS;
+      }
+      if (
+        status === 'empty'
+        && items.length === 0
+        && (
+          displayGateReason === 'recommendations_not_ready'
+          || displayGateReason === 'recommendations_processing'
+        )
+      ) {
         return elapsed < POLL_TIMEOUT_MS;
       }
       if (status === 'needs_capture' || status === 'needs_input' || status === 'empty') {
