@@ -271,7 +271,10 @@ NCS_EFS_FILE_SYSTEM_ID=fs-xxxxxxxx
 NCS_EFS_REGION=ap-northeast-2
 NCS_EFS_ACCESS_POINT_ID=fsap-xxxxxxxx   # 선택
 NCS_EFS_MOUNT_POINT=/mnt/mirrai-ncs-pdfs
+NCS_EFS_MOUNT_TIMEOUT_SECONDS=45
 ```
+
+- `NCS_EFS_MOUNT_TIMEOUT_SECONDS`: EFS 마운트를 기다리는 최대 시간(초)입니다. 초과 시 경고만 남기고 배포를 계속합니다.
 
 운영 설정 순서:
 
