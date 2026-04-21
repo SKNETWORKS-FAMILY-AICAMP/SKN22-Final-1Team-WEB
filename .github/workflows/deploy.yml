@@ -26,6 +26,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: eb-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   AWS_REGION: ap-northeast-2
   EB_APP_NAME: ${{ secrets.EB_APPLICATION_NAME }}
@@ -84,6 +88,34 @@ jobs:
         env:
           VERSION_LABEL: deploy-${{ github.sha }}-${{ github.run_number }}
         run: |
+          echo "Waiting for Elastic Beanstalk environment to become Ready before deploy..."
+          ATTEMPTS=0
+          MAX_ATTEMPTS=60
+          while true; do
+            STATUS=$(aws elasticbeanstalk describe-environments \
+              --application-name "$EB_APP_NAME" \
+              --environment-names "$EB_ENV_NAME" \
+              --query "Environments[0].Status" \
+              --output text)
+
+            if [ "$STATUS" = "Ready" ]; then
+              echo "Environment is Ready."
+              break
+            fi
+
+            ATTEMPTS=$((ATTEMPTS + 1))
+            if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+              echo "Environment did not become Ready in time. Current status: $STATUS"
+              aws elasticbeanstalk describe-environments \
+                --application-name "$EB_APP_NAME" \
+                --environment-names "$EB_ENV_NAME"
+              exit 1
+            fi
+
+            echo "Environment status is $STATUS. Waiting 30 seconds..."
+            sleep 30
+          done
+
           S3_BUCKET=$(aws elasticbeanstalk create-storage-location --query "S3Bucket" --output text)
 
           aws s3 cp deploy.zip "s3://$S3_BUCKET/$EB_APP_NAME/$VERSION_LABEL.zip"
