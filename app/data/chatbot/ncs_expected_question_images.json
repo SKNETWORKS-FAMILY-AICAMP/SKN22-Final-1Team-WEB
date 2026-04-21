@@ -1,0 +1,131 @@
+[
+  {
+    "id": "designer_c_curl_sequence",
+    "question_label": "C컬 시술 순서",
+    "match_keywords": [
+      "c컬 시술 순서",
+      "c컬",
+      "인컬",
+      "블로우드라이"
+    ],
+    "source_pdf": "헤어스타일_디자인.pdf",
+    "items": [
+      {
+        "id": "c-curl-blow-1",
+        "page": 32,
+        "extract_strategy": "embedded",
+        "max_images": 3,
+        "figure": "그림 1-15",
+        "title": "C컬-인컬 드라이 시작",
+        "caption": "네이프와 탑 섹션 각도, 롤브러시 위치를 확인하는 단계"
+      },
+      {
+        "id": "c-curl-blow-2",
+        "page": 33,
+        "extract_strategy": "embedded",
+        "max_images": 4,
+        "figure": "그림 1-16",
+        "title": "롱헤어 C컬-인컬 완성",
+        "caption": "열풍과 냉풍을 반복해 탄력 있는 C컬을 완성하는 예시"
+      }
+    ]
+  },
+  {
+    "id": "designer_pre_color_cautions",
+    "question_label": "염색 전 주의사항",
+    "match_keywords": [
+      "염색 전",
+      "염색 전 주의사항",
+      "패치 테스트",
+      "패치테스트",
+      "스트랜드 테스트",
+      "알레르기"
+    ],
+    "source_pdf": "헤어컬러+디자인.pdf",
+    "items": [
+      {
+        "id": "pre-color-test-1",
+        "page": 29,
+        "extract_strategy": "embedded",
+        "max_images": 3,
+        "figure": "그림 1-15",
+        "title": "스트랜드 테스트 부위 설정과 도포",
+        "caption": "염색 전 테스트 부위를 잡고 염모제를 도포하는 순서를 보여주는 이미지"
+      },
+      {
+        "id": "pre-color-test-2",
+        "page": 30,
+        "extract_strategy": "embedded",
+        "max_images": 3,
+        "figure": "그림 1-16",
+        "title": "스트랜드 테스트 결과 확인",
+        "caption": "방치 후 염모제를 제거하고 결과를 확인하는 순서를 보여주는 이미지"
+      }
+    ]
+  },
+  {
+    "id": "designer_layered_cut_guide",
+    "question_label": "레이어드 컷 가이드",
+    "match_keywords": [
+      "레이어드 컷",
+      "레이어 컷",
+      "레이어드",
+      "레이어",
+      "커트 가이드",
+      "커트 디자인",
+      "얼굴형"
+    ],
+    "source_pdf": "헤어커트+디자인.pdf",
+    "items": [
+      {
+        "id": "layered-cut-connection",
+        "page": 20,
+        "extract_strategy": "embedded",
+        "max_images": 6,
+        "figure": "그림 1-4",
+        "title": "커넥션 커트 디자인",
+        "caption": "영역을 연결해 라인을 만드는 레이어드 응용 예시"
+      },
+      {
+        "id": "layered-cut-creative",
+        "page": 21,
+        "extract_strategy": "embedded",
+        "max_images": 2,
+        "figure": "그림 1-6",
+        "title": "크리에이티브 헤어커트 예시",
+        "caption": "트렌드형 레이어드 커트를 응용할 때 참고하는 시안"
+      }
+    ]
+  },
+  {
+    "id": "designer_volume_magic_c_curl",
+    "question_label": "볼륨매직 C컬",
+    "match_keywords": [
+      "볼륨매직",
+      "아이론 c컬",
+      "네이프 c컬",
+      "볼륨매직 c컬"
+    ],
+    "source_pdf": "헤어펌_콜드펌.pdf",
+    "items": [
+      {
+        "id": "magic-c-curl-nape",
+        "page": 75,
+        "extract_strategy": "embedded",
+        "max_images": 5,
+        "figure": "그림 2-18",
+        "title": "볼륨매직 네이프 C컬",
+        "caption": "아이론 각도와 180도 회전 단계가 정리된 페이지"
+      },
+      {
+        "id": "magic-c-curl-continue",
+        "page": 76,
+        "extract_strategy": "embedded",
+        "max_images": 7,
+        "figure": "그림 2-19",
+        "title": "볼륨매직 C컬 연속 작업",
+        "caption": "90도 회전, 직선 프레스, 뜸 들이기 흐름이 이어지는 페이지"
+      }
+    ]
+  }
+]

@@ -75,6 +75,29 @@ class LatestFeedTests(SimpleTestCase):
         self.assertEqual(localized, items)
         mock_load_translation_cache.assert_not_called()
 
+    @patch("app.trend_pipeline.latest_feed._load_translation_cache")
+    def test_apply_translation_cache_overrides_replaces_stale_localized_fields(self, mock_load_translation_cache):
+        mock_load_translation_cache.return_value = {
+            "https://example.com/katseye": {
+                "title_ko": "캣츠아이, 코첼라를 위한 파격 금발 변신!",
+                "summary_ko": "캣츠아이는 코첼라 무대를 앞두고 블론드 변신을 선보였습니다.",
+            }
+        }
+        items = [
+            {
+                "title": "Katseye on Going Blonde for Coachella",
+                "summary": "Katseye went blonde for Coachella.",
+                "article_url": "https://example.com/katseye",
+                "title_ko": "오래된 제목",
+                "summary_ko": "오래된 요약",
+            }
+        ]
+
+        localized = latest_feed._apply_translation_cache_overrides(items)
+
+        self.assertEqual(localized[0]["title_ko"], "캣츠아이, 코첼라를 위한 파격 금발 변신!")
+        self.assertEqual(localized[0]["summary_ko"], "캣츠아이는 코첼라 무대를 앞두고 블론드 변신을 선보였습니다.")
+
     @patch("app.trend_pipeline.latest_feed._set_latest_trends_cached", side_effect=lambda limit, payload: payload)
     @patch("app.trend_pipeline.latest_feed._get_latest_trends_cached", return_value=None)
     @patch("app.trend_pipeline.latest_feed._load_refined_article_lookup", return_value={})
@@ -88,6 +111,7 @@ class LatestFeedTests(SimpleTestCase):
         _mock_get_cached,
         _mock_set_cached,
     ):
+        mock_load_translation_cache.return_value = {}
         mock_iter_chroma_items.return_value = [
             {
                 "display_title": "Soft Bob",
@@ -109,7 +133,7 @@ class LatestFeedTests(SimpleTestCase):
         self.assertEqual(payload["items"][0]["source_name"], "Example")
         self.assertEqual(payload["items"][0]["title_ko"], "소프트 보브")
         self.assertEqual(payload["items"][0]["summary_ko"], "가벼운 질감이 들어간 소프트 보브 스타일입니다.")
-        mock_load_translation_cache.assert_not_called()
+        mock_load_translation_cache.assert_called_once()
 
     @patch("app.trend_pipeline.latest_feed._set_latest_trends_cached", side_effect=lambda limit, payload: payload)
     @patch("app.trend_pipeline.latest_feed._get_latest_trends_cached", return_value=None)

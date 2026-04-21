@@ -19,6 +19,7 @@ on:
       - 'requirements-deploy.txt'
       - 'requirements-trends.txt'
       - 'Dockerrun.aws.json'
+      - '.platform/**'
       - '.github/workflows/deploy.yml'
 
 permissions:
@@ -77,7 +78,7 @@ jobs:
           PY
 
       - name: Create deployment package
-        run: zip deploy.zip Dockerrun.aws.json
+        run: zip -r deploy.zip Dockerrun.aws.json .platform
 
       - name: Upload version and deploy to Elastic Beanstalk
         env:

@@ -28,8 +28,19 @@
   <article class="panel" style="padding: 28px; display: flex; flex-direction: column; gap: 16px;">
     <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">New</p>
     <h3 class="section-title" style="font-size: 22px; margin-bottom: 0;">새로운 스타일 추천</h3>
-    <p class="section-copy" style="font-size: 14px;">사진 촬영부터 다시 시작해 새로운 추천 결과를 받아볼 수 있습니다.</p>
-    <a href="{% url 'customer_camera' %}" class="btn btn-primary" style="margin-top: auto; height: 48px; display: inline-flex; align-items: center; justify-content: center;">촬영 시작</a>
+    <p class="section-copy" style="font-size: 14px;">사진 촬영 또는 사진 업로드로 새로운 추천 결과를 받아볼 수 있습니다.</p>
+    <div class="recommend-actions" style="margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+      <a href="{% url 'customer_camera' %}" class="btn btn-primary" style="height: 48px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; white-space: nowrap;">촬영 시작</a>
+      <a href="{% url 'customer_upload' %}" class="btn btn-dark" style="height: 48px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; white-space: nowrap;">사진 업로드</a>
+    </div>
   </article>
 </div>
+
+<style>
+  @media (max-width: 360px) {
+    .recommend-actions {
+      grid-template-columns: 1fr !important;
+    }
+  }
+</style>
 {% endblock %}

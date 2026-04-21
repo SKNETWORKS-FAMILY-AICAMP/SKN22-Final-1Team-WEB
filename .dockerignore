@@ -18,6 +18,13 @@ data/rag/processed/*
 !data/rag/processed/trends/**
 !data/rag/processed/ncs/
 !data/rag/processed/ncs/**
+!data/rag/sources/
+!data/rag/sources/ncs/
+data/rag/sources/ncs/*
+!data/rag/sources/ncs/헤어스타일_디자인.pdf
+!data/rag/sources/ncs/헤어커트+디자인.pdf
+!data/rag/sources/ncs/헤어컬러+디자인.pdf
+!data/rag/sources/ncs/헤어펌_콜드펌.pdf
 !data/rag/stores/
 data/rag/stores/*
 !data/rag/stores/chromadb_trends/

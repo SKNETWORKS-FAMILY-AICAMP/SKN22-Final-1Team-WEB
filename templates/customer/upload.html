@@ -1,0 +1,485 @@
+{% extends "layouts/base_site.html" %}
+
+{% block page_title %}MirrAI | 사진 업로드{% endblock %}
+
+{% block extra_head %}
+<style>
+  .upload-layout {
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  .upload-panel {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .upload-source-row,
+  .upload-actions,
+  .upload-status,
+  .upload-meta {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .upload-source-row { padding-top: 4px; }
+
+  .upload-source-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  @media (max-width: 360px) {
+    .upload-source-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .upload-source-btn {
+    height: 56px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md, 12px);
+    background: white;
+    color: var(--bg-dark);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  }
+
+  .upload-source-btn:hover {
+    border-color: var(--accent-neon, #00ff9d);
+    background: rgba(0, 255, 157, 0.06);
+  }
+
+  .upload-source-btn:active {
+    transform: scale(0.98);
+  }
+
+  .upload-source-btn svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
+  .upload-preview-shell {
+    aspect-ratio: 3 / 4;
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    overflow: hidden;
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-lg, 16px);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    word-break: keep-all;
+  }
+
+  .upload-preview-shell img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .upload-preview-shell img[hidden] { display: none !important; }
+
+  .upload-preview-shell .upload-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 20px;
+    line-height: 1.5;
+  }
+  .upload-preview-shell .upload-placeholder[hidden] { display: none !important; }
+
+  .upload-preview-shell .upload-placeholder svg {
+    width: 36px;
+    height: 36px;
+    opacity: 0.6;
+  }
+
+  .upload-status {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    word-break: keep-all;
+  }
+
+  .upload-status[data-tone="error"] { color: #ff7a7a; }
+  .upload-status[data-tone="success"] { color: var(--accent-neon, #00b87a); }
+  .upload-status[data-tone="loading"] { color: #94a3b8; }
+
+  .upload-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  @media (max-width: 360px) {
+    .upload-actions {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .upload-actions .btn {
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .upload-meta {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    word-break: break-all;
+  }
+
+  .upload-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    animation: upload-spin 0.7s linear infinite;
+    vertical-align: -2px;
+    margin-right: 8px;
+  }
+
+  @keyframes upload-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .visually-hidden {
+    position: absolute !important;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+</style>
+{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>사진 업로드</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">사진을 새로 촬영하거나 갤러리에서 선택해 분석을 시작할 수 있습니다.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="upload-layout">
+  <div class="panel upload-panel">
+    <div class="upload-source-row">
+      <button type="button" class="upload-source-btn" id="uploadSourceCamera">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        사진 촬영
+      </button>
+      <button type="button" class="upload-source-btn" id="uploadSourceFile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        사진 선택
+      </button>
+    </div>
+
+    <input id="uploadInputCamera" class="visually-hidden" type="file" accept="image/*" capture="user">
+    <input id="uploadInputFile" class="visually-hidden" type="file" accept="image/*">
+
+    <div class="upload-preview-shell" id="uploadPreviewShell">
+      <div class="upload-placeholder" id="uploadPlaceholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        <span>위 버튼을 눌러 사진을<br>촬영하거나 선택해 주세요.</span>
+      </div>
+      <img id="uploadPreviewImg" alt="업로드 미리보기" hidden>
+    </div>
+
+    <p id="uploadMeta" class="upload-meta" hidden></p>
+    <p id="uploadStatus" class="upload-status">사진을 선택하면 미리보기가 표시됩니다.</p>
+
+    <div class="upload-actions">
+      <button id="uploadSubmitBtn" type="button" class="btn btn-primary" disabled>분석 시작</button>
+      <button id="uploadResetBtn" type="button" class="btn btn-dark" disabled>다시 선택</button>
+    </div>
+  </div>
+
+  <div style="margin-top: 18px;">
+    <a href="/customer/menu/" class="btn btn-dark" style="width: 100%; border: 1px solid var(--line); background: white; color: var(--bg-dark);">이전 단계로</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  window.MirrAIConfig = {
+    customerId: "{{ request.session.customer_id|default:'' }}",
+    csrfToken: "{{ csrf_token }}"
+  };
+</script>
+<script>
+(function () {
+  "use strict";
+
+  var MAX_FILE_BYTES = 25 * 1024 * 1024;
+  var UPLOAD_TIMEOUT_MS = 60000;
+
+  var sourceCameraBtn = document.getElementById("uploadSourceCamera");
+  var sourceFileBtn = document.getElementById("uploadSourceFile");
+  var inputCamera = document.getElementById("uploadInputCamera");
+  var inputFile = document.getElementById("uploadInputFile");
+  var previewShell = document.getElementById("uploadPreviewShell");
+  var previewImg = document.getElementById("uploadPreviewImg");
+  var placeholder = document.getElementById("uploadPlaceholder");
+  var statusEl = document.getElementById("uploadStatus");
+  var metaEl = document.getElementById("uploadMeta");
+  var submitBtn = document.getElementById("uploadSubmitBtn");
+  var resetBtn = document.getElementById("uploadResetBtn");
+
+  var selectedFile = null;
+  var previewUrl = null;
+  var uploadInFlight = false;
+
+  function setStatus(message, tone) {
+    statusEl.textContent = message;
+    if (tone) {
+      statusEl.setAttribute("data-tone", tone);
+    } else {
+      statusEl.removeAttribute("data-tone");
+    }
+  }
+
+  function setStatusHTML(html, tone) {
+    statusEl.innerHTML = html;
+    if (tone) {
+      statusEl.setAttribute("data-tone", tone);
+    } else {
+      statusEl.removeAttribute("data-tone");
+    }
+  }
+
+  function clearPreview() {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
+    }
+    previewImg.removeAttribute("src");
+    previewImg.hidden = true;
+    placeholder.hidden = false;
+    metaEl.hidden = true;
+    metaEl.textContent = "";
+  }
+
+  function resetSelection() {
+    selectedFile = null;
+    clearPreview();
+    inputCamera.value = "";
+    inputFile.value = "";
+    submitBtn.disabled = true;
+    resetBtn.disabled = true;
+    setStatus("사진을 선택하면 미리보기가 표시됩니다.");
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes && bytes !== 0) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  function handleFileSelected(file) {
+    if (!file) return;
+
+    if (!/^image\//.test(file.type)) {
+      setStatus("이미지 파일만 업로드할 수 있습니다.", "error");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setStatus("이미지 용량이 너무 큽니다. 25MB 이하 파일을 선택해 주세요.", "error");
+      return;
+    }
+
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(file);
+    previewImg.src = previewUrl;
+    previewImg.hidden = false;
+    placeholder.hidden = true;
+
+    selectedFile = file;
+    submitBtn.disabled = false;
+    resetBtn.disabled = false;
+
+    metaEl.textContent = file.name + " · " + formatBytes(file.size);
+    metaEl.hidden = false;
+    setStatus("사진이 준비되었습니다. '분석 시작'을 눌러 주세요.", "success");
+  }
+
+  function isMobileDevice() {
+    if (typeof navigator === "undefined") return false;
+    var ua = navigator.userAgent || "";
+    if (/Android|iPhone|iPad|iPod|Mobile|Windows Phone|IEMobile|BlackBerry|webOS/i.test(ua)) {
+      return true;
+    }
+    // iPadOS 13+ 위장 (MacIntel + touch)
+    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
+      return true;
+    }
+    return false;
+  }
+
+  sourceCameraBtn.addEventListener("click", function () {
+    if (uploadInFlight) return;
+    if (!isMobileDevice()) {
+      // 데스크톱은 capture 속성을 무시하므로 getUserMedia 기반 카메라 페이지로 이동
+      window.location.href = "/customer/camera/";
+      return;
+    }
+    inputCamera.click();
+  });
+
+  sourceFileBtn.addEventListener("click", function () {
+    if (uploadInFlight) return;
+    inputFile.click();
+  });
+
+  inputCamera.addEventListener("change", function (event) {
+    var file = event.target.files && event.target.files[0];
+    handleFileSelected(file);
+  });
+
+  inputFile.addEventListener("change", function (event) {
+    var file = event.target.files && event.target.files[0];
+    handleFileSelected(file);
+  });
+
+  resetBtn.addEventListener("click", function () {
+    if (uploadInFlight) return;
+    resetSelection();
+  });
+
+  function getCookie(name) {
+    if (!document.cookie) return null;
+    var cookies = document.cookie.split(";");
+    for (var i = 0; i < cookies.length; i += 1) {
+      var cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === name + "=") {
+        return decodeURIComponent(cookie.substring(name.length + 1));
+      }
+    }
+    return null;
+  }
+
+  async function parseResponsePayload(response) {
+    try {
+      return await response.json();
+    } catch (err) {
+      return null;
+    }
+  }
+
+  submitBtn.addEventListener("click", async function () {
+    if (uploadInFlight || !selectedFile) return;
+
+    var config = window.MirrAIConfig || {};
+    var customerId = config.customerId;
+    var csrfToken = config.csrfToken || getCookie("csrftoken");
+
+    if (!customerId) {
+      alert("고객 정보가 만료되었습니다. 다시 시작해 주세요.");
+      window.location.href = "/customer/";
+      return;
+    }
+
+    uploadInFlight = true;
+    submitBtn.disabled = true;
+    resetBtn.disabled = true;
+    sourceCameraBtn.disabled = true;
+    sourceFileBtn.disabled = true;
+    setStatusHTML('<span class="upload-spinner" aria-hidden="true"></span>이미지를 서버로 전송하고 분석을 시작합니다...', "loading");
+
+    var formData = new FormData();
+    formData.append("customer_id", customerId);
+    formData.append("file", selectedFile, selectedFile.name || "upload.jpg");
+    formData.append(
+      "front_capture_context",
+      JSON.stringify({ source: "upload", captured: true, file_name: selectedFile.name, file_size: selectedFile.size })
+    );
+
+    var timeoutId = null;
+    try {
+      var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      timeoutId = controller ? window.setTimeout(function () { controller.abort(); }, UPLOAD_TIMEOUT_MS) : null;
+
+      var response = await fetch("/api/v1/capture/upload/", {
+        method: "POST",
+        body: formData,
+        headers: { "X-CSRFToken": csrfToken },
+        signal: controller ? controller.signal : undefined
+      });
+      if (timeoutId) window.clearTimeout(timeoutId);
+
+      var data = await parseResponsePayload(response);
+
+      if (!response.ok) {
+        var message = (data && (data.message || data.detail)) || "업로드 요청이 실패했습니다. 다시 시도해 주세요.";
+        throw new Error(message);
+      }
+
+      var nextAction = data ? (data.nextAction || data.next_action) : null;
+      var uploadStatus = String((data && data.status) || "").toLowerCase();
+
+      if (uploadStatus === "needs_retake" || nextAction === "capture") {
+        uploadInFlight = false;
+        sourceCameraBtn.disabled = false;
+        sourceFileBtn.disabled = false;
+        resetBtn.disabled = false;
+        setStatus((data && (data.message || data.detail)) || "이번 사진은 분석 기준을 통과하지 못했습니다. 다른 사진으로 다시 시도해 주세요.", "error");
+        return;
+      }
+
+      var targetUrl = "/customer/survey/";
+      if (nextAction === "dashboard") {
+        targetUrl = "/customer/dashboard/";
+      } else if (nextAction === "result" || nextAction === "recommendations") {
+        var freshTs = Math.floor(Date.now() / 1000);
+        targetUrl = "/customer/recommendations/?fresh=" + freshTs;
+      }
+
+      setStatus("분석을 시작했습니다. 다음 단계로 이동합니다...", "success");
+      window.setTimeout(function () { window.location.replace(targetUrl); }, 800);
+    } catch (error) {
+      console.error("Upload Error:", error);
+      uploadInFlight = false;
+      sourceCameraBtn.disabled = false;
+      sourceFileBtn.disabled = false;
+      resetBtn.disabled = false;
+      submitBtn.disabled = false;
+      var isAbortError = error && error.name === "AbortError";
+      setStatus(
+        isAbortError
+          ? "업로드가 시간 안에 끝나지 않았습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요."
+          : (error && error.message) || "업로드 중 오류가 발생했습니다. 다시 시도해 주세요.",
+        "error"
+      );
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -16,6 +16,9 @@ env = environ.Env(
     DEBUG=(bool, False),
     SUPABASE_USE_REMOTE_DB=(bool, False),
     SUPABASE_USE_REMOTE_STORAGE=(bool, False),
+    S3_BUCKET_NAME=(str, ""),
+    S3_REGION=(str, "ap-northeast-2"),
+    S3_SIGNED_URL_EXPIRES_IN=(int, 3600),
     REDIS_USE_FOR_SESSIONS=(bool, True),
     CACHE_DEFAULT_TIMEOUT=(int, 300),
     LATEST_TRENDS_CACHE_SECONDS=(int, 60),
@@ -114,6 +117,9 @@ SUPABASE_BUCKET = env("SUPABASE_BUCKET", default="mirrai-assets")
 SUPABASE_USE_REMOTE_STORAGE = env.bool("SUPABASE_USE_REMOTE_STORAGE", default=False)
 SUPABASE_BUCKET_PUBLIC = env.bool("SUPABASE_BUCKET_PUBLIC", default=False)
 SUPABASE_SIGNED_URL_EXPIRES_IN = env.int("SUPABASE_SIGNED_URL_EXPIRES_IN", default=3600)
+S3_BUCKET_NAME = env("S3_BUCKET_NAME", default="").strip()
+S3_REGION = env("S3_REGION", default="ap-northeast-2").strip()
+S3_SIGNED_URL_EXPIRES_IN = env.int("S3_SIGNED_URL_EXPIRES_IN", default=3600)
 MIRRAI_WATERMARK_IMAGE = env("MIRRAI_WATERMARK_IMAGE", default="static/branding/mirrai_wordmark_primary.png")
 MIRRAI_WATERMARK_OPACITY = env.float("MIRRAI_WATERMARK_OPACITY", default=0.15)
 MIRRAI_WATERMARK_ANGLE = env.float("MIRRAI_WATERMARK_ANGLE", default=-32.0)
