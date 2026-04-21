@@ -199,12 +199,24 @@ def _ai_health() -> dict:
 def _serialize_survey(survey) -> dict | None:
     if not survey:
         return None
+    question_answers = getattr(survey, "question_answers", None)
+    survey_profile = getattr(survey, "survey_profile", None)
+    if question_answers is None and isinstance(survey_profile, dict):
+        question_answers = survey_profile.get("question_answers")
+    if not isinstance(question_answers, dict):
+        question_answers = {}
+    if not isinstance(survey_profile, dict):
+        survey_profile = {}
+    gender_branch = getattr(survey, "gender_branch", None) or survey_profile.get("gender_branch")
     return {
         "target_length": survey.target_length,
         "target_vibe": survey.target_vibe,
         "scalp_type": survey.scalp_type,
         "hair_colour": survey.hair_colour,
         "budget_range": survey.budget_range,
+        "question_answers": question_answers,
+        "survey_profile": survey_profile,
+        "gender_branch": gender_branch,
         "preference_vector": survey.preference_vector or [],
         "created_at": survey.created_at,
     }
@@ -448,6 +460,14 @@ def _serialize_active_consultation_payload(
     latest_consultation: "ConsultationRequest | None" = None,
     legacy_active_consultation: dict | None = None,
 ) -> dict | None:
+    selected_style_payload = {
+        "selected_style_id": None,
+        "selected_style_name": None,
+        "selected_style_image_url": None,
+        "selected_style_score": None,
+        "selected_style_description": None,
+        "selected_recommendation_id": None,
+    }
     if latest_consultation is not None:
         return {
             "consultation_id": latest_consultation.id,
@@ -469,6 +489,7 @@ def _serialize_active_consultation_payload(
             ),
             "created_at": latest_consultation.created_at,
             "closed_at": latest_consultation.closed_at,
+            **selected_style_payload,
         }
     if legacy_active_consultation is not None:
         return {
@@ -483,6 +504,12 @@ def _serialize_active_consultation_payload(
             "designer_name": legacy_active_consultation["designer_name"],
             "created_at": legacy_active_consultation["last_activity_at"],
             "closed_at": None,
+            "selected_style_id": legacy_active_consultation.get("selected_style_id"),
+            "selected_style_name": legacy_active_consultation.get("selected_style_name"),
+            "selected_style_image_url": legacy_active_consultation.get("selected_style_image_url"),
+            "selected_style_score": legacy_active_consultation.get("selected_style_score"),
+            "selected_style_description": legacy_active_consultation.get("selected_style_description"),
+            "selected_recommendation_id": legacy_active_consultation.get("selected_recommendation_id"),
         }
     return None
 
@@ -2631,5 +2658,3 @@ def get_style_report(*, style_id: int, days: int = 7, admin: "AdminAccount | Non
         timeout_setting="PARTNER_REPORT_CACHE_SECONDS",
         default_timeout=90,
     )
-
-
