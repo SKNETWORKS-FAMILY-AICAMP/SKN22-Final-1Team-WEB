@@ -75,6 +75,72 @@ class LatestFeedTests(SimpleTestCase):
         self.assertEqual(localized, items)
         mock_load_translation_cache.assert_not_called()
 
+    @patch("app.trend_pipeline.latest_feed._translate_missing_items", side_effect=lambda items, cache: cache)
+    @patch("app.trend_pipeline.latest_feed._load_translation_cache")
+    def test_attach_korean_fields_replaces_english_fallback_with_cached_translation(
+        self,
+        mock_load_translation_cache,
+        _mock_translate_missing_items,
+    ):
+        article_url = "https://www.elle.com/beauty/hair/a70520530/japanese-bob-styling-tips/"
+        mock_load_translation_cache.return_value = {
+            article_url: {
+                "title_ko": "프렌치 보브는 잊어라. 재패니즈 보브가 대세다",
+                "summary_ko": "재패니즈 보브는 날렵하고 조형적인 턱선 길이 커트로, 깔끔한 라인과 얼굴을 감싸는 은은한 안쪽 컬이 특징이다.",
+            }
+        }
+        items = [
+            {
+                "title": "Forget the French Bob. The Japanese Bob Is Taking Over",
+                "summary": "The Japanese bob is a sharp, sculpted chin-skimming cut.",
+                "article_url": article_url,
+                "title_ko": "Forget the French Bob. The Japanese Bob Is Taking Over",
+                "summary_ko": "The Japanese bob is a sharp, sculpted chin-skimming cut.",
+            }
+        ]
+
+        localized = latest_feed._attach_korean_fields(items)
+
+        self.assertEqual(localized[0]["title_ko"], "프렌치 보브는 잊어라. 재패니즈 보브가 대세다")
+        self.assertEqual(
+            localized[0]["summary_ko"],
+            "재패니즈 보브는 날렵하고 조형적인 턱선 길이 커트로, 깔끔한 라인과 얼굴을 감싸는 은은한 안쪽 컬이 특징이다.",
+        )
+        mock_load_translation_cache.assert_called_once()
+
+    @patch("app.trend_pipeline.latest_feed._translate_missing_items", side_effect=lambda items, cache: cache)
+    @patch("app.trend_pipeline.latest_feed._load_translation_cache")
+    def test_attach_korean_fields_replaces_question_mark_corruption_with_cached_translation(
+        self,
+        mock_load_translation_cache,
+        _mock_translate_missing_items,
+    ):
+        article_url = "https://www.elle.com/beauty/hair/a70520530/japanese-bob-styling-tips/"
+        mock_load_translation_cache.return_value = {
+            article_url: {
+                "title_ko": "프렌치 보브는 잊어라. 재패니즈 보브가 대세다",
+                "summary_ko": "재패니즈 보브는 날렵하고 조형적인 턱선 길이 커트로, 깔끔한 라인과 얼굴을 감싸는 은은한 안쪽 컬이 특징이다.",
+            }
+        }
+        items = [
+            {
+                "title": "Forget the French Bob. The Japanese Bob Is Taking Over",
+                "summary": "The Japanese bob is a sharp, sculpted chin-skimming cut.",
+                "article_url": article_url,
+                "title_ko": "??? ??? ???. ???? ??? ???",
+                "summary_ko": "???? ??? ???? ???? ?? ?? ???.",
+            }
+        ]
+
+        localized = latest_feed._attach_korean_fields(items)
+
+        self.assertEqual(localized[0]["title_ko"], "프렌치 보브는 잊어라. 재패니즈 보브가 대세다")
+        self.assertEqual(
+            localized[0]["summary_ko"],
+            "재패니즈 보브는 날렵하고 조형적인 턱선 길이 커트로, 깔끔한 라인과 얼굴을 감싸는 은은한 안쪽 컬이 특징이다.",
+        )
+        mock_load_translation_cache.assert_called_once()
+
     @patch("app.trend_pipeline.latest_feed._load_translation_cache")
     def test_apply_translation_cache_overrides_replaces_stale_localized_fields(self, mock_load_translation_cache):
         mock_load_translation_cache.return_value = {
@@ -117,6 +183,7 @@ class LatestFeedTests(SimpleTestCase):
                 "display_title": "Soft Bob",
                 "summary": "A soft bob trend with airy texture.",
                 "article_url": "https://example.com/soft-bob",
+                "image_url": "https://images.example.com/soft-bob.jpg",
                 "source": "Example",
                 "published_at": "2026-04-01T00:00:00+00:00",
                 "category": "style_trend",
@@ -156,6 +223,7 @@ class LatestFeedTests(SimpleTestCase):
                 "summary": "Gabrielle bob summary",
                 "article_title": canonical_title,
                 "article_url": article_url,
+                "image_url": "https://images.example.com/zendaya-bob.jpg",
                 "source": "Marieclaire",
                 "published_at": "2026-04-08T18:30:56+00:00",
                 "category": "celebrity_example",
@@ -169,6 +237,7 @@ class LatestFeedTests(SimpleTestCase):
                 "description": "Zendaya bob summary",
                 "article_title": canonical_title,
                 "article_url": article_url,
+                "image_url": "https://images.example.com/zendaya-bob.jpg",
                 "source": "Marieclaire",
                 "published_at": "2026-04-08T18:30:56+00:00",
                 "category": "celebrity_example",
@@ -182,3 +251,144 @@ class LatestFeedTests(SimpleTestCase):
         self.assertEqual(payload["items"][0]["title"], canonical_title)
         self.assertEqual(payload["items"][0]["summary"], "Zendaya bob summary")
         self.assertEqual(payload["items"][0]["source_name"], "Marie Claire")
+
+    @patch("app.trend_pipeline.latest_feed._set_latest_trends_cached", side_effect=lambda limit, payload: payload)
+    @patch("app.trend_pipeline.latest_feed._get_latest_trends_cached", return_value=None)
+    @patch("app.trend_pipeline.latest_feed._attach_korean_fields", side_effect=lambda items: items)
+    @patch("app.trend_pipeline.latest_feed._load_refined_article_lookup", return_value={})
+    @patch("app.trend_pipeline.latest_feed._load_json_list")
+    @patch("app.trend_pipeline.latest_feed._iter_chroma_items")
+    def test_latest_crawled_trends_falls_back_to_refined_when_chroma_normalizes_to_empty(
+        self,
+        mock_iter_chroma_items,
+        mock_load_json_list,
+        _mock_refined_lookup,
+        _mock_attach_korean_fields,
+        _mock_get_cached,
+        _mock_set_cached,
+    ):
+        mock_iter_chroma_items.return_value = [
+            {
+                "display_title": "Generic headline",
+                "summary": "No hairstyle signal here.",
+                "article_url": "https://example.com/not-hair",
+                "source": "Example",
+                "published_at": "2026-04-01T00:00:00+00:00",
+                "category": "trend",
+            }
+        ]
+        mock_load_json_list.return_value = [
+            {
+                "trend_name": "Soft Bob",
+                "description": "A soft bob trend with airy layers.",
+                "article_title": "Soft Bob",
+                "article_url": "https://example.com/soft-bob",
+                "image_url": "https://images.example.com/soft-bob.jpg",
+                "source": "Example",
+                "published_at": "2026-04-02T00:00:00+00:00",
+                "crawled_at": "2026-04-02T01:00:00+00:00",
+                "hairstyle_text": "bob",
+                "color_text": "",
+            }
+        ]
+
+        payload = latest_feed.get_latest_crawled_trends(limit=5)
+
+        self.assertEqual(payload["source"], "refined_trends_json")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["title"], "Soft Bob")
+
+    @patch("app.trend_pipeline.latest_feed._set_latest_trends_cached", side_effect=lambda limit, payload: payload)
+    @patch("app.trend_pipeline.latest_feed._get_latest_trends_cached", return_value=None)
+    @patch("app.trend_pipeline.latest_feed._attach_korean_fields", side_effect=lambda items: items)
+    @patch("app.trend_pipeline.latest_feed._load_refined_article_lookup", return_value={})
+    @patch("app.trend_pipeline.latest_feed._iter_chroma_items")
+    def test_latest_crawled_trends_skips_items_without_image_url(
+        self,
+        mock_iter_chroma_items,
+        _mock_refined_lookup,
+        _mock_attach_korean_fields,
+        _mock_get_cached,
+        _mock_set_cached,
+    ):
+        mock_iter_chroma_items.return_value = [
+            {
+                "display_title": "Soft Bob",
+                "summary": "A soft bob trend with airy layers.",
+                "article_url": "https://example.com/soft-bob",
+                "image_url": "",
+                "source": "Example",
+                "published_at": "2026-04-02T00:00:00+00:00",
+                "category": "style_trend",
+                "style_tags": "bob",
+                "color_tags": "",
+            },
+            {
+                "display_title": "Golden Hour Brunette",
+                "summary": "A brunette gloss trend with soft movement.",
+                "article_url": "https://example.com/golden-hour-brunette",
+                "image_url": "https://images.example.com/golden-hour.jpg",
+                "source": "Example",
+                "published_at": "2026-04-03T00:00:00+00:00",
+                "category": "style_trend",
+                "style_tags": "brunette",
+                "color_tags": "",
+            },
+        ]
+
+        payload = latest_feed.get_latest_crawled_trends(limit=5)
+
+        self.assertEqual(payload["source"], "chromadb_trends")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["title"], "Golden Hour Brunette")
+        self.assertEqual(payload["items"][0]["image_url"], "https://images.example.com/golden-hour.jpg")
+
+    @patch("app.trend_pipeline.latest_feed._set_latest_trends_cached", side_effect=lambda limit, payload: payload)
+    @patch("app.trend_pipeline.latest_feed._get_latest_trends_cached", return_value=None)
+    @patch("app.trend_pipeline.latest_feed._attach_korean_fields", side_effect=lambda items: items)
+    @patch("app.trend_pipeline.latest_feed._load_refined_article_lookup", return_value={})
+    @patch("app.trend_pipeline.latest_feed._load_json_list")
+    @patch("app.trend_pipeline.latest_feed._iter_chroma_items")
+    def test_latest_crawled_trends_falls_back_when_chroma_items_have_no_images(
+        self,
+        mock_iter_chroma_items,
+        mock_load_json_list,
+        _mock_refined_lookup,
+        _mock_attach_korean_fields,
+        _mock_get_cached,
+        _mock_set_cached,
+    ):
+        mock_iter_chroma_items.return_value = [
+            {
+                "display_title": "Soft Bob",
+                "summary": "A soft bob trend with airy layers.",
+                "article_url": "https://example.com/soft-bob",
+                "image_url": "",
+                "source": "Example",
+                "published_at": "2026-04-02T00:00:00+00:00",
+                "category": "style_trend",
+                "style_tags": "bob",
+                "color_tags": "",
+            }
+        ]
+        mock_load_json_list.return_value = [
+            {
+                "trend_name": "Golden Hour Brunette",
+                "description": "A brunette gloss trend with soft movement.",
+                "article_title": "Golden Hour Brunette",
+                "article_url": "https://example.com/golden-hour-brunette",
+                "image_url": "https://images.example.com/golden-hour.jpg",
+                "source": "Example",
+                "published_at": "2026-04-03T00:00:00+00:00",
+                "crawled_at": "2026-04-03T01:00:00+00:00",
+                "hairstyle_text": "brunette",
+                "color_text": "",
+            }
+        ]
+
+        payload = latest_feed.get_latest_crawled_trends(limit=5)
+
+        self.assertEqual(payload["source"], "refined_trends_json")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["title"], "Golden Hour Brunette")
+        self.assertEqual(payload["items"][0]["image_url"], "https://images.example.com/golden-hour.jpg")
