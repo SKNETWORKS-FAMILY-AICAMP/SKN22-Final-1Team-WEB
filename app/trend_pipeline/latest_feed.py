@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -8,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+from openai import OpenAI
 
 from .chroma_client import create_persistent_client
 from .paths import CHROMA_TRENDS_DIR, TREND_PROCESSED_DIR, TREND_RAW_DIR
@@ -21,9 +24,11 @@ except Exception:  # pragma: no cover - standalone script path
 REFINED_TRENDS_FILE = TREND_PROCESSED_DIR / "refined_trends.json"
 TRANSLATION_CACHE_FILE = TREND_PROCESSED_DIR / "latest_trend_translations.json"
 DEFAULT_TRANSLATION_MODEL = "gemini-2.5-flash"
+DEFAULT_OPENAI_TRANSLATION_MODEL = "gpt-4.1-mini"
 CHROMA_COLLECTION_NAME = "hair_trends"
 DEFAULT_RUNPOD_LATEST_TIMEOUT = 8
 DEFAULT_RUNPOD_LATEST_POLL_INTERVAL = 2.0
+logger = logging.getLogger(__name__)
 
 PUBLICATION_HOST_MAP = {
     "allure.com": "Allure",
@@ -379,7 +384,7 @@ def _latest_trends_cache_key(limit: int) -> str:
     prefix = os.environ.get("REDIS_KEY_PREFIX") or _get_django_setting("REDIS_KEY_PREFIX", "mirrai")
     normalized_prefix = str(prefix or "mirrai").strip() or "mirrai"
     remote_enabled = "1" if _runpod_latest_enabled() else "0"
-    return f"{normalized_prefix}:cache:latest-trends:v3:limit:{int(limit)}:remote-enabled:{remote_enabled}"
+    return f"{normalized_prefix}:cache:latest-trends:v5:limit:{int(limit)}:remote-enabled:{remote_enabled}"
 
 
 def _get_latest_trends_cached(limit: int) -> dict[str, Any] | None:
@@ -530,6 +535,7 @@ def _load_runpod_latest_trends(*, limit: int) -> dict[str, Any] | None:
         return None
 
     normalized_items = [normalized for row in items if (normalized := _normalize_remote_item(row)) is not None]
+    normalized_items = [item for item in normalized_items if item.get("image_url")]
     localized_items = _localize_items_preserving_existing(normalized_items)
     return {
         "status": "ready",
@@ -794,6 +800,108 @@ def _save_translation_cache(cache: dict[str, dict[str, str]]) -> None:
         return
 
 
+def _parse_translation_response_text(text: str) -> list[dict[str, Any]] | None:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+
+    cleaned = raw
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\[[\s\S]*\]", cleaned)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(parsed, list):
+        return None
+    return [row for row in parsed if isinstance(row, dict)]
+
+
+def _translation_prompt(payload: list[dict[str, Any]]) -> str:
+    return (
+        "Translate the following hairstyle trend article titles and summaries into natural Korean for a UI.\n"
+        "Return only a JSON array.\n"
+        'Each item must look like {"key":"...", "title_ko":"...", "summary_ko":"..."}.\n'
+        "Keep brand names, people names, and publication names natural.\n"
+        "Make titles concise and summaries readable.\n\n"
+        f"Input:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+
+
+def _translate_with_gemini(*, payload: list[dict[str, Any]], api_key: str, model: str) -> list[dict[str, Any]] | None:
+    try:
+        from google import genai
+    except Exception:
+        return None
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model,
+            contents=_translation_prompt(payload),
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+        return _parse_translation_response_text(response.text)
+    except Exception as exc:
+        logger.warning("[latest_trends_translate_gemini_failed] %s: %s", type(exc).__name__, exc)
+        return None
+
+
+def _translate_with_openai(*, payload: list[dict[str, Any]], api_key: str, model: str) -> list[dict[str, Any]] | None:
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You translate hairstyle trend titles and summaries into natural Korean for a UI. "
+                        "Return only a JSON array."
+                    ),
+                },
+                {"role": "user", "content": _translation_prompt(payload)},
+            ],
+        )
+        message = response.choices[0].message.content if response.choices else ""
+        if isinstance(message, list):
+            message = "".join(str(part.get("text") or "") for part in message if isinstance(part, dict))
+        return _parse_translation_response_text(str(message or ""))
+    except Exception as exc:
+        logger.warning("[latest_trends_translate_openai_failed] %s: %s", type(exc).__name__, exc)
+        return None
+
+
+def _is_missing_or_stale_localized_value(localized_value: Any, source_value: Any) -> bool:
+    localized = str(localized_value or "").strip()
+    source = str(source_value or "").strip()
+    if not localized:
+        return True
+    if localized.count("?") >= 3 and not re.search(r"[\u3131-\u318E\uAC00-\uD7A3]", localized):
+        return True
+    return bool(source) and localized == source
+
+
+def _needs_korean_translation(item: dict[str, Any]) -> bool:
+    return _is_missing_or_stale_localized_value(item.get("title_ko"), item.get("title")) or _is_missing_or_stale_localized_value(
+        item.get("summary_ko"),
+        item.get("summary"),
+    )
+
+
 def _translate_missing_items(
     items: list[dict[str, Any]],
     cache: dict[str, dict[str, str]],
@@ -801,18 +909,9 @@ def _translate_missing_items(
     missing_items = [
         item
         for item in items
-        if (not item.get("title_ko") or not item.get("summary_ko")) and _translation_cache_key(item) not in cache
+        if _needs_korean_translation(item) and _translation_cache_key(item) not in cache
     ]
     if not missing_items:
-        return cache
-
-    api_key = os.environ.get("GEMINI_API_KEY") or _get_django_setting("GEMINI_API_KEY", "")
-    if not api_key:
-        return cache
-
-    try:
-        from google import genai
-    except Exception:
         return cache
 
     payload = [
@@ -823,39 +922,43 @@ def _translate_missing_items(
         }
         for item in missing_items
     ]
-    prompt = (
-        "Translate the following hairstyle trend article titles and summaries into natural Korean for a UI.\n"
-        "Return only a JSON array.\n"
-        'Each item must look like {"key":"...", "title_ko":"...", "summary_ko":"..."}.\n'
-        "Keep brand names, people names, and publication names natural.\n"
-        "Make titles concise and summaries readable.\n\n"
-        f"Input:\n{json.dumps(payload, ensure_ascii=False)}"
-    )
-
-    try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
+    gemini_api_key = os.environ.get("GEMINI_API_KEY") or _get_django_setting("GEMINI_API_KEY", "")
+    translated_payload = None
+    if gemini_api_key:
+        translated_payload = _translate_with_gemini(
+            payload=payload,
+            api_key=gemini_api_key,
             model=(
                 os.environ.get("TREND_TRANSLATION_MODEL")
                 or _get_django_setting("TREND_TRANSLATION_MODEL", DEFAULT_TRANSLATION_MODEL)
             ),
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.2,
-            ),
         )
-        translated_payload = json.loads(response.text)
-    except Exception:
-        return cache
 
-    if not isinstance(translated_payload, list):
+    if translated_payload is None:
+        openai_api_key = (
+            os.environ.get("MIRRAI_MODEL_CHATBOT_API_KEY")
+            or _get_django_setting("MIRRAI_MODEL_CHATBOT_API_KEY", "")
+            or os.environ.get("OPENAI_API_KEY")
+            or _get_django_setting("OPENAI_API_KEY", "")
+        )
+        if openai_api_key:
+            translated_payload = _translate_with_openai(
+                payload=payload,
+                api_key=openai_api_key,
+                model=(
+                    os.environ.get("TREND_TRANSLATION_OPENAI_MODEL")
+                    or _get_django_setting("TREND_TRANSLATION_OPENAI_MODEL", "")
+                    or os.environ.get("MIRRAI_MODEL_CHATBOT_OPENAI_MODEL")
+                    or _get_django_setting("MIRRAI_MODEL_CHATBOT_OPENAI_MODEL", DEFAULT_OPENAI_TRANSLATION_MODEL)
+                    or DEFAULT_OPENAI_TRANSLATION_MODEL
+                ),
+            )
+
+    if not translated_payload:
         return cache
 
     updated = dict(cache)
     for row in translated_payload:
-        if not isinstance(row, dict):
-            continue
         key = str(row.get("key") or "").strip()
         if not key:
             continue
@@ -869,7 +972,7 @@ def _translate_missing_items(
 
 
 def _attach_korean_fields(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if all(item.get("title_ko") and item.get("summary_ko") for item in items):
+    if all(not _needs_korean_translation(item) for item in items):
         return items
 
     cache = _load_translation_cache()
@@ -879,11 +982,17 @@ def _attach_korean_fields(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in items:
         key = _translation_cache_key(item)
         translation = cache.get(key, {})
+        current_title_ko = str(item.get("title_ko") or "").strip()
+        current_summary_ko = str(item.get("summary_ko") or "").strip()
+        if _is_missing_or_stale_localized_value(current_title_ko, item.get("title")):
+            current_title_ko = ""
+        if _is_missing_or_stale_localized_value(current_summary_ko, item.get("summary")):
+            current_summary_ko = ""
         localized_items.append(
             {
                 **item,
-                "title_ko": item.get("title_ko") or translation.get("title_ko") or item.get("title", ""),
-                "summary_ko": item.get("summary_ko") or translation.get("summary_ko") or item.get("summary", ""),
+                "title_ko": current_title_ko or translation.get("title_ko") or item.get("title", ""),
+                "summary_ko": current_summary_ko or translation.get("summary_ko") or item.get("summary", ""),
             }
         )
     return localized_items
@@ -907,26 +1016,11 @@ def _apply_translation_cache_overrides(items: list[dict[str, Any]]) -> list[dict
     return overridden_items
 
 
-def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
-    limit = max(1, min(int(limit), 5))
-    cached_payload = _get_latest_trends_cached(limit)
-    if cached_payload is not None:
-        return cached_payload
-
-    remote_payload = _load_runpod_latest_trends(limit=limit)
-    if remote_payload is not None:
-        return _set_latest_trends_cached(limit, remote_payload)
-
-    source_label = "chromadb_trends"
-    raw_items = _iter_chroma_items()
-    if not raw_items:
-        source_label = "refined_trends_json"
-        raw_items = _load_json_list(REFINED_TRENDS_FILE)
-    if not raw_items:
-        source_label = "raw_trends_json"
-        raw_items = _iter_raw_items()
-
-    refined_article_lookup = _load_refined_article_lookup()
+def _normalize_source_items(
+    raw_items: list[dict[str, Any]],
+    *,
+    refined_article_lookup: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     normalized_items: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     for item in raw_items:
@@ -951,7 +1045,9 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
                 article_url=article_url,
             ):
                 candidate["summary"] = refined_description
-            elif canonical_title:
+            elif refined_description and not candidate.get("summary"):
+                candidate["summary"] = refined_description
+            elif canonical_title and not candidate.get("summary"):
                 candidate["summary"] = canonical_title
 
         normalized = _normalize_item(candidate)
@@ -962,6 +1058,67 @@ def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
             continue
         seen_keys.add(dedupe_key)
         normalized_items.append(normalized)
+    return normalized_items
+
+
+def _filter_items_with_images(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [item for item in items if str(item.get("image_url") or "").strip()]
+
+
+def get_latest_crawled_trends(*, limit: int = 5) -> dict[str, Any]:
+    limit = max(1, min(int(limit), 5))
+    cached_payload = _get_latest_trends_cached(limit)
+    if cached_payload is not None:
+        return cached_payload
+
+    remote_payload = _load_runpod_latest_trends(limit=limit)
+    if remote_payload is not None:
+        return _set_latest_trends_cached(limit, remote_payload)
+
+    source_label = "chromadb_trends"
+    raw_items = _iter_chroma_items()
+    if not raw_items:
+        source_label = "refined_trends_json"
+        raw_items = _load_json_list(REFINED_TRENDS_FILE)
+    if not raw_items:
+        source_label = "raw_trends_json"
+        raw_items = _iter_raw_items()
+
+    refined_article_lookup = _load_refined_article_lookup()
+    normalized_items = _normalize_source_items(
+        raw_items,
+        refined_article_lookup=refined_article_lookup,
+    )
+    if not normalized_items and source_label == "chromadb_trends":
+        source_label = "refined_trends_json"
+        normalized_items = _normalize_source_items(
+            _load_json_list(REFINED_TRENDS_FILE),
+            refined_article_lookup=refined_article_lookup,
+        )
+    if not normalized_items and source_label == "refined_trends_json":
+        source_label = "raw_trends_json"
+        normalized_items = _normalize_source_items(
+            _iter_raw_items(),
+            refined_article_lookup=refined_article_lookup,
+        )
+
+    normalized_items = _filter_items_with_images(normalized_items)
+    if not normalized_items and source_label == "chromadb_trends":
+        source_label = "refined_trends_json"
+        normalized_items = _filter_items_with_images(
+            _normalize_source_items(
+                _load_json_list(REFINED_TRENDS_FILE),
+                refined_article_lookup=refined_article_lookup,
+            )
+        )
+    if not normalized_items and source_label == "refined_trends_json":
+        source_label = "raw_trends_json"
+        normalized_items = _filter_items_with_images(
+            _normalize_source_items(
+                _iter_raw_items(),
+                refined_article_lookup=refined_article_lookup,
+            )
+        )
 
     normalized_items.sort(
         key=lambda item: (1 if item["has_published_at"] else 0, item["sort_at"]),

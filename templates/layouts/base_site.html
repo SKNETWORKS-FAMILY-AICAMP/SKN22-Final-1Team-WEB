@@ -31,9 +31,9 @@
       /* 글로벌 관리자 전용 다크 키패드 모달 스타일 - admin-pin 변경 페이지와 동일한 디자인 */
       .keypad-overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+        background: rgba(0, 0, 0, 0.88);
         display: none; align-items: center; justify-content: center; z-index: 10000;
-        opacity: 0; transition: all 0.3s ease;
+        opacity: 0; transition: opacity 0.18s ease;
       }
       .keypad-overlay.active { display: flex; opacity: 1; }
       .keypad-container {
@@ -41,22 +41,106 @@
         border-radius: 24px; padding: 32px; text-align: center;
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
       }
+      .keypad-container.is-shaking { animation: admin-pin-shake 0.32s ease; }
       .keypad-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px; }
       .keypad-subtitle { font-size: 13px; color: rgba(255, 255, 255, 0.5); margin-bottom: 24px; }
       .keypad-display { display: flex; justify-content: center; gap: 12px; margin-bottom: 32px; }
-      .keypad-dot { width: 16px; height: 16px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); transition: all 0.2s ease; }
+      .keypad-dot { width: 16px; height: 16px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); transition: background-color 0.12s ease, box-shadow 0.12s ease; }
       .keypad-dot.active { background: var(--accent-neon); box-shadow: 0 0 10px var(--accent-neon); }
       .keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
       .keypad-btn {
         aspect-ratio: 1; border-radius: 50%; background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1); color: #fff;
         font-size: 20px; font-weight: 600; cursor: pointer;
-        display: flex; align-items: center; justify-content: center; transition: all 0.15s ease;
+        display: flex; align-items: center; justify-content: center; transition: background-color 0.12s ease, transform 0.08s ease;
       }
       .keypad-btn:active { background: rgba(255, 255, 255, 0.2); transform: scale(0.92); }
       .keypad-btn.btn-empty { background: transparent; border: none; cursor: default; }
       .keypad-btn.btn-back { font-size: 14px; color: var(--status-red); }
       .keypad-close { margin-top: 24px; font-size: 14px; color: rgba(255, 255, 255, 0.4); background: none; border: none; cursor: pointer; text-decoration: underline; }
+
+      .app-notice-stack {
+        position: fixed;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10100;
+        width: min(420px, calc(100% - 32px));
+        pointer-events: none;
+      }
+
+      .app-notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(14, 19, 17, 0.96);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+        color: #fff;
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+
+      .app-notice.is-visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .app-notice-icon {
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(245, 209, 13, 0.16);
+        color: var(--accent-neon);
+        font-size: 16px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .app-notice[data-tone="error"] .app-notice-icon {
+        background: rgba(255, 91, 91, 0.14);
+        color: var(--status-red);
+      }
+
+      .app-notice[data-tone="success"] .app-notice-icon {
+        background: rgba(54, 211, 153, 0.14);
+        color: #36d399;
+      }
+
+      .app-notice-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      .app-notice-title {
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1.25;
+      }
+
+      .app-notice-message {
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.45;
+      }
+
+      @keyframes admin-pin-shake {
+        0%, 100% { transform: translateX(0); }
+        20% { transform: translateX(-8px); }
+        40% { transform: translateX(7px); }
+        60% { transform: translateX(-5px); }
+        80% { transform: translateX(4px); }
+      }
 
       /* 분석 시작하기 launcher: nav-link 형태의 버튼 (a 태그와 시각적으로 동일) */
       .nav-link-button {
@@ -209,13 +293,13 @@
             <nav class="nav-links">
               <a href="{% url 'index' %}" class="nav-link">메인</a>
               
-              {# 분석 시작하기 버튼 #}
+              {# 고객 플로우 진입 버튼 #}
               {% if request.session.customer_id %}
-                <button type="button" class="nav-link nav-link-button" data-analysis-launcher="true">분석 시작하기</button>
+                <button type="button" class="nav-link nav-link-button" data-analysis-launcher="true">새 추천</button>
               {% elif request.session.designer_id %}
-                <a href="{% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
+                <a href="{% url 'customer_index' %}" class="nav-link">고객</a>
               {% elif request.session.admin_id %}
-                <a href="{% url 'partner_designer_select' %}?next={% url 'customer_index' %}" class="nav-link">분석 시작하기</a>
+                <a href="{% url 'partner_designer_select' %}?next={% url 'customer_index' %}" class="nav-link">고객</a>
               {% else %}
                 <a href="{% url 'partner_index' %}?next=/partner/designer-select/?next=/customer/" class="nav-link">분석 시작하기</a>
               {% endif %}
@@ -306,10 +390,76 @@
       {% include "components/footer.html" %}
     </div>
 
+    <div id="appNoticeStack" class="app-notice-stack" aria-live="polite" aria-atomic="true"></div>
+
+    <script>
+      (function() {
+        const noticeStack = document.getElementById('appNoticeStack');
+        let noticeTimer = null;
+
+        window.showAppNotice = function(message, options = {}) {
+          if (!message || !noticeStack) {
+            return;
+          }
+
+          const tone = options.tone || 'info';
+          const title = options.title || (tone === 'error' ? '확인이 필요합니다' : '알림');
+          const duration = Number(options.duration || 2600);
+          const iconText = tone === 'success' ? 'OK' : '!';
+
+          if (noticeTimer) {
+            clearTimeout(noticeTimer);
+            noticeTimer = null;
+          }
+
+          noticeStack.textContent = '';
+
+          const notice = document.createElement('div');
+          notice.className = 'app-notice';
+          notice.dataset.tone = tone;
+          notice.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+
+          const icon = document.createElement('span');
+          icon.className = 'app-notice-icon';
+          icon.textContent = iconText;
+
+          const copy = document.createElement('span');
+          copy.className = 'app-notice-copy';
+
+          const titleEl = document.createElement('span');
+          titleEl.className = 'app-notice-title';
+          titleEl.textContent = title;
+
+          const messageEl = document.createElement('span');
+          messageEl.className = 'app-notice-message';
+          messageEl.textContent = message;
+
+          copy.appendChild(titleEl);
+          copy.appendChild(messageEl);
+          notice.appendChild(icon);
+          notice.appendChild(copy);
+          noticeStack.appendChild(notice);
+
+          requestAnimationFrame(function() {
+            notice.classList.add('is-visible');
+          });
+
+          noticeTimer = setTimeout(function() {
+            notice.classList.remove('is-visible');
+            notice.addEventListener('transitionend', function() {
+              if (notice.parentNode === noticeStack) {
+                noticeStack.removeChild(notice);
+              }
+            }, { once: true });
+          }, duration);
+        };
+      })();
+    </script>
+
     {% if popup_message %}
     <script>
       window.addEventListener('DOMContentLoaded', function () {
-        alert('{{ popup_message|escapejs }}');
+        window.showAppNotice('{{ popup_message|escapejs }}', { title: '알림', tone: 'info' });
       });
     </script>
     {% endif %}
@@ -515,8 +665,21 @@
         let pinTargetId = '';
         let pinTargetScope = 'dashboard';
         const pinModal = document.getElementById('adminPinModal');
+        const pinContainer = document.querySelector('#adminPinModal .keypad-container');
         const pinDots = document.querySelectorAll('#adminPinModal .keypad-dot');
         const pinSubtext = document.getElementById('pinModalSubtext');
+
+        const showAdminGateError = function(message) {
+          if (window.showAppNotice) {
+            window.showAppNotice(message, { title: '인증 실패', tone: 'error' });
+          }
+
+          if (pinContainer) {
+            pinContainer.classList.remove('is-shaking');
+            void pinContainer.offsetWidth;
+            pinContainer.classList.add('is-shaking');
+          }
+        };
 
         const submitAdminGatePin = async function() {
           if (!currentPin || currentPin.length < 4) return;
@@ -549,12 +712,12 @@
                 window.location.reload();
               }
             } else {
-              alert(data.message || '보안키가 일치하지 않습니다.');
+              showAdminGateError(data.message || '보안키가 일치하지 않습니다.');
               window.adminGateClearPin();
             }
           } catch (error) {
             console.error('PIN submit error:', error);
-            alert('인증 처리 중 오류가 발생했습니다.');
+            showAdminGateError('인증 처리 중 오류가 발생했습니다.');
             window.adminGateClearPin();
           }
         };

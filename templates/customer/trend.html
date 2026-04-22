@@ -241,12 +241,6 @@
       suppressClick: false,
       suppressClickTimer: null,
     };
-    const placeholderSvg = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480">' +
-      '<rect width="640" height="480" fill="#f1f1f1"/>' +
-      '<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#707070" font-family="Arial, sans-serif" font-size="28">No image</text>' +
-      "</svg>"
-    );
     const DRAG_THRESHOLD_PX = 8;
 
     function resetClickSuppression() {
@@ -423,6 +417,21 @@
       `;
     }
 
+    function removeBrokenImageCard(imageElement) {
+      const card = imageElement?.closest(".trend-feed-card");
+      if (!card) {
+        return;
+      }
+
+      card.remove();
+      if (!track.children.length) {
+        renderEmpty("이미지를 불러올 수 있는 최신 트렌드가 아직 없습니다.");
+        return;
+      }
+
+      snapTrackToNearestCard();
+    }
+
     async function fetchLatestTrends() {
       try {
         const response = await fetch("/api/v1/analysis/trend/latest/?limit=5");
@@ -431,7 +440,9 @@
           throw new Error(data.detail || data.message || "최신 트렌드를 불러오지 못했습니다.");
         }
 
-        const items = Array.isArray(data.items) ? data.items : [];
+        const items = (Array.isArray(data.items) ? data.items : []).filter((item) =>
+          Boolean(String(item?.image_url || "").trim())
+        );
         loading.remove();
         sliderShell.style.display = "block";
 
@@ -441,7 +452,7 @@
         }
 
         track.innerHTML = items.map((item) => {
-          const imageUrl = item.image_url || placeholderSvg;
+          const imageUrl = item.image_url;
           const articleUrl = normalizeArticleUrl(
             item.article_url || item.url || item.source_url || item.link
           );
@@ -468,7 +479,7 @@
           return `
             <${cardTag} ${cardAttrs} class="panel trend-feed-card" style="padding: 20px;">
               <div class="trend-feed-media">
-                <img src="${imageUrl}" alt="${escapeHtml(title)}" loading="lazy" draggable="false" onerror="this.src='${placeholderSvg}'">
+                <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" loading="lazy" draggable="false">
               </div>
               ${metaMarkup}
               <h4 class="trend-feed-title">${escapeHtml(title)}</h4>
@@ -476,6 +487,10 @@
             </${cardTag}>
           `;
         }).join("");
+
+        track.querySelectorAll(".trend-feed-media img").forEach((imageElement) => {
+          imageElement.addEventListener("error", () => removeBrokenImageCard(imageElement), { once: true });
+        });
       } catch (error) {
         renderEmpty(error.message || "최신 트렌드를 불러오지 못했습니다.");
       }

@@ -45,9 +45,9 @@ def retrieve(query: str, n_results: int = TOP_K, expand: bool = True) -> list[di
         raw.get("metadatas", []),
     ):
         meta = metadata or {}
-        title = str(meta.get("display_title", "")).strip()
+        title = str(meta.get("title_ko") or meta.get("display_title") or "").strip()
         category = str(meta.get("category", "")).strip()
-        summary = str(meta.get("summary", "")).strip()
+        summary = str(meta.get("summary_ko") or meta.get("summary") or "").strip()
         style_tags = str(meta.get("style_tags", "")).strip()
         color_tags = str(meta.get("color_tags", "")).strip()
         source = str(meta.get("source", "")).strip()

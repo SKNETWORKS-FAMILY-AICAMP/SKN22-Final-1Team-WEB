@@ -159,10 +159,13 @@ def invalidate_partner_client_cache(*, client=None, admin=None, designer=None) -
     resolved_designer = designer or getattr(client, "designer", None)
 
     scopes = set()
+    scopes.add(_scope_identity(admin=admin, designer=designer))
     if resolved_admin is not None:
         scopes.add(_scope_identity(admin=resolved_admin, designer=None))
     if resolved_admin is not None and resolved_designer is not None:
         scopes.add(_scope_identity(admin=resolved_admin, designer=resolved_designer))
+    if resolved_designer is not None:
+        scopes.add(_scope_identity(admin=None, designer=resolved_designer))
 
     for scope_identity in scopes:
         _bump_version(_version_key("scope", scope_identity))

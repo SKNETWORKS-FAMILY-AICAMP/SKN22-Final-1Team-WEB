@@ -20,8 +20,8 @@
     "summary_ko": "드라이바는 풍성하고 탄력 있는 블로우아웃으로 유명하며, 이 브랜드의 핫 롤러는 두꺼운 모발에도 빠르고 오래 지속되는 컬을 선사합니다."
   },
   "https://www.whowhatwear.com/beauty/hair/2026-spring-hair-trends": {
-    "title_ko": "골든아워 브루넷",
-    "summary_ko": "초콜릿 컬러에 따뜻한 느낌을 더한 골든아워 브루넷입니다. 토마스는 이 컬러를 '빛나는 골드 톤 덕분에 세련되고 현대적인 트위스트가 가미된 클래식 브루넷'이라고 설명합니다. 지안느(Gianne)처럼 밝은 카라멜 색상부터 다양하게 연출할 수 있습니다."
+    "title_ko": "햇살 머금은 구리빛 컬러",
+    "summary_ko": "따뜻하고 자연스러운 구리빛 컬러가 트렌드입니다. Madison Reed 교육 디렉터 레이첼 토마스는 이번 봄, 골드 톤을 더욱 강조한 '햇살 머금은 구리빛'을 추천합니다."
   },
   "https://www.harpersbazaar.com/beauty/hair/a70857655/brunette-hair-trends-spring/": {
     "title_ko": "써니 브론즈",
@@ -44,8 +44,8 @@
     "summary_ko": "마고 로비와 벨라 하디드가 봄을 맞아 페이지보이 밥 헤어컷을 선보이며 이 스타일의 유행을 예고했습니다. 마고 로비의 페이지보이 밥은 어깨 위로 올라오는 자연스러운 웨이브의 헝클어진 밥에 가벼운 위스피 프렌지를 더해 관리하기 쉽다는 장점이 있습니다. 이 모던한 컷은 다양한 길이와 뱅 스타일로 연출 가능하며, 자연스러운 질감을 살리는 것이 포인트입니다."
   },
   "https://www.vogue.com/article/katseye-makeover-interview-coachella": {
-    "title_ko": "캣츠아이, 코첼라를 위한 파격 금발 변신!",
-    "summary_ko": "캣츠아이는 코첼라 무대를 앞두고 금발 중심의 파격적인 헤어 변신을 선보였습니다. 윤채는 전체 금발, 라라는 Y2K 무드의 금발 하이라이트, 다른 멤버들은 플래티넘 머니피스나 딥다이, 익스텐션처럼 각자 다른 방식으로 블론드 포인트를 더한 것이 핵심입니다."
+    "title_ko": "“완전히 달라질 거예요”: 카츠아이, 코첼라를 위한 대변신과 금발 도전",
+    "summary_ko": "인터뷰 초반에 기술적 문제만큼 답답한 일은 드뭅니다. 카츠아이와의 첫 15분 동안 정전기, 배터리 방전, 카메라 멈춤 등 여러 문제가 있었죠..."
   },
   "https://www.marieclaire.com/beauty/hair/zendaya-hydro-bob-euphoria-season-three-premiere/": {
     "title_ko": "가브리엘 유니온, 숏 밥 스타일의 부활을 이끌다",
@@ -72,11 +72,23 @@
     "summary_ko": "이제 로비는 턱과 쇄골 사이의 중간 길이인 '롭(lob)' 스타일을 선보였습니다. 그녀는 페넬로페 크루즈와 같은 스타들이 선호하는 이 특별한 롭컷 대열에 합류했습니다."
   },
   "https://www.elle.com/beauty/hair/a70520530/japanese-bob-styling-tips/": {
-    "title_ko": "프렌치 보브 대신 재패니즈 보브가 대세",
-    "summary_ko": "헤어스타일리스트이자 살롱 오너인 멜리사 팀펄리는 '재패니즈 보브는 깔끔한 라인과 얼굴을 감싸는 미묘한 안쪽 컬이 특징인 날렵하고 조각 같은 턱선 길이의 컷'이라고 말합니다."
+    "title_ko": "프렌치 보브는 잊어라. 재패니즈 보브가 대세다",
+    "summary_ko": "재패니즈 보브는 날렵하고 조형적인 턱선 길이 커트로, 깔끔한 라인과 얼굴을 감싸는 은은한 안쪽 컬이 특징이다. 정교한 실루엣 덕분에 구조적이면서 세련된 보브 분위기를 연출한다."
   },
   "https://www.marieclaire.com/beauty/hair/page/4/": {
     "title_ko": "밀라노 패션 위크를 휩쓴 불꽃 머리와 인어 웨이브",
     "summary_ko": "스트리트 스타일 스타들이 화려한 매력을 더하고 있습니다."
+  },
+  "https://www.marieclaire.com/beauty/hair/butterfly-haircut-ideas/": {
+    "title_ko": "클래식 버터플라이 컷",
+    "summary_ko": "애틀랜타 스타일리스트 @hairstylistrocky가 선보인 클래식 버터플라이 컷. 긴 레이어와 나비 날개처럼 다채로운 색감이 특징입니다. 버터플라이 컷의 매력 중 하나는..."
+  },
+  "https://www.harpersbazaar.com/beauty/hair/a70883728/angelina-jolie-blond-hair-red-lipstick-tom-ford-shanghai/": {
+    "title_ko": "안젤리나 졸리, 시그니처 레드 립에 쿨톤 금발 헤어 매치",
+    "summary_ko": "안젤리나 졸리와 대담한 레드 립은 찰떡궁합입니다. 톰 포드 행사로 상하이에서 드문 모습을 보인 그녀는 시그니처 립 컬러와 함께 봄에 어울리는 신선한 금발 헤어도 선보였습니다."
+  },
+  "https://www.whowhatwear.com/beauty/hair/dated-hair-trends-spring-2026": {
+    "title_ko": "2025년을 지배한 봄 헤어 트렌드, 2026년엔 이렇게 바뀐다",
+    "summary_ko": "2026년 봄은 편안함과 스타일이 공존하는 시즌으로, 2025년의 고강도 스타일과는 확연히 다릅니다. 가장 큰 변화는 트렌드가 개인화되고 있다는 점입니다."
   }
 }
