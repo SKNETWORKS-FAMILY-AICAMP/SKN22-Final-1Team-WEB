@@ -496,12 +496,20 @@ def client_recommendation_history_page(request):
     if not client:
         return redirect("customer_index")
     payload = get_former_recommendations(client)
+    history_items = payload.get("items", [])
+    history_has_completed = any(bool(item.get("is_chosen")) for item in history_items if isinstance(item, dict))
+    latest_completed_item = next(
+        (item for item in history_items if isinstance(item, dict) and item.get("is_chosen")),
+        None,
+    )
     return render(
         request,
         "customer/history.html",
         {
             "client": client,
-            "history_items": payload.get("items", []),
+            "history_items": history_items,
+            "history_has_completed": history_has_completed,
+            "latest_completed_item": latest_completed_item,
             "history_message": payload.get("message"),
             "popup_message": _popup_message_from_notice(request.GET.get("notice")),
         },

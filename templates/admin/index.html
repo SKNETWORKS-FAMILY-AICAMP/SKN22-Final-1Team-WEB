@@ -378,6 +378,7 @@
     const DASHBOARD_CUSTOMERS_CACHE_KEY = `${DASHBOARD_SCOPE}:customers`;
     const DASHBOARD_DESIGNERS_CACHE_KEY = `${DASHBOARD_SCOPE}:designers`;
     const DASHBOARD_REPORT_CACHE_KEY_BASE = `${DASHBOARD_SCOPE}:trend-report`;
+    const DASHBOARD_REFRESH_REQUIRED_KEY = 'partner-dashboard:refresh-required';
     let chartJsPromise = null;
     const trendReportRequestMap = new Map();
     let activeReportType = 'styleTop10';
@@ -419,6 +420,39 @@
         }));
       } catch (error) {
         console.warn('Failed to cache dashboard payload:', error);
+      }
+    }
+
+    function consumeDashboardRefreshRequiredFlag() {
+      try {
+        const value = window.sessionStorage.getItem(DASHBOARD_REFRESH_REQUIRED_KEY);
+        if (!value) return false;
+        window.sessionStorage.removeItem(DASHBOARD_REFRESH_REQUIRED_KEY);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function clearDashboardScopeCaches() {
+      try {
+        const keysToRemove = [];
+        for (let index = 0; index < window.sessionStorage.length; index += 1) {
+          const key = window.sessionStorage.key(index);
+          if (!key) continue;
+          if (
+            key === DASHBOARD_CUSTOMERS_CACHE_KEY
+            || key === DASHBOARD_DESIGNERS_CACHE_KEY
+            || key.startsWith(`${DASHBOARD_REPORT_CACHE_KEY_BASE}:`)
+          ) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach((key) => {
+          window.sessionStorage.removeItem(key);
+        });
+      } catch (error) {
+        console.warn('Failed to clear dashboard cache:', error);
       }
     }
 
@@ -1259,8 +1293,12 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       if (isDashboard) {
-        fetchDashboardDesigners();
-        fetchCustomers();
+        const needsRefresh = consumeDashboardRefreshRequiredFlag();
+        if (needsRefresh) {
+          clearDashboardScopeCaches();
+        }
+        fetchDashboardDesigners({ useCache: !needsRefresh, forceRefresh: needsRefresh });
+        fetchCustomers('', { useCache: !needsRefresh, forceRefresh: needsRefresh });
         if (window.requestIdleCallback) {
           window.requestIdleCallback(() => {
             loadChartJs().catch(() => {});
