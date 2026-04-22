@@ -707,6 +707,7 @@
     const diagnosisApiUrl = `/api/v1/customers/${clientId}/diagnosis-card/`;
     const customerNoteApiUrl = `/api/v1/customers/${clientId}/customer-note/`;
     const consultationCloseApiUrl = `/api/v1/customers/${clientId}/consultation-close/`;
+    const dashboardRefreshFlagKey = 'partner-dashboard:refresh-required';
 
     let currentCustomer = null;
     let latestRetryPreviewHtml = '';
@@ -1822,6 +1823,11 @@
 
       applyClosedConsultationState();
       showDetailNotice(data.message || '상담 세션을 종료했습니다.', 'success');
+      try {
+        window.sessionStorage.setItem(dashboardRefreshFlagKey, String(Date.now()));
+      } catch (error) {
+        console.warn('Failed to set dashboard refresh flag:', error);
+      }
       window.setTimeout(() => {
         loadCustomerDetail().catch(() => null);
       }, 250);

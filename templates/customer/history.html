@@ -33,6 +33,26 @@
     box-shadow: var(--shadow-neon);
   }
 
+  .history-card.recent-consultation {
+    border: 2px solid #ffb300;
+    box-shadow: 0 0 0 2px rgba(255, 179, 0, 0.2), var(--shadow-main);
+  }
+
+  .history-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid #ffb300;
+    background: rgba(255, 179, 0, 0.12);
+    color: #8a4b00;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+  }
+
   .history-image-wrapper {
     position: relative;
     width: 100%;
@@ -99,16 +119,11 @@
 
 {% block content %}
 <div class="stack" style="gap: 24px; max-width: 1080px; margin: 0 auto;">
-  <div class="panel" style="padding: 28px;">
-    <h3 class="section-title" style="margin-bottom: 10px;">과거 해당 계정의 추천 내역</h3>
-    <p class="section-copy" style="margin-bottom: 0;">{{ history_message|default:"과거의 추천 내역을 확인할 수 있습니다." }}</p>
-  </div>
-
   {% if history_items %}
     <div id="historyGrid" class="history-grid">
       {% for item in history_items %}
         <article
-          class="history-card"
+          class="history-card {% if latest_completed_item and item.recommendation_id == latest_completed_item.recommendation_id %}recent-consultation{% endif %}"
           data-recommendation-id="{{ item.recommendation_id }}"
           data-style-name="{{ item.style_name|escape }}"
           data-match-score="{{ item.match_score|default:0 }}"
@@ -129,11 +144,15 @@
             <p class="section-copy" style="font-size: 13px;">{{ item.reasoning|default:item.style_description }}</p>
             <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center;">
               <span style="font-size: 12px; color: var(--text-secondary);">{{ item.created_at|date:"Y-m-d H:i" }}</span>
-              {% if item.is_chosen %}
-                <span style="font-size: 12px; font-weight: 700; color: var(--accent-neon);">선택 완료</span>
+              {% if latest_completed_item and item.recommendation_id == latest_completed_item.recommendation_id %}
+                <span class="history-status-badge">최근 상담 완료</span>
+              {% elif item.is_chosen %}
+                <span class="history-status-badge">선택 완료</span>
               {% endif %}
             </div>
-            <button type="button" class="btn btn-dark history-select-btn" style="margin-top: auto; height: 44px;">선택하기</button>
+            {% if not history_has_completed %}
+              <button type="button" class="btn btn-dark history-select-btn" style="margin-top: auto; height: 44px;">선택하기</button>
+            {% endif %}
           </div>
         </article>
       {% endfor %}
@@ -145,11 +164,17 @@
   <div id="historySelectionBar" class="history-selection-bar {% if not history_items %}is-hidden{% endif %}">
     <div style="display: flex; flex-direction: column; gap: 4px;">
       <p style="font-size: 12px; color: rgba(255,255,255,0.55); font-weight: 600; text-transform: uppercase;">선택한 스타일</p>
-      <h4 id="selectedHistoryInfo" style="font-size: 18px; font-weight: 800; color: var(--accent-neon);">선택된 스타일이 없습니다.</h4>
+      {% if history_has_completed and latest_completed_item %}
+        <h4 id="selectedHistoryInfo" style="font-size: 18px; font-weight: 800; color: var(--accent-neon);">최근 상담 완료: {{ latest_completed_item.style_name }}</h4>
+      {% else %}
+        <h4 id="selectedHistoryInfo" style="font-size: 18px; font-weight: 800; color: var(--accent-neon);">선택된 스타일이 없습니다.</h4>
+      {% endif %}
     </div>
     <div class="history-actions">
       <a href="{% url 'customer_menu' %}" class="btn btn-dark" style="height: 48px; display: inline-flex; align-items: center; justify-content: center;">이전으로</a>
-      <button id="historyConsultBtn" type="button" class="btn btn-primary" style="height: 48px;" {% if not history_items %}disabled{% endif %}>이 스타일 선택(상담사 전송)</button>
+      {% if not history_has_completed %}
+        <button id="historyConsultBtn" type="button" class="btn btn-primary" style="height: 48px;" {% if not history_items %}disabled{% endif %}>이 스타일 선택(상담사 전송)</button>
+      {% endif %}
       <a href="{% url 'customer_camera' %}" class="btn btn-dark" style="height: 48px; display: inline-flex; align-items: center; justify-content: center;">새로운 스타일 추천(촬영)</a>
     </div>
   </div>
@@ -160,6 +185,7 @@
 <script>
   (function () {
     const customerId = "{{ request.session.customer_id|default:'' }}";
+    const historyHasCompleted = "{{ history_has_completed|yesno:'true,false' }}" === "true";
     const selectedInfo = document.getElementById("selectedHistoryInfo");
     const consultBtn = document.getElementById("historyConsultBtn");
     const cards = Array.from(document.querySelectorAll(".history-card"));
@@ -170,17 +196,26 @@
     };
 
     function setSelectedCard(card) {
+      if (historyHasCompleted) {
+        return;
+      }
       cards.forEach((row) => row.classList.remove("selected"));
       card.classList.add("selected");
       selectedState.recommendationId = Number(card.dataset.recommendationId);
       selectedState.styleName = card.dataset.styleName || "선택한 스타일";
       selectedState.matchScore = card.dataset.matchScore || 0;
       selectedInfo.textContent = `${selectedState.styleName} · ${selectedState.matchScore}% 매칭`;
-      consultBtn.disabled = false;
+      if (consultBtn) {
+        consultBtn.disabled = false;
+      }
     }
 
     async function submitHistoryConsultation() {
       if (!selectedState.recommendationId || !customerId) {
+        return;
+      }
+
+      if (!consultBtn) {
         return;
       }
 
@@ -207,16 +242,20 @@
         window.location.href = "/customer/consultation/complete/";
       } catch (error) {
         alert(error.message || "상담 요청에 실패했습니다.");
-        consultBtn.disabled = false;
+        if (consultBtn) {
+          consultBtn.disabled = false;
+        }
       }
     }
 
     cards.forEach((card) => {
-      card.addEventListener("click", () => setSelectedCard(card));
-      card.querySelector(".history-select-btn")?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        setSelectedCard(card);
-      });
+      if (!historyHasCompleted) {
+        card.addEventListener("click", () => setSelectedCard(card));
+        card.querySelector(".history-select-btn")?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          setSelectedCard(card);
+        });
+      }
     });
 
     consultBtn?.addEventListener("click", submitHistoryConsultation);
