@@ -5,14 +5,13 @@ MirrAI는 Django 기반 헤어스타일 추천/상담 플랫폼이다.
 
 ## 팀 구성
 
-아래 역할은 커밋 히스토리와 팀 확인 내용을 함께 반영해 정리했다.
 
-| 팀원 | 역할 |
-| --- | --- |
-| 최정환 | 프론트엔드 |
-| 문승준 | 백엔드 |
-| 이병재 | QA, 코드 수정, AI 모델 관련 API 및 연동 작업 |
-| 장완식 | QA, 코드 수정, RAG 챗봇 작업, 초반 촬영 기능 구현 |
+| 팀원 | 커밋 히스토리 기준 역할 | 히스토리에서 확인된 작업 |
+| --- | --- | --- |
+| 최정환 | 프론트엔드 / UI·UX | 관리자·고객 화면, 대시보드, 마이페이지, 챗봇 UI, 세션·네비게이션 흐름 개선 |
+| 문승준 | 백엔드 | RunPod 연동, 추천·분석 API 계약, AI runtime 진단, 회귀 테스트 보강 |
+| 이병재 | 추천·AI 연동 보강 | 추천 로직, `ai_facade`·`services_django`, 저장/결과 흐름, 테스트 보강 |
+| 장완식 | 트렌드·고객 플로우 보강 | 최신 트렌드 피드, 트렌드 화면, 업로드·촬영 흐름, RAG·트렌드 자산 정리 |
 
 ## 핵심 기능
 
@@ -161,6 +160,9 @@ python manage.py runserver
 
 - `NCS_PDF_SYNC_SOURCE_DIR=/mnt/mirrai-ncs-pdfs`
 - `NCS_PDF_SYNC_STRICT=1`
+- `OPTIONAL_STARTUP_TASKS_BLOCKING=0`
+- `NCS_PDF_SYNC_BLOCKING=0`
+- `BOOTSTRAP_RAG_ASSETS_BLOCKING=0`
 - `NCS_EFS_FILE_SYSTEM_ID`
 - `NCS_EFS_REGION`
 - `NCS_EFS_ACCESS_POINT_ID` (선택)
@@ -225,6 +227,7 @@ python manage.py runserver
 - EB는 `Dockerrun.aws.json`에서 host `80` -> container `8000`으로 연결한다.
 - health check 대응은 `/` 와 `/health/`에서 처리한다.
 - startup 체인은 `collectstatic -> verify_static_manifest -> migrate -> gunicorn` 이다.
+- NCS PDF sync / RAG bootstrap은 기본 non-blocking background 작업으로 분리할 수 있다.
 
 헬스가 깨질 때는 아래를 먼저 본다.
 
@@ -232,6 +235,7 @@ python manage.py runserver
 - startup migration 실패 여부
 - Redis 접속 지연 여부
 - EFS mount 경고 여부
+- optional startup task blocking 여부
 - EB 이벤트 / 컨테이너 로그
 
 ## 관련 문서

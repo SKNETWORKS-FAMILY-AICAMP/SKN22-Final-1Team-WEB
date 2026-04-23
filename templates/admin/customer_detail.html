@@ -167,6 +167,65 @@
     color: var(--bg-dark);
   }
 
+  .selected-consultation-list {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .selected-consultation-card {
+    width: 180px;
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--bg-light);
+    display: grid;
+    gap: 8px;
+  }
+
+  .selected-consultation-image-wrap {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(12, 10, 7, 0.08);
+    background: rgba(12, 10, 7, 0.06);
+  }
+
+  .selected-consultation-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .selected-consultation-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .selected-consultation-name {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--bg-dark);
+    line-height: 1.4;
+  }
+
+  .selected-consultation-meta {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
   .retry-modal {
     position: fixed;
     inset: 0;
@@ -553,6 +612,10 @@
       align-items: stretch;
     }
 
+    .selected-consultation-card {
+      width: 150px;
+    }
+
     .diagnosis-actions {
       align-items: stretch;
     }
@@ -644,6 +707,7 @@
     const diagnosisApiUrl = `/api/v1/customers/${clientId}/diagnosis-card/`;
     const customerNoteApiUrl = `/api/v1/customers/${clientId}/customer-note/`;
     const consultationCloseApiUrl = `/api/v1/customers/${clientId}/consultation-close/`;
+    const dashboardRefreshFlagKey = 'partner-dashboard:refresh-required';
 
     let currentCustomer = null;
     let latestRetryPreviewHtml = '';
@@ -708,6 +772,152 @@
       }
 
       return date.toLocaleDateString();
+    }
+
+    function formatScore(value) {
+      if (value === null || value === undefined || value === '') {
+        return '';
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return '';
+      }
+      return `${Math.round(numeric)}%`;
+    }
+
+    function getFaceShapeLabel(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) {
+        return '미분석';
+      }
+      const labelMap = {
+        oval: '타원형',
+        round: '둥근형',
+        square: '각진형',
+        heart: '하트형',
+        oblong: '긴형',
+        long: '긴형'
+      };
+      return labelMap[normalized] || String(value || '').trim();
+    }
+
+    function getSurveyFallbackLabel(field, rawValue) {
+      const value = String(rawValue || '').trim();
+      if (!value) {
+        return '';
+      }
+      const labelMap = {
+        target_length: {
+          short: '짧게',
+          medium: '중간 길이',
+          long: '길게'
+        },
+        target_vibe: {
+          natural: '내추럴한',
+          chic: '세련된',
+          cute: '사랑스러운',
+          elegant: '고급스러운'
+        },
+        scalp_type: {
+          straight: '생머리 느낌',
+          waved: '자연스러운 웨이브',
+          curly: '컬이 있는 스타일'
+        },
+        hair_colour: {
+          black: '블랙',
+          brown: '브라운',
+          ash: '애쉬'
+        },
+        budget_range: {
+          low: '낮은 예산',
+          mid: '중간 예산',
+          high: '높은 예산',
+          unknown: '미정'
+        }
+      };
+      return (labelMap[field] && labelMap[field][value]) || value;
+    }
+
+    function getSurveyQuestionAnswers(survey) {
+      if (!survey) {
+        return {};
+      }
+      if (survey.question_answers && typeof survey.question_answers === 'object') {
+        return survey.question_answers;
+      }
+      if (survey.survey_profile && survey.survey_profile.question_answers && typeof survey.survey_profile.question_answers === 'object') {
+        return survey.survey_profile.question_answers;
+      }
+      return {};
+    }
+
+    function getSurveyDisplayValue(survey, field) {
+      if (!survey) {
+        return '미지정';
+      }
+      const answers = getSurveyQuestionAnswers(survey);
+      const genderBranch = String(
+        survey.gender_branch
+        || (survey.survey_profile && survey.survey_profile.gender_branch)
+        || ''
+      ).trim().toLowerCase();
+
+      let selectedAnswer = '';
+      if (field === 'target_length') {
+        selectedAnswer = answers.q1 || '';
+      } else if (field === 'target_vibe') {
+        selectedAnswer = genderBranch === 'male' ? (answers.q6 || '') : (answers.q5 || '');
+      } else if (field === 'scalp_type') {
+        selectedAnswer = genderBranch === 'male' ? (answers.q5 || '') : (answers.q4 || '');
+      } else if (field === 'hair_colour') {
+        selectedAnswer = answers.q6 || '';
+      } else if (field === 'budget_range') {
+        selectedAnswer = answers.q6 || '';
+      }
+
+      if (String(selectedAnswer || '').trim()) {
+        return selectedAnswer;
+      }
+
+      const fallback = getSurveyFallbackLabel(field, survey[field]);
+      return fallback || '미지정';
+    }
+
+    function getSurveyQuestionDefinitions(survey) {
+      const genderBranch = String(
+        (survey && (survey.gender_branch || (survey.survey_profile && survey.survey_profile.gender_branch))) || ''
+      ).trim().toLowerCase();
+      if (genderBranch === 'male') {
+        return [
+          { key: 'q1', label: 'Q1. 옆머리와 뒷머리 길이감', fallbackField: 'target_length' },
+          { key: 'q2', label: 'Q2. 투블럭 스타일 선호도' },
+          { key: 'q3', label: 'Q3. 앞머리 연출 방식' },
+          { key: 'q4', label: 'Q4. 가르마 스타일 여부' },
+          { key: 'q5', label: 'Q5. 펌 및 볼륨감 정도', fallbackField: 'scalp_type' },
+          { key: 'q6', label: 'Q6. 원하는 전체 인상', fallbackField: 'target_vibe' }
+        ];
+      }
+      return [
+        { key: 'q1', label: 'Q1. 선호하는 머리 길이', fallbackField: 'target_length' },
+        { key: 'q2', label: 'Q2. 전체 실루엣 스타일' },
+        { key: 'q3', label: 'Q3. 앞머리 유무 및 형태' },
+        { key: 'q4', label: 'Q4. 선호하는 컬 강도', fallbackField: 'scalp_type' },
+        { key: 'q5', label: 'Q5. 추구하는 전체 분위기', fallbackField: 'target_vibe' },
+        { key: 'q6', label: 'Q6. 스타일 변화 강도' }
+      ];
+    }
+
+    function buildSurveyQuestionCards(survey) {
+      const answers = getSurveyQuestionAnswers(survey);
+      const questionDefs = getSurveyQuestionDefinitions(survey);
+      return questionDefs.map((question) => {
+        const rawAnswer = String((answers && answers[question.key]) || '').trim();
+        const fallbackAnswer = question.fallbackField
+          ? getSurveyDisplayValue(survey, question.fallbackField)
+          : '미지정';
+        const answer = rawAnswer || fallbackAnswer || '미지정';
+        return `<div class="survey-item"><span class="survey-tag">${escapeHtml(question.label)}</span><div class="survey-value">${escapeHtml(answer)}</div></div>`;
+      }).join('');
     }
 
     function getPreviewImageUrl(item) {
@@ -1373,6 +1583,35 @@
       return customerDetailChatbotTemplate.innerHTML.trim();
     }
 
+    function buildSelectedConsultationSection(activeConsultation) {
+      if (!activeConsultation || !activeConsultation.selected_style_id) {
+        return '';
+      }
+
+      const styleName = activeConsultation.selected_style_name || '선택 스타일';
+      const imageUrl = String(activeConsultation.selected_style_image_url || '').trim();
+      const scoreText = formatScore(activeConsultation.selected_style_score);
+      const createdAt = formatDate(activeConsultation.created_at);
+
+      return `
+        <div class="info-group">
+          <span class="info-label">선택된 상담 카드</span>
+          <div class="selected-consultation-list">
+            <div class="selected-consultation-card">
+              <div class="selected-consultation-image-wrap">
+                ${imageUrl
+                  ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(styleName)}" class="selected-consultation-image">`
+                  : '<div class="selected-consultation-empty">이미지 준비 중</div>'
+                }
+              </div>
+              <p class="selected-consultation-name">${escapeHtml(styleName)}</p>
+              <p class="selected-consultation-meta">${scoreText ? `매칭률 ${escapeHtml(scoreText)} | ` : ''}저장일 ${escapeHtml(createdAt)}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     function renderCustomerDetail(customer) {
       const surveyCreatedAt = customer.survey && customer.survey.created_at;
       const firstAnalysis = Array.isArray(customer.face_analyses) ? customer.face_analyses[0] : null;
@@ -1418,14 +1657,12 @@
         <div class="info-group">
           <span class="info-label">스타일 취향 분석</span>
           <div class="survey-grid">
-            <div class="survey-item"><span class="survey-tag">희망 길이</span><div class="survey-value">${escapeHtml(customer.survey && customer.survey.target_length || '미지정')}</div></div>
-            <div class="survey-item"><span class="survey-tag">선호 분위기</span><div class="survey-value">${escapeHtml(customer.survey && customer.survey.target_vibe || '미지정')}</div></div>
-            <div class="survey-item"><span class="survey-tag">두피 상태</span><div class="survey-value">${escapeHtml(customer.survey && customer.survey.scalp_type || '미지정')}</div></div>
-            <div class="survey-item"><span class="survey-tag">모발 컬러</span><div class="survey-value">${escapeHtml(customer.survey && customer.survey.hair_colour || '미지정')}</div></div>
-            <div class="survey-item"><span class="survey-tag">예산 범위</span><div class="survey-value">${escapeHtml(customer.survey && customer.survey.budget_range || '미지정')}</div></div>
-            <div class="survey-item"><span class="survey-tag">얼굴형 분석</span><div class="survey-value">${escapeHtml(firstAnalysis && firstAnalysis.face_shape || '미분석')}</div></div>
+            ${buildSurveyQuestionCards(customer.survey)}
+            <div class="survey-item"><span class="survey-tag">얼굴형 분석</span><div class="survey-value">${escapeHtml(getFaceShapeLabel(firstAnalysis && firstAnalysis.face_shape))}</div></div>
           </div>
         </div>
+
+        ${buildSelectedConsultationSection(activeConsultation)}
 
         ${buildDiagnosisSection()}
 
@@ -1586,6 +1823,11 @@
 
       applyClosedConsultationState();
       showDetailNotice(data.message || '상담 세션을 종료했습니다.', 'success');
+      try {
+        window.sessionStorage.setItem(dashboardRefreshFlagKey, String(Date.now()));
+      } catch (error) {
+        console.warn('Failed to set dashboard refresh flag:', error);
+      }
       window.setTimeout(() => {
         loadCustomerDetail().catch(() => null);
       }, 250);
@@ -1730,4 +1972,3 @@
   })();
 </script>
 {% endblock %}
-

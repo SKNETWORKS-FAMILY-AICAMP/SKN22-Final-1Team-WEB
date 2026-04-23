@@ -10,6 +10,71 @@
 {% endblock %}
 
 {% block content %}
+
+{% if resume_step %}
+<div class="menu-resume-wrap">
+
+  {# 진행 단계 시각화 — continue.html과 동일한 구조 #}
+  <div class="resume-steps">
+    <div class="resume-step is-done">
+      <div class="resume-step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <p class="resume-step-label">고객 정보 입력</p>
+    </div>
+
+    <div class="resume-step-line {% if resume_step >= 2 %}is-done{% endif %}"></div>
+
+    <div class="resume-step {% if resume_step >= 2 %}is-done{% elif resume_step == 1 %}is-current{% endif %}">
+      <div class="resume-step-icon">
+        {% if resume_step >= 2 %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}
+        <span>2</span>
+        {% endif %}
+      </div>
+      <p class="resume-step-label">사진 촬영 / 업로드</p>
+    </div>
+
+    <div class="resume-step-line {% if resume_step >= 3 %}is-done{% endif %}"></div>
+
+    <div class="resume-step {% if resume_step >= 3 %}is-done{% elif resume_step == 2 %}is-current{% endif %}">
+      <div class="resume-step-icon">
+        {% if resume_step >= 3 %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}
+        <span>3</span>
+        {% endif %}
+      </div>
+      <p class="resume-step-label">스타일 설문</p>
+    </div>
+
+    <div class="resume-step-line {% if resume_step >= 4 %}is-done{% endif %}"></div>
+
+    <div class="resume-step {% if resume_step >= 4 %}is-done{% elif resume_step == 3 %}is-current{% endif %}">
+      <div class="resume-step-icon">
+        {% if resume_step >= 4 %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}
+        <span>4</span>
+        {% endif %}
+      </div>
+      <p class="resume-step-label">추천 결과 확인</p>
+    </div>
+  </div>
+
+  {# 현재 단계 안내 + 이어하기 버튼 #}
+  <div class="resume-status-card">
+    <div class="resume-status-left">
+      <p class="resume-status-label">다음 단계</p>
+      <p class="resume-status-value">{{ resume_step_label }}</p>
+    </div>
+    <a href="{{ resume_url }}" class="btn btn-primary resume-btn-main">이전 단계부터 이어하기</a>
+  </div>
+
+</div>
+{% endif %}
+
 <div style="max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px;">
   <article class="panel" style="padding: 28px; display: flex; flex-direction: column; gap: 16px;">
     <p style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em;">History</p>
@@ -40,6 +105,154 @@
   @media (max-width: 360px) {
     .recommend-actions {
       grid-template-columns: 1fr !important;
+    }
+  }
+
+  /* 이어하기 영역 래퍼 */
+  .menu-resume-wrap {
+    max-width: 1080px;
+    margin: 0 auto 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Steps — continue.html과 동일 */
+  .resume-steps {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    padding: 36px 28px;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-main);
+  }
+  .resume-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+  }
+  .resume-step-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--line);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 800;
+    transition: all 0.2s ease;
+  }
+  .resume-step-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+  .resume-step.is-done .resume-step-icon {
+    background: var(--accent-neon);
+    color: var(--bg-dark);
+  }
+  .resume-step.is-current .resume-step-icon {
+    background: var(--bg-dark);
+    color: var(--accent-neon);
+    border: 2px solid var(--accent-neon);
+    box-shadow: 0 0 14px rgba(245, 209, 13, 0.35);
+  }
+  .resume-step-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-align: center;
+    white-space: nowrap;
+  }
+  .resume-step.is-done .resume-step-label,
+  .resume-step.is-current .resume-step-label {
+    color: var(--text-primary);
+  }
+  .resume-step-line {
+    flex: 1;
+    height: 2px;
+    background: var(--line);
+    margin-top: 22px;
+    min-width: 24px;
+    border-radius: 1px;
+    transition: background 0.2s ease;
+  }
+  .resume-step-line.is-done {
+    background: var(--accent-neon);
+  }
+
+  /* Status card — continue.html과 동일 */
+  .resume-status-card {
+    padding: 20px 24px;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-main);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .resume-status-left {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .resume-status-label {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .resume-status-value {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text-primary);
+  }
+  .resume-btn-main {
+    flex-shrink: 0;
+    height: 48px;
+    padding: 0 24px;
+    font-size: 15px;
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .resume-steps {
+      padding: 24px 16px;
+    }
+    .resume-step-label {
+      font-size: 10px;
+    }
+    .resume-step-icon {
+      width: 36px;
+      height: 36px;
+      font-size: 13px;
+    }
+    .resume-step-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+    .resume-step-line {
+      margin-top: 18px;
+      min-width: 12px;
+    }
+    .resume-status-card {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .resume-btn-main {
+      width: 100%;
+      justify-content: center;
     }
   }
 </style>

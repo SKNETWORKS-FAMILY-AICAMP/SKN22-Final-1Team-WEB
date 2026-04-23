@@ -20,7 +20,7 @@ from app.services.trend_refresh import (
     trigger_runpod_trend_refresh_with_archive,
 )
 from app.trend_pipeline.style_collection import sync_seed_styles_to_db
-from app.trend_pipeline import vectorize_chromadb
+from app.trend_pipeline import ncs_vectorize_chromadb, vectorize_chromadb
 
 
 class TrendRefreshServiceTests(SimpleTestCase):
@@ -273,6 +273,64 @@ class TrendVectorizeTests(SimpleTestCase):
         fresh_client.create_collection.assert_called_once_with(
             name=vectorize_chromadb.COLLECTION_NAME,
             metadata={"description": "Hair trend RAG data maintained inside final_web backend"},
+        )
+        collection.add.assert_called_once()
+
+    def test_build_ncs_collection_resets_incompatible_store_before_rebuild(self):
+        with tempfile.TemporaryDirectory(prefix="mirrai-final-ai-") as tmpdir:
+            store_dir = Path(tmpdir) / "chromadb_ncs"
+            store_dir.mkdir(parents=True, exist_ok=True)
+            legacy_marker = store_dir / "legacy.marker"
+            legacy_marker.write_text("legacy", encoding="utf-8")
+
+            legacy_client = Mock()
+            legacy_client.delete_collection.side_effect = KeyError("_type")
+
+            collection = Mock()
+            collection.count.return_value = 1
+
+            fresh_client = Mock()
+            fresh_client.create_collection.return_value = collection
+
+            sample_rows = [
+                {
+                    "source_id": "ncs-1",
+                    "canonical_name": "basic-cut",
+                    "display_title": "Basic Cut",
+                    "category": "manual",
+                    "service_type": ["cut"],
+                    "target_conditions": ["damaged"],
+                    "tools": ["scissors"],
+                    "steps": ["Section hair", "Cut guide line"],
+                    "cautions": ["Check symmetry"],
+                    "summary": "Basic haircut manual.",
+                    "stylist_answer": "Keep tension consistent.",
+                    "source_document_name": "ncs.pdf",
+                    "source_page": "12",
+                    "source_alias_names": ["NCS Basic Cut"],
+                    "source": "NCS",
+                    "search_text": "Basic Cut manual",
+                }
+            ]
+
+            with (
+                patch.object(ncs_vectorize_chromadb, "CHROMA_NCS_DIR", store_dir),
+                patch.object(ncs_vectorize_chromadb, "ensure_directories"),
+                patch.object(ncs_vectorize_chromadb, "load_data", return_value=sample_rows),
+                patch.object(
+                    ncs_vectorize_chromadb,
+                    "create_persistent_client",
+                    side_effect=[legacy_client, fresh_client],
+                ) as mock_create_client,
+            ):
+                result = ncs_vectorize_chromadb.build_ncs_collection()
+
+        self.assertIs(result, collection)
+        self.assertEqual(mock_create_client.call_count, 2)
+        self.assertFalse(legacy_marker.exists())
+        fresh_client.create_collection.assert_called_once_with(
+            name=ncs_vectorize_chromadb.COLLECTION_NAME,
+            metadata={"description": "NCS hairstyle manual RAG data maintained inside final_web backend"},
         )
         collection.add.assert_called_once()
 

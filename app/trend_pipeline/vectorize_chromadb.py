@@ -389,6 +389,17 @@ def _should_reset_incompatible_store(exc: Exception) -> bool:
     return isinstance(exc, KeyError) and exc.args == ("_type",)
 
 
+def _is_store_busy_error(exc: Exception) -> bool:
+    return isinstance(exc, PermissionError) and "chroma.sqlite3" in str(exc).lower()
+
+
+def _raise_store_busy_error(*, exc: Exception) -> None:
+    raise PermissionError(
+        f"Chroma trend store is busy at '{CHROMA_TRENDS_DIR}'. "
+        "Stop any Django/FastAPI/process using this store, then rerun the vectorize step."
+    ) from exc
+
+
 def _reset_trend_store(*, stale_client: Any | None = None) -> None:
     if stale_client is not None:
         close = getattr(stale_client, "close", None)
@@ -411,63 +422,67 @@ def build_collection() -> chromadb.api.models.Collection.Collection:
     data = load_data()
     print(f"Loaded {len(data)} trend records.")
 
-    client = create_persistent_client(CHROMA_TRENDS_DIR)
-
     try:
-        client.delete_collection(COLLECTION_NAME)
-        print(f"Deleted existing collection '{COLLECTION_NAME}'.")
-    except (ValueError, NotFoundError):
-        pass
-    except Exception as exc:
-        if not _should_reset_incompatible_store(exc):
-            raise
-        print(
-            "[chroma] incompatible existing trend store detected; "
-            "resetting local store before rebuild."
-        )
-        stale_client = client
-        client = None
-        _reset_trend_store(stale_client=stale_client)
         client = create_persistent_client(CHROMA_TRENDS_DIR)
-
-    collection = client.create_collection(
-        name=COLLECTION_NAME,
-        metadata={"description": "Hair trend RAG data maintained inside final_web backend"},
-    )
-
-    batch_size = 500
-    for start in range(0, len(data), batch_size):
-        batch = data[start : start + batch_size]
-        ids: list[str] = []
-        documents: list[str] = []
-        metadatas: list[dict[str, Any]] = []
-
-        for offset, item in enumerate(batch):
-            idx = start + offset
-            ids.append(f"trend_{idx:04d}")
-            documents.append(item.get("search_text", ""))
-            metadatas.append(
-                {
-                    "canonical_name": item.get("canonical_name", ""),
-                    "display_title": item.get("display_title", ""),
-                    "category": item.get("category", ""),
-                    "style_tags": ", ".join(item.get("style_tags", [])),
-                    "color_tags": ", ".join(item.get("color_tags", [])),
-                    "summary": item.get("summary", ""),
-                    "source": item.get("source", ""),
-                    "year": item.get("year", ""),
-                    "article_title": item.get("article_title", ""),
-                    "article_url": item.get("article_url", ""),
-                    "image_url": item.get("image_url", ""),
-                    "published_at": item.get("published_at", ""),
-                    "crawled_at": item.get("crawled_at", ""),
-                    "title_ko": item.get("title_ko", ""),
-                    "summary_ko": item.get("summary_ko", ""),
-                }
+        try:
+            client.delete_collection(COLLECTION_NAME)
+            print(f"Deleted existing collection '{COLLECTION_NAME}'.")
+        except (ValueError, NotFoundError):
+            pass
+        except Exception as exc:
+            if not _should_reset_incompatible_store(exc):
+                raise
+            print(
+                "[chroma] incompatible existing trend store detected; "
+                "resetting local store before rebuild."
             )
+            stale_client = client
+            client = None
+            _reset_trend_store(stale_client=stale_client)
+            client = create_persistent_client(CHROMA_TRENDS_DIR)
 
-        collection.add(ids=ids, documents=documents, metadatas=metadatas)
-        print(f"  inserted [{start + len(batch)}/{len(data)}]")
+        collection = client.create_collection(
+            name=COLLECTION_NAME,
+            metadata={"description": "Hair trend RAG data maintained inside final_web backend"},
+        )
+
+        batch_size = 500
+        for start in range(0, len(data), batch_size):
+            batch = data[start : start + batch_size]
+            ids: list[str] = []
+            documents: list[str] = []
+            metadatas: list[dict[str, Any]] = []
+
+            for offset, item in enumerate(batch):
+                idx = start + offset
+                ids.append(f"trend_{idx:04d}")
+                documents.append(item.get("search_text", ""))
+                metadatas.append(
+                    {
+                        "canonical_name": item.get("canonical_name", ""),
+                        "display_title": item.get("display_title", ""),
+                        "category": item.get("category", ""),
+                        "style_tags": ", ".join(item.get("style_tags", [])),
+                        "color_tags": ", ".join(item.get("color_tags", [])),
+                        "summary": item.get("summary", ""),
+                        "source": item.get("source", ""),
+                        "year": item.get("year", ""),
+                        "article_title": item.get("article_title", ""),
+                        "article_url": item.get("article_url", ""),
+                        "image_url": item.get("image_url", ""),
+                        "published_at": item.get("published_at", ""),
+                        "crawled_at": item.get("crawled_at", ""),
+                        "title_ko": item.get("title_ko", ""),
+                        "summary_ko": item.get("summary_ko", ""),
+                    }
+                )
+
+            collection.add(ids=ids, documents=documents, metadatas=metadatas)
+            print(f"  inserted [{start + len(batch)}/{len(data)}]")
+    except PermissionError as exc:
+        if _is_store_busy_error(exc):
+            _raise_store_busy_error(exc=exc)
+        raise
 
     print("\n====== vectorization complete ======")
     print(f"collection: {COLLECTION_NAME} ({collection.count()} docs)")
