@@ -1,3 +1,0 @@
--r requirements-trends.txt
-
-# Local-only tooling can be added below when needed.
