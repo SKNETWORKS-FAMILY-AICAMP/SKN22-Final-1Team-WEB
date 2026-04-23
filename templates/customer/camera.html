@@ -1,0 +1,388 @@
+{% extends "layouts/base_site.html" %}
+
+{% block page_title %}MirrAI | 사진 촬영{% endblock %}
+
+{% block extra_head %}
+<style>
+  .camera-layout {
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  .camera-guidance-popup {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 80;
+    width: min(540px, calc(100% - 24px));
+    padding: 14px 16px 15px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 255, 157, 0.18);
+    background: rgba(7, 12, 10, 0.78);
+    color: #f8fafc;
+    box-shadow: 0 22px 40px rgba(3, 8, 6, 0.22);
+    backdrop-filter: blur(18px);
+    pointer-events: none;
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .camera-guidance-popup[data-tone="ready"] {
+    border-color: rgba(255, 214, 107, 0.28);
+    background: rgba(42, 33, 8, 0.84);
+    box-shadow: 0 22px 42px rgba(38, 28, 5, 0.24);
+  }
+
+  .camera-guidance-popup[data-tone="error"] {
+    border-color: rgba(255, 122, 122, 0.28);
+    background: rgba(43, 12, 12, 0.84);
+    box-shadow: 0 22px 42px rgba(46, 12, 12, 0.22);
+  }
+
+  .camera-guidance-popup[data-tone="manual"] {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(19, 19, 19, 0.8);
+  }
+
+  .camera-guidance-popup[data-tone="loading"] {
+    border-color: rgba(148, 163, 184, 0.24);
+    background: rgba(15, 21, 28, 0.82);
+  }
+
+  .camera-guidance-chip {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.76);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .camera-guidance-title {
+    margin: 0;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.45;
+    word-break: keep-all;
+  }
+
+  .camera-guidance-body {
+    margin: 6px 0 0;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.55;
+    word-break: keep-all;
+  }
+
+  .camera-guidance-actions {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    pointer-events: auto;
+  }
+
+  .camera-guidance-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 104px;
+    height: 40px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.96);
+    color: #111827;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  }
+
+  .camera-guidance-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .camera-guidance-action-row {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    pointer-events: auto;
+  }
+  .camera-guidance-action-row .camera-guidance-actions {
+    margin-top: 0;
+  }
+
+  .camera-guidance-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #f8fafc;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  }
+  .camera-guidance-upload-btn:hover {
+    background: rgba(0, 255, 157, 0.1);
+    border-color: rgba(0, 255, 157, 0.45);
+    color: #fff;
+  }
+  .camera-guidance-upload-btn:active { transform: scale(0.98); }
+  .camera-guidance-upload-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .camera-main-panel {
+    padding: 12px;
+  }
+
+  .camera-shell {
+    aspect-ratio: 3 / 4;
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    overflow: hidden;
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-lg);
+  }
+
+  .camera-footer {
+    padding: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .camera-auto-hint {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 4;
+    min-width: 220px;
+    max-width: calc(100% - 32px);
+    padding: 10px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 255, 157, 0.28);
+    background: rgba(8, 13, 11, 0.72);
+    color: rgba(255, 255, 255, 0.92);
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    backdrop-filter: blur(10px);
+    transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .camera-countdown {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .camera-countdown-ring {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgba(255, 214, 107, 0.75);
+    background: rgba(10, 12, 10, 0.65);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(14px);
+  }
+
+  .camera-countdown-value {
+    color: #fff;
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .camera-shutter-flash {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at center, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.28) 42%, rgba(255, 255, 255, 0) 72%),
+      rgba(255, 255, 255, 0.62);
+    opacity: 0;
+  }
+
+  .camera-shutter-flash.is-active {
+    animation: camera-shutter-flash 260ms ease-out;
+  }
+
+  @keyframes camera-shutter-flash {
+    0% {
+      opacity: 0;
+    }
+
+    18% {
+      opacity: 0.92;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @media (max-width: 1024px) and (min-width: 701px) {
+    .camera-guidance-popup {
+      top: calc(env(safe-area-inset-top, 0px) + 78px);
+      width: min(500px, calc(100% - 24px));
+      padding: 13px 15px 14px;
+    }
+
+    .camera-main-panel {
+      padding: 10px;
+    }
+
+    .camera-shell {
+      max-width: 100%;
+    }
+
+    .camera-footer {
+      padding: 18px 16px 16px;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .camera-guidance-popup {
+      top: calc(env(safe-area-inset-top, 0px) + 72px);
+      width: calc(100% - 20px);
+      padding: 12px 14px 13px;
+      border-radius: 18px;
+    }
+
+    .camera-guidance-title {
+      font-size: 14px;
+    }
+
+    .camera-guidance-body {
+      font-size: 11.5px;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>사진 촬영</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">정확한 분석을 위해 가이드에 맞춰 정면 사진을 촬영해 주세요.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="cameraGuidancePopup" class="camera-guidance-popup" data-tone="idle" aria-live="polite" aria-atomic="true">
+  <div id="cameraGuidanceChip" class="camera-guidance-chip">실시간 안내</div>
+  <p id="cameraGuidanceTitle" class="camera-guidance-title">카메라를 켜고 얼굴 위치를 맞춰 주세요.</p>
+  <p id="cameraGuidanceBody" class="camera-guidance-body">얼굴이 안정적으로 잡히면 자동 촬영 안내가 바로 표시됩니다.</p>
+  <div class="camera-guidance-action-row">
+    <a href="/customer/upload/" class="camera-guidance-upload-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      사진 업로드하기
+    </a>
+    <div id="cameraGuidanceActions" class="camera-guidance-actions" hidden>
+      <button id="cameraGuidanceRetakeBtn" class="camera-guidance-btn" type="button">다시 촬영</button>
+    </div>
+  </div>
+</div>
+
+<div class="camera-layout">
+  <div class="panel camera-main-panel">
+    <div class="camera-shell">
+      <video id="cameraPreview" class="camera-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); position: absolute; inset: 0;"></video>
+
+      <div id="photoPreviewContainer" class="is-hidden" style="position: absolute; inset: 0; background: #000; z-index: 5;">
+        <img id="photoPreview" src="" alt="촬영 미리보기" style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);">
+      </div>
+
+      <div id="cameraGuide" aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center;">
+        <svg width="100%" height="100%" viewBox="0 0 400 533" preserveAspectRatio="xMidYMid meet" style="width: 90%; height: 90%; opacity: 0.8;">
+          <ellipse id="cameraGuideOutline" cx="200" cy="232" rx="98" ry="136" fill="none" stroke="rgba(255, 255, 255, 0.92)" stroke-width="3" stroke-linecap="round" style="transition: stroke 0.2s ease, filter 0.2s ease, opacity 0.2s ease;" />
+          <path id="cameraGuideCenterLine" d="M200 102 L200 366" fill="none" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1.2" stroke-linecap="round" style="transition: stroke 0.2s ease, opacity 0.2s ease;" />
+          <path id="cameraGuideEyeLine" d="M118 226 L282 226" fill="none" stroke="rgba(255, 255, 255, 0.18)" stroke-width="1.2" stroke-linecap="round" style="transition: stroke 0.2s ease, opacity 0.2s ease;" />
+          <path id="cameraGuideNoseLine" d="M200 196 L200 276" fill="none" stroke="rgba(255, 255, 255, 0.74)" stroke-width="3.2" stroke-linecap="round" style="transition: stroke 0.2s ease, opacity 0.2s ease;" />
+        </svg>
+      </div>
+
+      <div id="cameraShutterFlash" class="camera-shutter-flash" aria-hidden="true"></div>
+
+      <div id="cameraCountdown" class="camera-countdown is-hidden" aria-live="polite">
+        <div class="camera-countdown-ring">
+          <span id="cameraCountdownValue" class="camera-countdown-value">3</span>
+        </div>
+      </div>
+
+      <div id="cameraAutoHint" class="camera-auto-hint">
+        촬영 조건이 맞으면 자동 촬영이 시작됩니다.
+      </div>
+
+      <div id="cameraFallback" class="camera-fallback is-hidden" style="position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; text-align: center;">
+        <p>카메라 연결에 실패했습니다.<br>브라우저 권한 설정을 확인해 주세요.</p>
+      </div>
+    </div>
+
+    <div class="camera-footer">
+      <p id="cameraStatus" class="camera-status" style="font-weight: 600; color: var(--text-secondary);">카메라를 켜고 얼굴 위치를 맞춰 주세요.</p>
+
+      <div class="button-row" id="cameraControls" style="display: flex; gap: 12px;">
+        <button id="cameraToggleBtn" class="btn btn-dark" type="button" style="height: 48px;">카메라 끄기</button>
+        <button id="captureBtn" class="btn btn-primary is-hidden" type="button" style="height: 48px;">즉시 촬영</button>
+        <button id="cameraSwitchBtn" class="btn btn-dark" type="button" style="height: 48px; padding: 0 20px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        </button>
+      </div>
+
+      <div class="button-row is-hidden" id="previewControls" style="gap: 12px;" aria-hidden="true">
+        <button id="confirmBtn" class="btn btn-primary" type="button" style="height: 48px;">촬영 완료</button>
+        <button id="retakeBtn" class="btn btn-dark" type="button" style="height: 48px;">다시 촬영</button>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top: 18px;">
+    <a href="/customer/menu/" class="btn btn-dark" style="width: 100%; border: 1px solid var(--line); background: white; color: var(--bg-dark);">이전 단계로</a>
+  </div>
+</div>
+
+<canvas id="captureCanvas" class="is-hidden"></canvas>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  window.MirrAIConfig = {
+    customerId: "{{ request.session.customer_id|default:'' }}",
+    csrfToken: "{{ csrf_token }}"
+  };
+</script>
+<script src="/static/customer/js/camera.js?v=0406-tfjs-wasm-apple"></script>
+{% endblock %}

@@ -1,0 +1,1974 @@
+{% extends "layouts/base_site.html" %}
+{% load static %}
+
+{% block page_title %}MirrAI | 고객 상세{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">고객 <span>스타일 분석 정보</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">고객 설문, 디자이너 진단 카드, 재분석 흐름을 한 화면에서 확인할 수 있습니다.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<style>
+  .detail-card {
+    max-width: 930px;
+    margin: 0 auto;
+    padding: 40px 32px 32px !important;
+    border-radius: 24px !important;
+    position: relative;
+  }
+
+  .info-group {
+    margin-bottom: 32px;
+    border-bottom: 1.5px solid var(--line);
+    padding-bottom: 24px;
+  }
+
+  .info-group:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+
+  .info-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    display: block;
+  }
+
+  .survey-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .survey-item {
+    background: var(--bg-light);
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .survey-tag {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  .survey-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--bg-dark);
+  }
+
+  .back-btn-container {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 10px;
+    border: 1.5px solid var(--line);
+    background: #fff;
+    transition: all 0.2s ease;
+  }
+
+  .back-btn:hover {
+    color: var(--bg-dark);
+    border-color: var(--bg-dark);
+    background: #fcfcfc;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+
+  .action-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .action-copy {
+    flex: 1;
+    min-width: 240px;
+  }
+
+  .action-copy p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .retry-hint {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .preview-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .preview-card {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 14px;
+    background: var(--bg-light);
+    border: 1px solid var(--line);
+  }
+
+  .preview-image-wrap {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(12, 10, 7, 0.06);
+    border: 1px solid rgba(12, 10, 7, 0.08);
+  }
+
+  .preview-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .preview-image-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .preview-card strong {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--bg-dark);
+  }
+
+  .selected-consultation-list {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .selected-consultation-card {
+    width: 180px;
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--bg-light);
+    display: grid;
+    gap: 8px;
+  }
+
+  .selected-consultation-image-wrap {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(12, 10, 7, 0.08);
+    background: rgba(12, 10, 7, 0.06);
+  }
+
+  .selected-consultation-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .selected-consultation-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .selected-consultation-name {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--bg-dark);
+    line-height: 1.4;
+  }
+
+  .selected-consultation-meta {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .retry-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(12, 10, 7, 0.56);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 1200;
+  }
+
+  .retry-modal.is-hidden {
+    display: none;
+  }
+
+  .retry-modal-card {
+    width: min(520px, 100%);
+    background: #fff;
+    border-radius: 24px;
+    padding: 28px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.16);
+  }
+
+  .retry-option-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 20px;
+  }
+
+  .retry-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #fafafa;
+  }
+
+  .retry-option strong {
+    display: block;
+    color: var(--bg-dark);
+    margin-bottom: 6px;
+  }
+
+  .retry-option p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .retry-option .btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .retry-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .retry-status {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--text-primary);
+  }
+
+  .retry-status.is-hidden {
+    display: none;
+  }
+
+  .session-guide {
+    margin: 14px 0 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .session-action-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+
+  .session-action-copy {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .page-notice {
+    display: none;
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+
+  .page-notice.is-visible {
+    display: block;
+  }
+
+  .page-notice.is-success {
+    background: rgba(21, 128, 61, 0.10);
+    border-color: rgba(21, 128, 61, 0.18);
+    color: #166534;
+  }
+
+  .page-notice.is-error {
+    background: rgba(185, 28, 28, 0.08);
+    border-color: rgba(185, 28, 28, 0.16);
+    color: #b91c1c;
+  }
+
+  .page-notice.is-loading {
+    background: rgba(12, 10, 7, 0.05);
+    border-color: rgba(12, 10, 7, 0.10);
+    color: var(--bg-dark);
+  }
+
+  .diagnosis-shell {
+    display: grid;
+    gap: 16px;
+  }
+
+  .diagnosis-shell.is-collapsed .diagnosis-meta,
+  .diagnosis-shell.is-collapsed .diagnosis-help,
+  .diagnosis-shell.is-collapsed .diagnosis-editor-block {
+    display: none;
+  }
+
+  .diagnosis-copy {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .diagnosis-meta {
+    padding: 16px 18px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(12, 10, 7, 0.04), rgba(12, 10, 7, 0.02));
+    border: 1px solid rgba(12, 10, 7, 0.08);
+  }
+
+  .diagnosis-meta strong {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--bg-dark);
+  }
+
+  .diagnosis-meta p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .diagnosis-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .diagnosis-item {
+    display: grid;
+    gap: 14px;
+    border: 1px solid rgba(12, 10, 7, 0.08);
+  }
+
+  .diagnosis-item.is-wide {
+    grid-column: 1 / -1;
+  }
+
+  .diagnosis-item.is-filled {
+    border-color: rgba(12, 10, 7, 0.16);
+    box-shadow: 0 10px 26px rgba(12, 10, 7, 0.06);
+  }
+
+  .diagnosis-item-head {
+    display: grid;
+    gap: 8px;
+  }
+
+  .diagnosis-value-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .diagnosis-value {
+    line-height: 1.5;
+  }
+
+  .diagnosis-value.is-empty {
+    color: var(--text-secondary);
+  }
+
+  .diagnosis-edit-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(12, 10, 7, 0.06);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .diagnosis-help {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .diagnosis-selection-list {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-height: 28px;
+  }
+
+  .diagnosis-selection-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(12, 10, 7, 0.12);
+    background: #fff;
+    color: var(--bg-dark);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .diagnosis-selection-pill.is-empty {
+    border-style: dashed;
+    color: var(--text-secondary);
+    background: transparent;
+  }
+
+  .diagnosis-note-preview {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--bg-dark);
+    white-space: pre-line;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .diagnosis-note-preview.is-empty {
+    color: var(--text-secondary);
+  }
+
+  .diagnosis-chip-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .diagnosis-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .diagnosis-chip:hover {
+    border-color: rgba(12, 10, 7, 0.28);
+    transform: translateY(-1px);
+  }
+
+  .diagnosis-chip.is-selected {
+    background: var(--bg-dark);
+    color: #fff;
+    border-color: var(--bg-dark);
+    box-shadow: 0 10px 24px rgba(12, 10, 7, 0.16);
+  }
+
+  .diagnosis-chip.is-selected.multi {
+    background: rgba(12, 10, 7, 0.92);
+  }
+
+  .diagnosis-textarea {
+    min-height: 128px;
+    resize: vertical;
+  }
+
+  .diagnosis-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .diagnosis-actions-left {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .diagnosis-actions-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .diagnosis-status {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .diagnosis-status.is-success {
+    color: #197754;
+    font-weight: 700;
+  }
+
+  .diagnosis-status.is-muted {
+    color: var(--text-secondary);
+  }
+
+  @media (max-width: 640px) {
+    .detail-card {
+      padding: 28px 20px 24px !important;
+    }
+
+    .survey-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .diagnosis-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .diagnosis-item.is-wide {
+      grid-column: auto;
+    }
+
+    .back-btn-container {
+      position: static;
+      margin-bottom: 20px;
+    }
+
+    .retry-option {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .selected-consultation-card {
+      width: 150px;
+    }
+
+    .diagnosis-actions {
+      align-items: stretch;
+    }
+
+    .diagnosis-actions-left {
+      width: 100%;
+    }
+
+    .diagnosis-actions-right {
+      width: 100%;
+      justify-content: space-between;
+    }
+  }
+</style>
+
+<div class="customer-layout" style="display: block;">
+  <div class="panel detail-card">
+    <div class="back-btn-container">
+      <a href="{% if request.session.designer_id %}{% url 'partner_staff_dashboard' %}{% else %}{% url 'partner_dashboard' %}{% endif %}" class="back-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        대시보드
+      </a>
+    </div>
+
+    <div id="detailNotice" class="page-notice" aria-live="polite"></div>
+
+    <div id="detailContent">
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 120px 0; opacity: 0.6;">
+        <div style="width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--bg-dark); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 20px;"></div>
+        <p style="font-size: 15px; font-weight: 600; color: var(--text-secondary);">데이터를 불러오는 중입니다...</p>
+      </div>
+      <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    </div>
+  </div>
+</div>
+
+{% if show_customer_detail_chatbot %}
+<template id="customerDetailChatbotTemplate">
+  {% include "components/chatbot_customer_detail_section.html" %}
+</template>
+{% endif %}
+
+<div id="retryChoiceModal" class="retry-modal is-hidden" aria-hidden="true">
+  <div class="retry-modal-card">
+    <h3 class="section-title" style="font-size: 22px; margin-bottom: 8px;">재분석 방식 선택</h3>
+    <p class="section-copy" style="font-size: 14px; margin-bottom: 0;">기존 취향을 유지할지, 취향을 다시 선택할지 먼저 정할 수 있습니다.</p>
+
+    <div class="retry-option-list">
+      <div class="retry-option">
+        <div>
+          <strong>기존 취향 유지</strong>
+          <p>저장된 취향 데이터를 그대로 사용해 현재 고객 결과를 다시 추천합니다.</p>
+        </div>
+        <button id="retryKeepPreferenceBtn" class="btn btn-primary" style="height: 44px; min-width: 148px; padding: 0 24px;">바로 재분석</button>
+      </div>
+
+      <div class="retry-option">
+        <div>
+          <strong>취향 다시 선택</strong>
+          <p>취향 설문을 다시 받고 이후 추천 생성 흐름으로 이어집니다.</p>
+        </div>
+        <button id="retryChooseAgainBtn" class="btn btn-dark" style="height: 44px; min-width: 148px; padding: 0 24px;">설문 다시 선택</button>
+      </div>
+    </div>
+
+    <div id="retryStatusMessage" class="retry-status is-hidden"></div>
+
+    <div class="retry-modal-actions">
+      <button type="button" class="btn btn-dark" style="height: 42px; padding: 0 20px;" onclick="hideRetryChoice()">닫기</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+{% if show_customer_detail_chatbot %}
+<script src="{% static 'shared/js/chatbot.js' %}?v=20260420-02"></script>
+{% endif %}
+<script>
+  (function () {
+    const clientId = "{{ client_id }}";
+    const detailContent = document.getElementById('detailContent');
+    const detailNotice = document.getElementById('detailNotice');
+    const retryChoiceModal = document.getElementById('retryChoiceModal');
+    const retryKeepPreferenceBtn = document.getElementById('retryKeepPreferenceBtn');
+    const retryChooseAgainBtn = document.getElementById('retryChooseAgainBtn');
+    const retryStatusMessage = document.getElementById('retryStatusMessage');
+    const customerDetailChatbotTemplate = document.getElementById('customerDetailChatbotTemplate');
+    const diagnosisApiUrl = `/api/v1/customers/${clientId}/diagnosis-card/`;
+    const customerNoteApiUrl = `/api/v1/customers/${clientId}/customer-note/`;
+    const consultationCloseApiUrl = `/api/v1/customers/${clientId}/consultation-close/`;
+    const dashboardRefreshFlagKey = 'partner-dashboard:refresh-required';
+
+    let currentCustomer = null;
+    let latestRetryPreviewHtml = '';
+    let diagnosisEditorCollapsed = false;
+    let currentDiagnosisState = defaultDiagnosisState();
+
+    function hideDetailNotice() {
+      if (!detailNotice) {
+        return;
+      }
+      detailNotice.textContent = '';
+      detailNotice.classList.remove('is-visible', 'is-success', 'is-error', 'is-loading');
+    }
+
+    function showDetailNotice(message, tone = 'success') {
+      if (!detailNotice || !message) {
+        return;
+      }
+      detailNotice.textContent = message;
+      detailNotice.classList.remove('is-success', 'is-error', 'is-loading');
+      detailNotice.classList.add('is-visible', tone === 'error' ? 'is-error' : (tone === 'loading' ? 'is-loading' : 'is-success'));
+    }
+
+    const diagnosisOptionGroups = {
+      hairTexture: [
+        { value: 'fine', label: '가는 모발 (L)' },
+        { value: 'medium', label: '보통 모발 (M)' },
+        { value: 'coarse', label: '굵은 모발 (H)' }
+      ],
+      damageLevel: [
+        { value: 'level1', label: '건강모 (Lv.1)' },
+        { value: 'level2', label: '약손상 (Lv.2)' },
+        { value: 'level3', label: '손상모 (Lv.3)' },
+        { value: 'level4', label: '극손상 (Lv.4)' }
+      ],
+      specialNotes: [
+        { value: 'bleach_history', label: '탈색 이력' },
+        { value: 'black_red_cover', label: '블랙/레드 덮염' },
+        { value: 'natural_curl', label: '곱슬기 있음' },
+        { value: 'self_coloring', label: '셀프 염색' },
+        { value: 'head_shape_density', label: '두상/모량 특이사항' }
+      ]
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatDate(value) {
+      if (!value) {
+        return '기록 없음';
+      }
+
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return '기록 없음';
+      }
+
+      return date.toLocaleDateString();
+    }
+
+    function formatScore(value) {
+      if (value === null || value === undefined || value === '') {
+        return '';
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return '';
+      }
+      return `${Math.round(numeric)}%`;
+    }
+
+    function getFaceShapeLabel(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) {
+        return '미분석';
+      }
+      const labelMap = {
+        oval: '타원형',
+        round: '둥근형',
+        square: '각진형',
+        heart: '하트형',
+        oblong: '긴형',
+        long: '긴형'
+      };
+      return labelMap[normalized] || String(value || '').trim();
+    }
+
+    function getSurveyFallbackLabel(field, rawValue) {
+      const value = String(rawValue || '').trim();
+      if (!value) {
+        return '';
+      }
+      const labelMap = {
+        target_length: {
+          short: '짧게',
+          medium: '중간 길이',
+          long: '길게'
+        },
+        target_vibe: {
+          natural: '내추럴한',
+          chic: '세련된',
+          cute: '사랑스러운',
+          elegant: '고급스러운'
+        },
+        scalp_type: {
+          straight: '생머리 느낌',
+          waved: '자연스러운 웨이브',
+          curly: '컬이 있는 스타일'
+        },
+        hair_colour: {
+          black: '블랙',
+          brown: '브라운',
+          ash: '애쉬'
+        },
+        budget_range: {
+          low: '낮은 예산',
+          mid: '중간 예산',
+          high: '높은 예산',
+          unknown: '미정'
+        }
+      };
+      return (labelMap[field] && labelMap[field][value]) || value;
+    }
+
+    function getSurveyQuestionAnswers(survey) {
+      if (!survey) {
+        return {};
+      }
+      if (survey.question_answers && typeof survey.question_answers === 'object') {
+        return survey.question_answers;
+      }
+      if (survey.survey_profile && survey.survey_profile.question_answers && typeof survey.survey_profile.question_answers === 'object') {
+        return survey.survey_profile.question_answers;
+      }
+      return {};
+    }
+
+    function getSurveyDisplayValue(survey, field) {
+      if (!survey) {
+        return '미지정';
+      }
+      const answers = getSurveyQuestionAnswers(survey);
+      const genderBranch = String(
+        survey.gender_branch
+        || (survey.survey_profile && survey.survey_profile.gender_branch)
+        || ''
+      ).trim().toLowerCase();
+
+      let selectedAnswer = '';
+      if (field === 'target_length') {
+        selectedAnswer = answers.q1 || '';
+      } else if (field === 'target_vibe') {
+        selectedAnswer = genderBranch === 'male' ? (answers.q6 || '') : (answers.q5 || '');
+      } else if (field === 'scalp_type') {
+        selectedAnswer = genderBranch === 'male' ? (answers.q5 || '') : (answers.q4 || '');
+      } else if (field === 'hair_colour') {
+        selectedAnswer = answers.q6 || '';
+      } else if (field === 'budget_range') {
+        selectedAnswer = answers.q6 || '';
+      }
+
+      if (String(selectedAnswer || '').trim()) {
+        return selectedAnswer;
+      }
+
+      const fallback = getSurveyFallbackLabel(field, survey[field]);
+      return fallback || '미지정';
+    }
+
+    function getSurveyQuestionDefinitions(survey) {
+      const genderBranch = String(
+        (survey && (survey.gender_branch || (survey.survey_profile && survey.survey_profile.gender_branch))) || ''
+      ).trim().toLowerCase();
+      if (genderBranch === 'male') {
+        return [
+          { key: 'q1', label: 'Q1. 옆머리와 뒷머리 길이감', fallbackField: 'target_length' },
+          { key: 'q2', label: 'Q2. 투블럭 스타일 선호도' },
+          { key: 'q3', label: 'Q3. 앞머리 연출 방식' },
+          { key: 'q4', label: 'Q4. 가르마 스타일 여부' },
+          { key: 'q5', label: 'Q5. 펌 및 볼륨감 정도', fallbackField: 'scalp_type' },
+          { key: 'q6', label: 'Q6. 원하는 전체 인상', fallbackField: 'target_vibe' }
+        ];
+      }
+      return [
+        { key: 'q1', label: 'Q1. 선호하는 머리 길이', fallbackField: 'target_length' },
+        { key: 'q2', label: 'Q2. 전체 실루엣 스타일' },
+        { key: 'q3', label: 'Q3. 앞머리 유무 및 형태' },
+        { key: 'q4', label: 'Q4. 선호하는 컬 강도', fallbackField: 'scalp_type' },
+        { key: 'q5', label: 'Q5. 추구하는 전체 분위기', fallbackField: 'target_vibe' },
+        { key: 'q6', label: 'Q6. 스타일 변화 강도' }
+      ];
+    }
+
+    function buildSurveyQuestionCards(survey) {
+      const answers = getSurveyQuestionAnswers(survey);
+      const questionDefs = getSurveyQuestionDefinitions(survey);
+      return questionDefs.map((question) => {
+        const rawAnswer = String((answers && answers[question.key]) || '').trim();
+        const fallbackAnswer = question.fallbackField
+          ? getSurveyDisplayValue(survey, question.fallbackField)
+          : '미지정';
+        const answer = rawAnswer || fallbackAnswer || '미지정';
+        return `<div class="survey-item"><span class="survey-tag">${escapeHtml(question.label)}</span><div class="survey-value">${escapeHtml(answer)}</div></div>`;
+      }).join('');
+    }
+
+    function getPreviewImageUrl(item) {
+      if (!item) {
+        return '';
+      }
+      return String(
+        item.simulation_image_url
+        || item.synthetic_image_url
+        || item.display_image_url
+        || item.sample_image_url
+        || ''
+      ).trim();
+    }
+
+    function getReanalysisBlockMessage(reason, fallbackMessage = '') {
+      const messageMap = {
+        reusable_preference_missing: '설문과 얼굴 분석 데이터가 모두 준비된 뒤 다시 시도해 주세요.',
+        consultation_started: '현재 상담 세션이 진행 중입니다. 먼저 세션을 종료해 주세요.',
+        recommendation_already_selected: '이미 추천이 확정된 고객입니다. 상담 상태를 정리한 뒤 다시 시도해 주세요.',
+        retry_already_used: '기존 취향 유지 재분석은 한 번만 사용할 수 있습니다.',
+        initial_recommendations_missing: '초기 추천 결과가 준비된 뒤 재분석을 진행할 수 있습니다.',
+        legacy_result_only: '이전 결과만 남아 있어 새 재분석을 바로 진행할 수 없습니다.'
+      };
+      return messageMap[reason] || fallbackMessage || '현재 상태에서는 진행할 수 없습니다.';
+    }
+
+    function getReanalysisGuideMessage(customer, hasReusablePreference) {
+      const reanalysis = customer && customer.reanalysis ? customer.reanalysis : {};
+      const sessionStatus = customer && customer.session_status ? customer.session_status : {};
+      if (sessionStatus.is_active) {
+        return '현재 상담 세션이 진행 중이라 재분석이 잠겨 있습니다. 상담 마무리 후 아래 세션 종료 버튼을 누르면 다시 열립니다.';
+      }
+      if (reanalysis.user_message) {
+        return reanalysis.user_message;
+      }
+      if (hasReusablePreference) {
+        return '저장된 설문과 얼굴 분석이 있어 기존 취향 유지 재분석을 바로 실행할 수 있습니다.';
+      }
+      return '기존 취향 유지 재분석은 설문과 얼굴 분석이 모두 있을 때 사용할 수 있습니다.';
+    }
+
+    function maskPhone(phone) {
+      if (!phone) return '연락처 없음';
+      const str = String(phone);
+      if (str.includes('-')) {
+        const parts = str.split('-');
+        if (parts.length === 3) {
+          return `${parts[0]}-****-${parts[2]}`;
+        }
+      }
+      if (str.length === 11) {
+        return str.replace(/(\d{3})(\d{4})(\d{4})/, '$1-****-$3');
+      } else if (str.length === 10) {
+        return str.replace(/(\d{3})(\d{3})(\d{4})/, '$1-***-$3');
+      }
+      return str;
+    }
+
+    function hasSurveyData(customer) {
+      return Boolean(customer && customer.survey);
+    }
+
+    function hasFaceAnalysis(customer) {
+      return Boolean(customer && Array.isArray(customer.face_analyses) && customer.face_analyses.length > 0);
+    }
+
+    function defaultDiagnosisState() {
+      return {
+        hairTexture: '',
+        damageLevel: '',
+        specialNotes: [],
+        specialMemo: ''
+      };
+    }
+
+    function normalizeDiagnosisState(state) {
+      const source = state || {};
+      const specialNotesSource = Array.isArray(source.specialNotes)
+        ? source.specialNotes
+        : (Array.isArray(source.special_notes) ? source.special_notes : []);
+      const nextState = {
+        hairTexture: String(source.hairTexture ?? source.hair_texture ?? '').trim(),
+        damageLevel: String(source.damageLevel ?? source.damage_level ?? '').trim(),
+        specialNotes: Array.from(new Set(
+          specialNotesSource
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        )),
+        specialMemo: String(source.specialMemo ?? source.special_memo ?? '').trim(),
+        hasContent: Boolean(source.hasContent ?? source.has_content ?? false),
+        updatedAt: source.updatedAt ?? source.updated_at ?? null,
+        updatedBy: source.updatedBy ?? source.updated_by ?? null,
+        storageReady: source.storageReady ?? source.storage_ready ?? true,
+      };
+      nextState.hasContent = Boolean(
+        nextState.hasContent
+        || nextState.hairTexture
+        || nextState.damageLevel
+        || nextState.specialNotes.length
+        || nextState.specialMemo
+      );
+      return nextState;
+    }
+
+    function hasDiagnosisContent(state) {
+      const diagnosisState = normalizeDiagnosisState(state);
+      return Boolean(
+        diagnosisState.hairTexture
+        || diagnosisState.damageLevel
+        || diagnosisState.specialNotes.length
+        || diagnosisState.specialMemo.trim()
+      );
+    }
+
+    function buildDiagnosisRequestPayload(state) {
+      const diagnosisState = normalizeDiagnosisState(state);
+      return {
+        hair_texture: diagnosisState.hairTexture,
+        damage_level: diagnosisState.damageLevel,
+        special_notes: diagnosisState.specialNotes,
+        special_memo: diagnosisState.specialMemo,
+      };
+    }
+
+    function setCurrentDiagnosisState(state) {
+      currentDiagnosisState = normalizeDiagnosisState(state);
+      if (currentCustomer) {
+        currentCustomer.designer_diagnosis = {
+          ...buildDiagnosisRequestPayload(currentDiagnosisState),
+          has_content: currentDiagnosisState.hasContent,
+          updated_at: currentDiagnosisState.updatedAt,
+          updated_by: currentDiagnosisState.updatedBy,
+          storage_ready: currentDiagnosisState.storageReady,
+        };
+      }
+      return currentDiagnosisState;
+    }
+
+    function buildDiagnosisChipGroup(options, fieldName, multiSelect) {
+      return options.map((option) => `
+        <button
+          type="button"
+          class="diagnosis-chip${multiSelect ? ' multi' : ''}"
+          data-field="${fieldName}"
+          data-value="${option.value}"
+          data-multi="${multiSelect ? 'true' : 'false'}"
+          aria-pressed="false"
+        >
+          ${escapeHtml(option.label)}
+        </button>
+      `).join('');
+    }
+
+    function findDiagnosisOption(fieldName, value) {
+      return (diagnosisOptionGroups[fieldName] || []).find((option) => option.value === value) || null;
+    }
+
+    function getDiagnosisValueLabel(fieldName, value, fallback = '선택 전') {
+      if (!value) {
+        return fallback;
+      }
+
+      const option = findDiagnosisOption(fieldName, value);
+      return option ? option.label : fallback;
+    }
+
+    function setDiagnosisValueText(elementId, text, isEmpty) {
+      const target = document.getElementById(elementId);
+      if (!target) {
+        return;
+      }
+
+      target.textContent = text;
+      target.classList.toggle('is-empty', Boolean(isEmpty));
+    }
+
+    function renderDiagnosisSelectionPills(values) {
+      if (!Array.isArray(values) || values.length === 0) {
+        return '<span class="diagnosis-selection-pill is-empty">선택 전</span>';
+      }
+
+      return values.map((value) => {
+        const label = getDiagnosisValueLabel('specialNotes', value, value);
+        return `<span class="diagnosis-selection-pill">${escapeHtml(label)}</span>`;
+      }).join('');
+    }
+
+    function updateDiagnosisSummary(state) {
+      const diagnosisState = normalizeDiagnosisState(state);
+      const hasMemo = Boolean(diagnosisState.specialMemo.trim());
+      const notePreview = hasMemo
+        ? diagnosisState.specialMemo.trim()
+        : '메모 없음';
+      const clippedNotePreview = hasMemo && notePreview.length > 96
+        ? `${notePreview.slice(0, 96)}...`
+        : notePreview;
+
+      setDiagnosisValueText(
+        'designerDiagnosisHairTextureValue',
+        getDiagnosisValueLabel('hairTexture', diagnosisState.hairTexture),
+        !diagnosisState.hairTexture
+      );
+      setDiagnosisValueText(
+        'designerDiagnosisDamageLevelValue',
+        getDiagnosisValueLabel('damageLevel', diagnosisState.damageLevel),
+        !diagnosisState.damageLevel
+      );
+
+      const specialNotesSummary = document.getElementById('designerDiagnosisSpecialNotesValue');
+      if (specialNotesSummary) {
+        specialNotesSummary.innerHTML = renderDiagnosisSelectionPills(diagnosisState.specialNotes);
+      }
+
+      const memoPreview = document.getElementById('designerDiagnosisMemoPreview');
+      if (memoPreview) {
+        memoPreview.innerHTML = escapeHtml(clippedNotePreview).replace(/\n/g, '<br>');
+        memoPreview.classList.toggle('is-empty', !hasMemo);
+      }
+
+      [
+        ['hairTexture', Boolean(diagnosisState.hairTexture)],
+        ['damageLevel', Boolean(diagnosisState.damageLevel)],
+        ['specialNotes', diagnosisState.specialNotes.length > 0],
+        ['specialMemo', hasMemo]
+      ].forEach(([fieldName, isFilled]) => {
+        const card = detailContent.querySelector(`[data-diagnosis-card="${fieldName}"]`);
+        if (card) {
+          card.classList.toggle('is-filled', isFilled);
+        }
+      });
+    }
+
+    function setDiagnosisEditorCollapsed(nextCollapsed) {
+      diagnosisEditorCollapsed = Boolean(nextCollapsed);
+
+      const shell = detailContent.querySelector('.diagnosis-shell');
+      const editActions = document.getElementById('diagnosisEditActions');
+      const toggleBtn = document.getElementById('toggleDiagnosisEditorBtn');
+
+      if (shell) {
+        shell.classList.toggle('is-collapsed', diagnosisEditorCollapsed);
+      }
+
+      if (editActions) {
+        editActions.style.display = diagnosisEditorCollapsed ? 'none' : 'flex';
+      }
+
+      if (toggleBtn) {
+        toggleBtn.textContent = diagnosisEditorCollapsed ? '수정하기' : '요약만 보기';
+        toggleBtn.classList.remove('btn-primary', 'btn-dark');
+        toggleBtn.classList.add('btn', diagnosisEditorCollapsed ? 'btn-primary' : 'btn-dark');
+      }
+    }
+
+    function buildDiagnosisSection() {
+      return `
+        <div class="info-group">
+          <div class="diagnosis-shell">
+            <div class="action-strip">
+              <div class="action-copy">
+                <span class="info-label">디자이너 진단 카드</span>
+                <p class="diagnosis-copy">고객 취향 카드 아래에서 현재 모발 상태를 정리하고 서버에 저장할 수 있습니다. 같은 고객 상세 화면에 다시 들어와도 저장된 진단 내용을 이어서 확인할 수 있습니다.</p>
+              </div>
+            </div>
+
+            <div class="diagnosis-meta">
+              <strong>세션 상태 연동</strong>
+              <p id="designerDiagnosisSessionHint">세션이 활성화된 고객만 진단 카드를 작성할 수 있습니다. 세션이 없는 경우 저장된 내용을 읽기 전용으로만 확인할 수 있습니다.</p>
+            </div>
+
+            <div class="diagnosis-grid">
+              <section class="survey-item diagnosis-item" data-diagnosis-card="hairTexture">
+                <div class="diagnosis-item-head">
+                  <span class="survey-tag">모발 굵기</span>
+                  <div class="diagnosis-value-row">
+                    <div id="designerDiagnosisHairTextureValue" class="survey-value diagnosis-value is-empty">선택 전</div>
+                    <span class="diagnosis-edit-badge">수정 가능</span>
+                  </div>
+                  <p class="diagnosis-help">커트 각도와 시술 난도를 결정하는 기준입니다.</p>
+                </div>
+                <div class="diagnosis-chip-group diagnosis-editor-block">
+                  ${buildDiagnosisChipGroup(diagnosisOptionGroups.hairTexture, 'hairTexture', false)}
+                </div>
+              </section>
+
+              <section class="survey-item diagnosis-item" data-diagnosis-card="damageLevel">
+                <div class="diagnosis-item-head">
+                  <span class="survey-tag">손상도</span>
+                  <div class="diagnosis-value-row">
+                    <div id="designerDiagnosisDamageLevelValue" class="survey-value diagnosis-value is-empty">선택 전</div>
+                    <span class="diagnosis-edit-badge">수정 가능</span>
+                  </div>
+                  <p class="diagnosis-help">시술 가능 여부와 약제, 열 처리 강도를 판단하는 기준입니다.</p>
+                </div>
+                <div class="diagnosis-chip-group diagnosis-editor-block">
+                  ${buildDiagnosisChipGroup(diagnosisOptionGroups.damageLevel, 'damageLevel', false)}
+                </div>
+              </section>
+
+              <section class="survey-item diagnosis-item" data-diagnosis-card="specialNotes">
+                <div class="diagnosis-item-head">
+                  <span class="survey-tag">특이사항 및 히스토리</span>
+                  <div class="diagnosis-value-row">
+                    <div id="designerDiagnosisSpecialNotesValue" class="diagnosis-selection-list">
+                      <span class="diagnosis-selection-pill is-empty">선택 전</span>
+                    </div>
+                    <span class="diagnosis-edit-badge">복수 선택</span>
+                  </div>
+                  <p class="diagnosis-help">상담 중 계속 참고해야 할 경고 사항이나 시술 이력을 빠르게 체크해 주세요.</p>
+                </div>
+                <div class="diagnosis-chip-group diagnosis-editor-block">
+                  ${buildDiagnosisChipGroup(diagnosisOptionGroups.specialNotes, 'specialNotes', true)}
+                </div>
+              </section>
+
+              <section class="survey-item diagnosis-item is-wide" data-diagnosis-card="specialMemo">
+                <div class="diagnosis-item-head">
+                  <span class="survey-tag">추가 메모</span>
+                  <div class="diagnosis-value-row">
+                    <div id="designerDiagnosisMemoPreview" class="diagnosis-note-preview is-empty">메모 없음</div>
+                    <span class="diagnosis-edit-badge">직접 입력</span>
+                  </div>
+                  <p class="diagnosis-help">모발 상태, 상담 포인트, 주의사항처럼 고객에게 따로 남겨둘 내용을 자유롭게 적을 수 있습니다.</p>
+                </div>
+                <div class="diagnosis-editor-block">
+                  <textarea id="designerDiagnosisMemo" class="form-input diagnosis-textarea" placeholder="예: 뿌리 볼륨은 필요하지만 끝선 손상이 있어 열 기구 강도를 낮춰야 함"></textarea>
+                </div>
+              </section>
+            </div>
+
+            <div class="diagnosis-actions">
+              <div id="diagnosisEditActions" class="diagnosis-actions-left">
+                <button type="button" id="saveDiagnosisDraftBtn" class="btn btn-primary" style="height: 46px; padding: 0 20px;">저장</button>
+                <button type="button" id="resetDiagnosisDraftBtn" class="btn btn-dark" style="height: 46px; padding: 0 20px;">초기화</button>
+              </div>
+              <div class="diagnosis-actions-right">
+                <button type="button" id="toggleDiagnosisEditorBtn" class="btn btn-dark" style="height: 46px; padding: 0 20px;">요약만 보기</button>
+                <div id="diagnosisDraftStatus" class="diagnosis-status is-muted">아직 저장 전입니다.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function applyDiagnosisState(state) {
+      const diagnosisState = normalizeDiagnosisState(state);
+      const chips = detailContent.querySelectorAll('.diagnosis-chip');
+
+      chips.forEach((chip) => {
+        const field = chip.dataset.field;
+        const value = chip.dataset.value;
+        const isMulti = chip.dataset.multi === 'true';
+        const selected = isMulti
+          ? diagnosisState.specialNotes.includes(value)
+          : diagnosisState[field] === value;
+
+        chip.classList.toggle('is-selected', selected);
+        chip.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+
+      const memoField = document.getElementById('designerDiagnosisMemo');
+      if (memoField) {
+        memoField.value = diagnosisState.specialMemo;
+      }
+
+      updateDiagnosisSummary(diagnosisState);
+    }
+
+    function collectDiagnosisState() {
+      const nextState = defaultDiagnosisState();
+
+      ['hairTexture', 'damageLevel'].forEach((fieldName) => {
+        const selectedChip = detailContent.querySelector(`.diagnosis-chip[data-field="${fieldName}"].is-selected`);
+        nextState[fieldName] = selectedChip ? selectedChip.dataset.value : '';
+      });
+
+      nextState.specialNotes = Array.from(
+        detailContent.querySelectorAll('.diagnosis-chip[data-field="specialNotes"].is-selected')
+      ).map((chip) => chip.dataset.value);
+
+      const memoField = document.getElementById('designerDiagnosisMemo');
+      nextState.specialMemo = memoField ? memoField.value.trim() : '';
+
+      return nextState;
+    }
+
+    function setDiagnosisStatus(message, tone) {
+      const statusEl = document.getElementById('diagnosisDraftStatus');
+      if (!statusEl) {
+        return;
+      }
+
+      statusEl.textContent = message;
+      statusEl.classList.remove('is-success', 'is-muted');
+      statusEl.classList.add(tone === 'success' ? 'is-success' : 'is-muted');
+    }
+
+    function setDiagnosisEditorEnabled(isEnabled) {
+      detailContent.querySelectorAll('.diagnosis-chip').forEach((chip) => {
+        chip.classList.toggle('is-disabled', !isEnabled);
+        chip.style.pointerEvents = isEnabled ? '' : 'none';
+        chip.tabIndex = isEnabled ? 0 : -1;
+      });
+
+      const memoField = document.getElementById('designerDiagnosisMemo');
+      if (memoField) {
+        memoField.disabled = !isEnabled;
+      }
+    }
+
+    function bindDiagnosisCard() {
+      const chips = detailContent.querySelectorAll('.diagnosis-chip');
+      const editBadges = detailContent.querySelectorAll('.diagnosis-edit-badge');
+      const memoField = document.getElementById('designerDiagnosisMemo');
+      const saveBtn = document.getElementById('saveDiagnosisDraftBtn');
+      const resetBtn = document.getElementById('resetDiagnosisDraftBtn');
+      const toggleBtn = document.getElementById('toggleDiagnosisEditorBtn');
+      const sessionHint = document.getElementById('designerDiagnosisSessionHint');
+      const sessionStatus = currentCustomer && currentCustomer.session_status ? currentCustomer.session_status : {};
+      const savedState = setCurrentDiagnosisState(currentCustomer && currentCustomer.designer_diagnosis);
+      const hasSavedDiagnosis = hasDiagnosisContent(savedState);
+      const storageReady = savedState.storageReady !== false;
+      const sessionActive = Boolean(sessionStatus.is_active);
+      const canWriteDiagnosis = Boolean(sessionStatus.can_write_designer_diagnosis) && storageReady;
+
+      applyDiagnosisState(savedState);
+      setDiagnosisEditorCollapsed(hasSavedDiagnosis);
+      setDiagnosisEditorEnabled(canWriteDiagnosis);
+      editBadges.forEach((badge) => {
+        badge.textContent = canWriteDiagnosis ? '수정 가능' : '읽기 전용';
+      });
+
+      if (saveBtn) {
+        saveBtn.disabled = !canWriteDiagnosis;
+        saveBtn.style.opacity = canWriteDiagnosis ? '1' : '0.55';
+      }
+      if (resetBtn) {
+        resetBtn.disabled = !canWriteDiagnosis;
+        resetBtn.style.opacity = canWriteDiagnosis ? '1' : '0.55';
+      }
+      if (sessionHint) {
+        if (!storageReady) {
+          sessionHint.textContent = '디자이너 진단 카드 저장소가 아직 준비되지 않았습니다. 마이그레이션 적용 뒤 다시 확인해 주세요.';
+        } else if (sessionActive) {
+          sessionHint.textContent = '세션 진행 중입니다. 디자이너가 진단 카드를 바로 작성하고 저장할 수 있습니다.';
+        } else if (canWriteDiagnosis) {
+          sessionHint.textContent = '상담 세션이 종료된 뒤에도 진단 카드를 수정하고 저장할 수 있습니다.';
+        } else {
+          sessionHint.textContent = '지금은 진단 카드를 수정할 수 없습니다.';
+        }
+      }
+
+      if (!storageReady) {
+        setDiagnosisStatus('디자이너 진단 카드 저장소가 아직 준비되지 않았습니다. 마이그레이션 적용 뒤 다시 확인해 주세요.', 'muted');
+      } else if (!canWriteDiagnosis) {
+        setDiagnosisStatus('지금은 진단 카드를 수정할 수 없습니다.', 'muted');
+      } else if (!sessionActive && hasSavedDiagnosis) {
+        setDiagnosisStatus('세션이 종료된 상태입니다. 저장된 진단 카드를 바로 수정할 수 있습니다.', 'success');
+      } else if (!sessionActive) {
+        setDiagnosisStatus('세션이 종료된 상태입니다. 지금 진단 카드를 새로 작성할 수 있습니다.', 'muted');
+      } else if (hasSavedDiagnosis) {
+        setDiagnosisStatus('저장된 진단 카드 내용을 불러왔습니다.', 'success');
+      } else {
+        setDiagnosisStatus('아직 저장된 진단 카드가 없습니다.', 'muted');
+      }
+
+      chips.forEach((chip) => {
+        chip.addEventListener('click', () => {
+          if (!canWriteDiagnosis) {
+            return;
+          }
+          const field = chip.dataset.field;
+          const isMulti = chip.dataset.multi === 'true';
+          const wasSelected = chip.classList.contains('is-selected');
+
+          if (isMulti) {
+            chip.classList.toggle('is-selected');
+            chip.setAttribute('aria-pressed', chip.classList.contains('is-selected') ? 'true' : 'false');
+          } else {
+            detailContent.querySelectorAll(`.diagnosis-chip[data-field="${field}"]`).forEach((item) => {
+              item.classList.remove('is-selected');
+              item.setAttribute('aria-pressed', 'false');
+            });
+            if (!wasSelected) {
+              chip.classList.add('is-selected');
+              chip.setAttribute('aria-pressed', 'true');
+            }
+          }
+
+          const nextState = setCurrentDiagnosisState(collectDiagnosisState());
+          updateDiagnosisSummary(nextState);
+          setDiagnosisStatus('변경 사항이 있습니다. 저장 버튼을 눌러 반영해 주세요.', 'muted');
+        });
+      });
+
+      if (memoField) {
+        memoField.addEventListener('input', () => {
+          if (!canWriteDiagnosis) {
+            return;
+          }
+          const nextState = setCurrentDiagnosisState(collectDiagnosisState());
+          updateDiagnosisSummary(nextState);
+          setDiagnosisStatus('메모가 변경되었습니다. 저장 버튼을 눌러 반영해 주세요.', 'muted');
+        });
+      }
+
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          if (!canWriteDiagnosis) {
+            return;
+          }
+          const nextState = collectDiagnosisState();
+          saveBtn.disabled = true;
+          if (resetBtn) {
+            resetBtn.disabled = true;
+          }
+          setDiagnosisStatus('진단 카드를 저장하는 중입니다...', 'muted');
+
+          try {
+            const response = await fetch(diagnosisApiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+              },
+              body: JSON.stringify(buildDiagnosisRequestPayload(nextState))
+            });
+            const rawData = await response.json();
+            const data = rawData.data || rawData;
+            if (!response.ok) {
+              throw new Error(data.detail || data.message || '진단 카드 저장에 실패했습니다.');
+            }
+
+            const savedState = setCurrentDiagnosisState(data.designer_diagnosis || data.card || defaultDiagnosisState());
+            applyDiagnosisState(savedState);
+            setDiagnosisEditorCollapsed(hasDiagnosisContent(savedState));
+            setDiagnosisStatus('저장 완료되었습니다.', 'success');
+          } catch (error) {
+            setDiagnosisStatus(error.message || '진단 카드 저장에 실패했습니다.', 'muted');
+          } finally {
+            saveBtn.disabled = false;
+            if (resetBtn) {
+              resetBtn.disabled = false;
+            }
+          }
+        });
+      }
+
+      if (resetBtn) {
+        resetBtn.addEventListener('click', async () => {
+          if (!canWriteDiagnosis) {
+            return;
+          }
+          resetBtn.disabled = true;
+          if (saveBtn) {
+            saveBtn.disabled = true;
+          }
+          setDiagnosisStatus('저장된 진단 카드를 초기화하는 중입니다...', 'muted');
+
+          try {
+            const response = await fetch(diagnosisApiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+              },
+              body: JSON.stringify(buildDiagnosisRequestPayload(defaultDiagnosisState()))
+            });
+            const rawData = await response.json();
+            const data = rawData.data || rawData;
+            if (!response.ok) {
+              throw new Error(data.detail || data.message || '진단 카드 초기화에 실패했습니다.');
+            }
+
+            const clearedState = setCurrentDiagnosisState(data.designer_diagnosis || defaultDiagnosisState());
+            applyDiagnosisState(clearedState);
+            setDiagnosisEditorCollapsed(false);
+            setDiagnosisStatus('진단 카드가 초기화되었습니다.', 'success');
+          } catch (error) {
+            setDiagnosisStatus(error.message || '진단 카드 초기화에 실패했습니다.', 'muted');
+          } finally {
+            resetBtn.disabled = false;
+            if (saveBtn) {
+              saveBtn.disabled = false;
+            }
+          }
+        });
+      }
+
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+          setDiagnosisEditorCollapsed(!diagnosisEditorCollapsed);
+          setDiagnosisStatus(
+            diagnosisEditorCollapsed
+              ? '저장된 요약만 보고 있습니다. 수정하려면 수정하기를 눌러 주세요.'
+              : '진단 카드를 다시 수정할 수 있습니다.',
+            'muted'
+          );
+        });
+      }
+    }
+
+    function showRetryStatus(message) {
+      retryStatusMessage.textContent = message;
+      retryStatusMessage.classList.remove('is-hidden');
+    }
+
+    function resetRetryStatus() {
+      retryStatusMessage.textContent = '';
+      retryStatusMessage.classList.add('is-hidden');
+    }
+
+    function buildRetryPreview(items) {
+      if (!Array.isArray(items) || items.length === 0) {
+        return `
+          <div class="info-group">
+            <span class="info-label">재분석 결과</span>
+            <p class="section-copy" style="margin-bottom: 0;">새 추천 결과가 생성되었지만 미리보기 데이터는 아직 없습니다.</p>
+          </div>
+        `;
+      }
+
+      const previewCards = items.slice(0, 3).map((item) => {
+        const imageUrl = getPreviewImageUrl(item);
+        return `
+          <div class="preview-card">
+            <div class="preview-image-wrap">
+              ${imageUrl
+                ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.style_name || '추천 스타일')}" class="preview-image">`
+                : '<div class="preview-image-empty">이미지 준비 중</div>'
+              }
+            </div>
+            <strong>${escapeHtml(item.style_name || '추천 스타일')}</strong>
+            <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+              매칭률 ${escapeHtml(item.match_score ?? 0)}%
+            </div>
+            <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+              ${escapeHtml(item.reasoning || item.style_description || '추천 설명이 준비 중입니다.')}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="info-group">
+          <div class="action-strip">
+            <div class="action-copy">
+              <span class="info-label">재분석 결과 미리보기</span>
+              <p>기존 취향을 유지한 재분석이 완료되었습니다. 최신 추천 상위 결과를 바로 확인할 수 있습니다.</p>
+            </div>
+          </div>
+          <div class="preview-list">${previewCards}</div>
+        </div>
+      `;
+    }
+
+    function buildCustomerDetailChatbotSection() {
+      if (!customerDetailChatbotTemplate) {
+        return '';
+      }
+      return customerDetailChatbotTemplate.innerHTML.trim();
+    }
+
+    function buildSelectedConsultationSection(activeConsultation) {
+      if (!activeConsultation || !activeConsultation.selected_style_id) {
+        return '';
+      }
+
+      const styleName = activeConsultation.selected_style_name || '선택 스타일';
+      const imageUrl = String(activeConsultation.selected_style_image_url || '').trim();
+      const scoreText = formatScore(activeConsultation.selected_style_score);
+      const createdAt = formatDate(activeConsultation.created_at);
+
+      return `
+        <div class="info-group">
+          <span class="info-label">선택된 상담 카드</span>
+          <div class="selected-consultation-list">
+            <div class="selected-consultation-card">
+              <div class="selected-consultation-image-wrap">
+                ${imageUrl
+                  ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(styleName)}" class="selected-consultation-image">`
+                  : '<div class="selected-consultation-empty">이미지 준비 중</div>'
+                }
+              </div>
+              <p class="selected-consultation-name">${escapeHtml(styleName)}</p>
+              <p class="selected-consultation-meta">${scoreText ? `매칭률 ${escapeHtml(scoreText)} | ` : ''}저장일 ${escapeHtml(createdAt)}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCustomerDetail(customer) {
+      const surveyCreatedAt = customer.survey && customer.survey.created_at;
+      const firstAnalysis = Array.isArray(customer.face_analyses) ? customer.face_analyses[0] : null;
+      const firstCapture = Array.isArray(customer.captures) ? customer.captures[0] : null;
+      const reanalysis = customer.reanalysis || {};
+      const sessionStatus = customer.session_status || {};
+      const diagnosisPayload = customer.designer_diagnosis || {};
+      const activeConsultation = customer.active_consultation || null;
+      const isSessionActive = Boolean(sessionStatus.is_active);
+      const canEditDiagnosis = Boolean(sessionStatus.can_write_designer_diagnosis) && diagnosisPayload.storage_ready !== false;
+      const hasReusablePreference = (
+        reanalysis.has_reusable_preference !== undefined
+          ? Boolean(reanalysis.has_reusable_preference)
+          : (hasSurveyData(customer) && hasFaceAnalysis(customer))
+      );
+      const reanalysisGuideMessage = getReanalysisGuideMessage(customer, hasReusablePreference);
+
+      detailContent.innerHTML = `
+        <div class="info-group">
+          <h3 class="section-title" style="font-size: 22px; margin-bottom: 8px;">${escapeHtml(customer.name)} 고객님</h3>
+          <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 0;">
+            ${escapeHtml(maskPhone(customer.phone))} | 최근 분석일 ${escapeHtml(formatDate(surveyCreatedAt || (firstAnalysis && firstAnalysis.created_at) || (firstCapture && firstCapture.created_at)))}
+          </p>
+          <div style="margin-top: 12px;">
+            <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; background:${isSessionActive ? 'rgba(21, 128, 61, 0.12)' : 'rgba(71, 85, 105, 0.12)'}; color:${isSessionActive ? '#166534' : '#475569'}; font-size:12px; font-weight:700;">
+              ${isSessionActive ? '세션 진행 중 · 진단 카드 작성 가능' : (canEditDiagnosis ? '세션 종료 · 진단 카드 수정 가능' : '세션 종료 · 진단 카드 읽기 전용')}
+            </span>
+          </div>
+          <div class="session-action-row">
+            <div class="session-action-copy">
+              ${isSessionActive
+                ? `현재 상담 세션이 열려 있습니다. 고객 화면의 <strong>상담 종료</strong> 또는 여기의 <strong>세션 종료</strong>를 눌러야 세션이 닫히고 재분석이 다시 가능해집니다.`
+                : '세션이 종료된 상태입니다. 필요하면 재분석을 다시 시작할 수 있습니다.'
+              }
+            </div>
+            ${isSessionActive && activeConsultation && activeConsultation.consultation_id
+              ? `<button id="closeConsultationBtn" class="btn btn-dark" style="height: 42px; padding: 0 18px;">세션 종료</button>`
+              : ''
+            }
+          </div>
+        </div>
+
+        <div class="info-group">
+          <span class="info-label">스타일 취향 분석</span>
+          <div class="survey-grid">
+            ${buildSurveyQuestionCards(customer.survey)}
+            <div class="survey-item"><span class="survey-tag">얼굴형 분석</span><div class="survey-value">${escapeHtml(getFaceShapeLabel(firstAnalysis && firstAnalysis.face_shape))}</div></div>
+          </div>
+        </div>
+
+        ${buildSelectedConsultationSection(activeConsultation)}
+
+        ${buildDiagnosisSection()}
+
+        ${buildCustomerDetailChatbotSection()}
+
+        <div class="info-group">
+          <div class="action-strip">
+            <div class="action-copy">
+              <span class="info-label">재분석</span>
+              <p>고객 취향을 그대로 유지하거나, 취향을 다시 선택한 뒤 새로운 추천 흐름으로 이어갈 수 있습니다.</p>
+              <div class="retry-hint">
+                ${escapeHtml(reanalysisGuideMessage)}
+              </div>
+            </div>
+            <button id="openRetryChoiceBtn" class="btn btn-primary" style="height: 48px; padding: 0 24px;">재분석</button>
+          </div>
+        </div>
+
+        ${latestRetryPreviewHtml}
+
+        <div class="info-group">
+          <span class="info-label">고객 메모</span>
+          <textarea id="customerNoteInput" class="form-input" style="height: 120px; padding: 16px; font-size: 14px;" placeholder="고객 메모를 입력해 주세요..."></textarea>
+          <button id="saveCustomerNoteBtn" class="btn btn-dark" style="margin-top: 16px; width: 100%;">고객 메모 저장</button>
+          <div id="customerNoteStatus" class="diagnosis-status is-muted" style="margin-top: 12px;">저장 전입니다.</div>
+        </div>
+      `;
+
+      const openRetryChoiceBtn = document.getElementById('openRetryChoiceBtn');
+      if (openRetryChoiceBtn) {
+        openRetryChoiceBtn.addEventListener('click', () => openRetryChoice(customer));
+      }
+
+      const closeConsultationBtn = document.getElementById('closeConsultationBtn');
+      if (closeConsultationBtn && activeConsultation && activeConsultation.consultation_id) {
+        closeConsultationBtn.addEventListener('click', async () => {
+          closeConsultationBtn.disabled = true;
+          closeConsultationBtn.textContent = '종료 중...';
+          try {
+            await closeConsultation(activeConsultation.consultation_id);
+          } catch (error) {
+            showDetailNotice(error.message || '세션 종료에 실패했습니다.', 'error');
+            closeConsultationBtn.disabled = false;
+            closeConsultationBtn.textContent = '세션 종료';
+          }
+        });
+      }
+
+      bindDiagnosisCard();
+      bindCustomerNote(customer);
+      if (window.initMirraiChatbot) {
+        window.initMirraiChatbot();
+      }
+    }
+
+    function bindCustomerNote(customer) {
+      const noteField = document.getElementById('customerNoteInput');
+      const saveBtn = document.getElementById('saveCustomerNoteBtn');
+      const statusEl = document.getElementById('customerNoteStatus');
+
+      if (!noteField || !saveBtn || !statusEl) {
+        return;
+      }
+
+      const customerNote = customer && customer.customer_note ? customer.customer_note : null;
+      if (customerNote && customerNote.content) {
+        noteField.value = customerNote.content;
+      }
+
+      saveBtn.addEventListener('click', async () => {
+        const content = noteField.value.trim();
+        saveBtn.disabled = true;
+        statusEl.textContent = '고객 메모를 저장하는 중입니다...';
+        statusEl.classList.remove('is-success');
+        statusEl.classList.add('is-muted');
+
+        try {
+          const response = await fetch(customerNoteApiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ content })
+          });
+          const rawData = await response.json();
+          const data = rawData.data || rawData;
+          if (!response.ok) {
+            throw new Error(data.detail || data.message || '고객 메모 저장에 실패했습니다.');
+          }
+
+          if (currentCustomer) {
+            currentCustomer.customer_note = data.customer_note || {
+              content,
+              has_content: Boolean(content),
+            };
+          }
+          statusEl.textContent = data.message || '저장 완료되었습니다.';
+          statusEl.classList.remove('is-muted');
+          statusEl.classList.add('is-success');
+        } catch (error) {
+          statusEl.textContent = error.message || '고객 메모 저장에 실패했습니다.';
+          statusEl.classList.remove('is-success');
+          statusEl.classList.add('is-muted');
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+
+    function applyClosedConsultationState() {
+      if (!currentCustomer) {
+        return;
+      }
+
+      const diagnosisStorageReady = !(currentCustomer.designer_diagnosis && currentCustomer.designer_diagnosis.storage_ready === false);
+      const nextReanalysis = { ...(currentCustomer.reanalysis || {}) };
+      nextReanalysis.consultation_locked = false;
+      nextReanalysis.can_choose_again = true;
+      nextReanalysis.choose_again_block_reason = null;
+      if (nextReanalysis.keep_preference_block_reason === 'consultation_started') {
+        nextReanalysis.keep_preference_block_reason = null;
+        if (nextReanalysis.has_reusable_preference) {
+          nextReanalysis.can_keep_preference = true;
+        }
+      }
+      nextReanalysis.user_message = '상담 세션이 종료되어 재분석을 다시 진행할 수 있습니다.';
+
+      currentCustomer = {
+        ...currentCustomer,
+        active_consultation: null,
+        session_status: {
+          ...(currentCustomer.session_status || {}),
+          is_active: false,
+          can_write_designer_diagnosis: diagnosisStorageReady,
+        },
+        reanalysis: nextReanalysis,
+      };
+      renderCustomerDetail(currentCustomer);
+    }
+
+    async function closeConsultation(consultationId) {
+      showDetailNotice('상담 세션을 종료하는 중입니다...', 'loading');
+
+      const response = await fetch(consultationCloseApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ consultation_id: consultationId })
+      });
+      const rawData = await response.json();
+      const data = rawData.data || rawData;
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || '세션 종료에 실패했습니다.');
+      }
+
+      applyClosedConsultationState();
+      showDetailNotice(data.message || '상담 세션을 종료했습니다.', 'success');
+      try {
+        window.sessionStorage.setItem(dashboardRefreshFlagKey, String(Date.now()));
+      } catch (error) {
+        console.warn('Failed to set dashboard refresh flag:', error);
+      }
+      window.setTimeout(() => {
+        loadCustomerDetail().catch(() => null);
+      }, 250);
+    }
+
+    function openRetryChoice(customer) {
+      const reanalysis = customer && customer.reanalysis ? customer.reanalysis : {};
+      const keepPreferenceAvailable = (
+        reanalysis.can_keep_preference !== undefined
+          ? Boolean(reanalysis.can_keep_preference)
+          : false
+      );
+      const chooseAgainAvailable = (
+        reanalysis.can_choose_again !== undefined
+          ? Boolean(reanalysis.can_choose_again)
+          : true
+      );
+
+      retryKeepPreferenceBtn.disabled = !keepPreferenceAvailable;
+      retryKeepPreferenceBtn.style.opacity = keepPreferenceAvailable ? '1' : '0.55';
+      retryKeepPreferenceBtn.title = keepPreferenceAvailable ? '' : (
+        getReanalysisBlockMessage(
+          reanalysis.keep_preference_block_reason,
+          '설문과 얼굴 분석 데이터가 있어야 기존 취향 유지 재분석을 실행할 수 있습니다.'
+        )
+      );
+      retryChooseAgainBtn.disabled = !chooseAgainAvailable;
+      retryChooseAgainBtn.style.opacity = chooseAgainAvailable ? '1' : '0.55';
+      retryChooseAgainBtn.title = chooseAgainAvailable ? '' : (
+        getReanalysisBlockMessage(
+          reanalysis.choose_again_block_reason,
+          '현재 상태에서는 취향 다시 선택을 진행할 수 없습니다.'
+        )
+      );
+      resetRetryStatus();
+      if (!keepPreferenceAvailable && !chooseAgainAvailable) {
+        showRetryStatus(
+          getReanalysisBlockMessage(
+            reanalysis.choose_again_block_reason || reanalysis.keep_preference_block_reason,
+            '현재 상태에서는 재분석을 진행할 수 없습니다.'
+          )
+        );
+      }
+      retryChoiceModal.classList.remove('is-hidden');
+      retryChoiceModal.setAttribute('aria-hidden', 'false');
+    }
+
+    window.hideRetryChoice = function () {
+      retryChoiceModal.classList.add('is-hidden');
+      retryChoiceModal.setAttribute('aria-hidden', 'true');
+      retryKeepPreferenceBtn.disabled = false;
+      retryChooseAgainBtn.disabled = false;
+      retryKeepPreferenceBtn.textContent = '바로 재분석';
+      retryChooseAgainBtn.textContent = '설문 다시 선택';
+      resetRetryStatus();
+    };
+
+    async function retryWithSavedPreference() {
+      retryKeepPreferenceBtn.disabled = true;
+      retryChooseAgainBtn.disabled = true;
+      retryKeepPreferenceBtn.textContent = '재분석 중...';
+      showRetryStatus('저장된 취향 데이터를 사용해 재분석을 진행하고 있습니다.');
+      showDetailNotice('저장된 취향으로 재분석하는 중입니다...', 'loading');
+
+      try {
+        const response = await fetch('/api/v1/analysis/retry-recommendations/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+          },
+          body: JSON.stringify({ customer_id: parseInt(clientId, 10) })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || '재분석에 실패했습니다.');
+        }
+
+        hideRetryChoice();
+        latestRetryPreviewHtml = buildRetryPreview(data.items || []);
+        showDetailNotice('기존 취향 유지 재분석이 완료되었습니다.', 'success');
+        try {
+          await loadCustomerDetail();
+        } catch (refreshError) {
+          console.warn('customer detail refresh after retry failed', refreshError);
+        }
+      } catch (error) {
+        retryKeepPreferenceBtn.disabled = false;
+        retryChooseAgainBtn.disabled = false;
+        retryKeepPreferenceBtn.textContent = '바로 재분석';
+        showDetailNotice(error.message || '재분석에 실패했습니다.', 'error');
+        showRetryStatus(error.message);
+      }
+    }
+
+    function retryWithNewPreference() {
+      const reanalysis = currentCustomer && currentCustomer.reanalysis ? currentCustomer.reanalysis : {};
+      if (reanalysis.can_choose_again === false) {
+        showRetryStatus(
+          getReanalysisBlockMessage(
+            reanalysis.choose_again_block_reason,
+            '취향 다시 선택은 현재 상태에서 진행할 수 없습니다.'
+          )
+        );
+        return;
+      }
+      retryChooseAgainBtn.disabled = true;
+      retryChooseAgainBtn.textContent = '안내 중...';
+      window.location.href = reanalysis.start_url || `/partner/customer-detail/${encodeURIComponent(clientId)}/reanalysis/`;
+    }
+
+    retryKeepPreferenceBtn.addEventListener('click', retryWithSavedPreference);
+    retryChooseAgainBtn.addEventListener('click', retryWithNewPreference);
+
+    retryChoiceModal.addEventListener('click', (event) => {
+      if (event.target === retryChoiceModal) {
+        hideRetryChoice();
+      }
+    });
+
+    async function loadCustomerDetail() {
+      try {
+        const response = await fetch(`/api/v1/customers/${clientId}/`);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || data.message || '고객 정보를 불러올 수 없습니다.');
+        }
+
+        currentCustomer = data.data || data;
+        if (!currentCustomer) {
+          throw new Error('고객 정보를 찾을 수 없습니다.');
+        }
+
+        renderCustomerDetail(currentCustomer);
+      } catch (error) {
+        detailContent.innerHTML = `<div style="text-align: center; padding: 60px; color: var(--status-red);">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    loadCustomerDetail();
+  })();
+</script>
+{% endblock %}

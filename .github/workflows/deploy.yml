@@ -1,0 +1,186 @@
+﻿name: Deploy Backend to Elastic Beanstalk
+
+on:
+  # No-op metadata change to force a valid main push for deployment.
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'mirrai_project/**'
+      - 'static/**'
+      - 'templates/**'
+      - 'data/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker-entrypoint.sh'
+      - 'manage.py'
+      - 'requirements.txt'
+      - 'requirements-deploy.txt'
+      - 'requirements-trends.txt'
+      - 'Dockerrun.aws.json'
+      - '.platform/**'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: eb-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ap-northeast-2
+  EB_APP_NAME: ${{ secrets.EB_APPLICATION_NAME }}
+  EB_ENV_NAME: ${{ secrets.EB_ENVIRONMENT_NAME }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build --build-arg INSTALL_TRENDS_DEPS=1 -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      - name: Inject image URI into Dockerrun.aws.json
+        run: |
+          python - << 'PY'
+          import json
+          import os
+
+          with open('Dockerrun.aws.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+
+          data['Image']['Name'] = os.environ['IMAGE_URI']
+
+          with open('Dockerrun.aws.json', 'w', encoding='utf-8') as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+              f.write('\n')
+          PY
+
+      - name: Create deployment package
+        run: zip -r deploy.zip Dockerrun.aws.json .platform
+
+      - name: Upload version and deploy to Elastic Beanstalk
+        env:
+          VERSION_LABEL: deploy-${{ github.sha }}-${{ github.run_number }}
+        run: |
+          echo "EXPECTED_VERSION_LABEL=$VERSION_LABEL" >> $GITHUB_ENV
+
+          echo "Waiting for Elastic Beanstalk environment to become Ready before deploy..."
+          ATTEMPTS=0
+          MAX_ATTEMPTS=60
+          while true; do
+            STATUS=$(aws elasticbeanstalk describe-environments \
+              --application-name "$EB_APP_NAME" \
+              --environment-names "$EB_ENV_NAME" \
+              --query "Environments[0].Status" \
+              --output text)
+
+            if [ "$STATUS" = "Ready" ]; then
+              echo "Environment is Ready."
+              break
+            fi
+
+            ATTEMPTS=$((ATTEMPTS + 1))
+            if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+              echo "Environment did not become Ready in time. Current status: $STATUS"
+              aws elasticbeanstalk describe-environments \
+                --application-name "$EB_APP_NAME" \
+                --environment-names "$EB_ENV_NAME"
+              exit 1
+            fi
+
+            echo "Environment status is $STATUS. Waiting 30 seconds..."
+            sleep 30
+          done
+
+          S3_BUCKET=$(aws elasticbeanstalk create-storage-location --query "S3Bucket" --output text)
+
+          aws s3 cp deploy.zip "s3://$S3_BUCKET/$EB_APP_NAME/$VERSION_LABEL.zip"
+
+          aws elasticbeanstalk create-application-version \
+            --application-name "$EB_APP_NAME" \
+            --version-label "$VERSION_LABEL" \
+            --source-bundle S3Bucket="$S3_BUCKET",S3Key="$EB_APP_NAME/$VERSION_LABEL.zip"
+
+          aws elasticbeanstalk update-environment \
+            --environment-name "$EB_ENV_NAME" \
+            --version-label "$VERSION_LABEL"
+
+      - name: Wait for environment update to complete
+        run: |
+          echo "Waiting for Elastic Beanstalk deployment to finish..."
+          ATTEMPTS=0
+          MAX_ATTEMPTS=120
+          EXPECTED_VERSION_LABEL="${EXPECTED_VERSION_LABEL:?EXPECTED_VERSION_LABEL is required}"
+          while true; do
+            read -r STATUS HEALTH ABORTABLE VERSION_LABEL < <(aws elasticbeanstalk describe-environments \
+              --application-name "$EB_APP_NAME" \
+              --environment-names "$EB_ENV_NAME" \
+              --query "Environments[0].[Status,Health,AbortableOperationInProgress,VersionLabel]" \
+              --output text)
+
+            echo "Environment status=$STATUS health=$HEALTH abortable=$ABORTABLE version=$VERSION_LABEL expected=$EXPECTED_VERSION_LABEL"
+
+            if [ "$STATUS" = "Ready" ]; then
+              if [ "$VERSION_LABEL" != "$EXPECTED_VERSION_LABEL" ]; then
+                echo "Environment became Ready but is serving version '$VERSION_LABEL' instead of expected '$EXPECTED_VERSION_LABEL'."
+                echo "Recent Elastic Beanstalk events:"
+                aws elasticbeanstalk describe-events \
+                  --environment-name "$EB_ENV_NAME" \
+                  --max-records 20 || true
+                exit 1
+              fi
+
+              if [ "$HEALTH" = "Red" ]; then
+                echo "Environment became Ready but health is Red. Treating deployment as failed."
+                echo "Recent Elastic Beanstalk events:"
+                aws elasticbeanstalk describe-events \
+                  --environment-name "$EB_ENV_NAME" \
+                  --max-records 20 || true
+                echo "Elastic Beanstalk health details:"
+                aws elasticbeanstalk describe-environment-health \
+                  --environment-name "$EB_ENV_NAME" \
+                  --attribute-names All || true
+                exit 1
+              fi
+
+              echo "Elastic Beanstalk deployment finished."
+              break
+            fi
+
+            ATTEMPTS=$((ATTEMPTS + 1))
+            if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+              echo "Environment did not finish updating in time. Recent EB events:"
+              aws elasticbeanstalk describe-events \
+                --environment-name "$EB_ENV_NAME" \
+                --max-records 20
+              exit 1
+            fi
+
+            sleep 30
+          done

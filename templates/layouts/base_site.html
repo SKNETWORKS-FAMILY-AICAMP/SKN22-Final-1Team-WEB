@@ -1,0 +1,822 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>{% block page_title %}MirrAI{% endblock %}</title>
+    
+    <!-- Favicon Toggling (Move comments to switch themes) -->
+    <!-- [OPTION 1] AI Theme -->
+    <link rel="icon" type="image/png" href="{% static 'branding/favicon_ai.png' %}" />
+    <link rel="apple-touch-icon" href="{% static 'branding/favicon_ai.png' %}" />
+    
+    <!-- [OPTION 2] Hair/Scissor Theme (Uncomment to use)
+    <link rel="icon" type="image/png" href="{% static 'branding/favicon_hair.png' %}" />
+    <link rel="apple-touch-icon" href="{% static 'branding/favicon_hair.png' %}" />
+    -->
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    />
+    <link rel="stylesheet" href="{% static 'shared/styles/base.css' %}?v=20260410-01" />
+
+    <style>
+      /* 글로벌 관리자 전용 다크 키패드 모달 스타일 - admin-pin 변경 페이지와 동일한 디자인 */
+      .keypad-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.88);
+        display: none; align-items: center; justify-content: center; z-index: 10000;
+        opacity: 0; transition: opacity 0.18s ease;
+      }
+      .keypad-overlay.active { display: flex; opacity: 1; }
+      .keypad-container {
+        width: 320px; background: var(--bg-dark); border: 1px solid var(--line);
+        border-radius: 24px; padding: 32px; text-align: center;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+      }
+      .keypad-container.is-shaking { animation: admin-pin-shake 0.32s ease; }
+      .keypad-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+      .keypad-subtitle { font-size: 13px; color: rgba(255, 255, 255, 0.5); margin-bottom: 24px; }
+      .keypad-display { display: flex; justify-content: center; gap: 12px; margin-bottom: 32px; }
+      .keypad-dot { width: 16px; height: 16px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); transition: background-color 0.12s ease, box-shadow 0.12s ease; }
+      .keypad-dot.active { background: var(--accent-neon); box-shadow: 0 0 10px var(--accent-neon); }
+      .keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .keypad-btn {
+        aspect-ratio: 1; border-radius: 50%; background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1); color: #fff;
+        font-size: 20px; font-weight: 600; cursor: pointer;
+        display: flex; align-items: center; justify-content: center; transition: background-color 0.12s ease, transform 0.08s ease;
+      }
+      .keypad-btn:active { background: rgba(255, 255, 255, 0.2); transform: scale(0.92); }
+      .keypad-btn.btn-empty { background: transparent; border: none; cursor: default; }
+      .keypad-btn.btn-back { font-size: 14px; color: var(--status-red); }
+      .keypad-close { margin-top: 24px; font-size: 14px; color: rgba(255, 255, 255, 0.4); background: none; border: none; cursor: pointer; text-decoration: underline; }
+
+      .app-notice-stack {
+        position: fixed;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10100;
+        width: min(420px, calc(100% - 32px));
+        pointer-events: none;
+      }
+
+      .app-notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(14, 19, 17, 0.96);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+        color: #fff;
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+
+      .app-notice.is-visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .app-notice-icon {
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(245, 209, 13, 0.16);
+        color: var(--accent-neon);
+        font-size: 16px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .app-notice[data-tone="error"] .app-notice-icon {
+        background: rgba(255, 91, 91, 0.14);
+        color: var(--status-red);
+      }
+
+      .app-notice[data-tone="success"] .app-notice-icon {
+        background: rgba(54, 211, 153, 0.14);
+        color: #36d399;
+      }
+
+      .app-notice-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      .app-notice-title {
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1.25;
+      }
+
+      .app-notice-message {
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.45;
+      }
+
+      @keyframes admin-pin-shake {
+        0%, 100% { transform: translateX(0); }
+        20% { transform: translateX(-8px); }
+        40% { transform: translateX(7px); }
+        60% { transform: translateX(-5px); }
+        80% { transform: translateX(4px); }
+      }
+
+      /* 분석 시작하기 launcher: nav-link 형태의 버튼 (a 태그와 시각적으로 동일) */
+      .nav-link-button {
+        display: inline-flex;
+        align-items: center;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1;
+        color: rgba(255, 255, 255, 0.8);
+        cursor: pointer;
+        appearance: none;
+        -webkit-appearance: none;
+      }
+      .nav-link-button:hover { color: var(--accent-neon); }
+      .nav-link-button:focus-visible {
+        outline: 2px solid var(--accent-neon, #00ff9d);
+        outline-offset: 4px;
+        border-radius: 4px;
+      }
+      @media (max-width: 1024px) { .nav-link-button { font-size: 13px; } }
+      @media (max-width: 768px)  { .nav-link-button { font-size: 12px; } }
+      @media (max-width: 480px)  { .nav-link-button { font-size: 11px; } }
+
+      /* 분석 시작 선택 모달 */
+      .analysis-launcher-overlay {
+        position: fixed; inset: 0;
+        background: rgba(5, 8, 7, 0.72);
+        backdrop-filter: blur(10px);
+        display: none; align-items: center; justify-content: center;
+        z-index: 10050;
+        padding: 20px;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+      .analysis-launcher-overlay.active { display: flex; opacity: 1; }
+
+      .analysis-launcher-modal {
+        width: 100%;
+        max-width: 420px;
+        background: var(--bg-dark, #0e1311);
+        border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+        border-radius: 24px;
+        padding: 28px 24px 22px;
+        color: #fff;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        transform: translateY(8px) scale(0.98);
+        transition: transform 0.18s ease;
+      }
+      .analysis-launcher-overlay.active .analysis-launcher-modal {
+        transform: translateY(0) scale(1);
+      }
+
+      .analysis-launcher-title {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 800;
+        line-height: 1.45;
+        word-break: keep-all;
+      }
+      .analysis-launcher-subtitle {
+        margin: 0 0 22px;
+        font-size: 13px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.62);
+        line-height: 1.55;
+        word-break: keep-all;
+      }
+
+      .analysis-launcher-options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      @media (max-width: 380px) {
+        .analysis-launcher-options { grid-template-columns: 1fr; }
+      }
+
+      .analysis-launcher-option {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 18px 14px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        text-align: center;
+        text-decoration: none;
+        transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+        word-break: keep-all;
+        line-height: 1.4;
+      }
+      .analysis-launcher-option:hover {
+        background: rgba(0, 255, 157, 0.08);
+        border-color: rgba(0, 255, 157, 0.45);
+      }
+      .analysis-launcher-option:active { transform: scale(0.98); }
+      .analysis-launcher-option svg {
+        width: 28px; height: 28px;
+        color: var(--accent-neon, #00ff9d);
+      }
+      .analysis-launcher-option-desc {
+        font-size: 11.5px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.55);
+        line-height: 1.45;
+      }
+
+      .analysis-launcher-close {
+        margin-top: 20px;
+        width: 100%;
+        background: none;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        color: rgba(255, 255, 255, 0.7);
+        height: 42px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+      }
+      .analysis-launcher-close:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: #fff;
+      }
+    </style>
+
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body data-has-session="{% if request.session.customer_id or request.session.admin_id or request.session.designer_id %}true{% else %}false{% endif %}">
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="site-header-container">
+          <a class="brand" href="{% url 'index' %}">
+            <h1 class="brand-mark">Mirr<span>AI</span></h1>
+            <span class="brand-sub">{% block brand_sub %}premium styling{% endblock %}</span>
+          </a>
+
+          <div class="header-right">
+            <nav class="nav-links">
+              <a href="{% url 'index' %}" class="nav-link">메인</a>
+              
+              {# 고객 플로우 진입 버튼 #}
+              {% if request.session.customer_id %}
+                <button type="button" class="nav-link nav-link-button" data-analysis-launcher="true">새 추천</button>
+              {% elif request.session.designer_id %}
+                <a href="{% url 'customer_index' %}" class="nav-link">고객</a>
+              {% elif request.session.admin_id %}
+                <a href="{% url 'partner_designer_select' %}?next={% url 'customer_index' %}" class="nav-link">고객</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}?next=/partner/designer-select/?next=/customer/" class="nav-link">분석 시작하기</a>
+              {% endif %}
+
+              {# 디자이너 버튼 #}
+              {% if request.session.designer_id %}
+                {% if request.session.designer_dashboard_allowed %}
+                  <a href="{% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+                {% else %}
+                  <a href="{% url 'partner_designer_select' %}?designer_id={{ request.session.designer_id }}&next={% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+                {% endif %}
+              {% elif request.session.customer_id %}
+                <a href="{% url 'partner_designer_select' %}?next={% url 'partner_staff_dashboard' %}" class="nav-link">디자이너</a>
+              {% elif request.session.admin_id %}
+                <a href="{% url 'partner_designer_select' %}" class="nav-link">디자이너</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}?next={% url 'partner_designer_select' %}" class="nav-link">디자이너</a>
+              {% endif %}
+
+              {# 파트너 센터 / 내 페이지 버튼 #}
+              {% if request.session.admin_id and not request.session.designer_id %}
+                {# 오직 매장 로그인 상태에서만: 페이지별 노출 조건 분기 #}
+                {% if request.resolver_match.url_name == 'index' or request.resolver_match.url_name == 'partner_designer_select' %}
+                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="mypage">내 페이지</a>
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="dashboard">파트너 센터</a>
+                {% elif request.resolver_match.url_name == 'partner_mypage' %}
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="dashboard">파트너 센터</a>
+                {% elif request.resolver_match.url_name == 'partner_dashboard' %}
+                  <a href="{% url 'partner_mypage' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="mypage">내 페이지</a>
+                {% else %}
+                  <a href="{% url 'partner_dashboard' %}" class="nav-link" data-admin-gate="true" data-admin-gate-scope="dashboard">파트너 센터</a>
+                {% endif %}
+              {% elif not request.session.admin_id and not request.session.designer_id %}
+                {# 아무도 로그인하지 않은 경우에만 로그인 유도 #}
+                <a href="{% url 'partner_index' %}?next={% url 'partner_dashboard' %}" class="nav-link">파트너 센터</a>
+              {% endif %}
+
+              {# 로그인/로그아웃 버튼 #}
+              {% if request.session.customer_id %}
+                <a href="{% url 'logout' %}" class="btn btn-dark session-btn session-btn-muted">전체 로그아웃</a>
+                <a href="{% url 'customer_logout' %}" class="btn btn-dark session-btn session-btn-muted">고객종료</a>
+              {% elif request.session.designer_id %}
+                <a href="{% url 'designer_logout' %}" data-designer-logout="true" data-after-logout="{% url 'partner_designer_select' %}" class="btn btn-dark session-btn session-btn-muted">로그아웃</a>
+              {% elif request.session.admin_id %}
+                <a href="{% url 'partner_logout' %}" class="btn btn-dark session-btn session-btn-muted">로그아웃</a>
+              {% else %}
+                <a href="{% url 'partner_index' %}" class="btn btn-dark session-btn session-btn-login">로그인</a>
+              {% endif %}
+            </nav>
+
+            {% if request.session.admin_store_name or request.session.admin_id %}
+              <div class="session-info-row">
+                <div class="session-meta">
+                  <span class="session-store">
+                    {% firstof request.session.admin_store_name request.session.admin_name "MirrAI Partner" %}
+                  </span>
+                  {% if request.session.designer_name %}
+                    <span class="session-designer">
+                      [{{ request.session.designer_name }} 디자이너]
+                    </span>
+                  {% endif %}
+                  {% if request.session.customer_name %}
+                    <span class="session-customer-badge">
+                      현재 고객: {{ request.session.customer_name }}
+                    </span>
+                  {% endif %}
+                </div>
+              </div>
+            {% elif request.session.customer_name %}
+              <div class="session-info-row session-info-row--customer">
+                <span class="brand-sub customer-session-label">
+                  현재 고객: <strong>{{ request.session.customer_name }}</strong>
+                </span>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </header>
+
+      <section class="hero-section">
+        {% block hero_content %}{% endblock %}
+      </section>
+
+      <section class="content-section">
+        {% block content %}{% endblock %}
+      </section>
+
+      {% include "components/footer.html" %}
+    </div>
+
+    <div id="appNoticeStack" class="app-notice-stack" aria-live="polite" aria-atomic="true"></div>
+
+    <script>
+      (function() {
+        const noticeStack = document.getElementById('appNoticeStack');
+        let noticeTimer = null;
+
+        window.showAppNotice = function(message, options = {}) {
+          if (!message || !noticeStack) {
+            return;
+          }
+
+          const tone = options.tone || 'info';
+          const title = options.title || (tone === 'error' ? '확인이 필요합니다' : '알림');
+          const duration = Number(options.duration || 2600);
+          const iconText = tone === 'success' ? 'OK' : '!';
+
+          if (noticeTimer) {
+            clearTimeout(noticeTimer);
+            noticeTimer = null;
+          }
+
+          noticeStack.textContent = '';
+
+          const notice = document.createElement('div');
+          notice.className = 'app-notice';
+          notice.dataset.tone = tone;
+          notice.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+
+          const icon = document.createElement('span');
+          icon.className = 'app-notice-icon';
+          icon.textContent = iconText;
+
+          const copy = document.createElement('span');
+          copy.className = 'app-notice-copy';
+
+          const titleEl = document.createElement('span');
+          titleEl.className = 'app-notice-title';
+          titleEl.textContent = title;
+
+          const messageEl = document.createElement('span');
+          messageEl.className = 'app-notice-message';
+          messageEl.textContent = message;
+
+          copy.appendChild(titleEl);
+          copy.appendChild(messageEl);
+          notice.appendChild(icon);
+          notice.appendChild(copy);
+          noticeStack.appendChild(notice);
+
+          requestAnimationFrame(function() {
+            notice.classList.add('is-visible');
+          });
+
+          noticeTimer = setTimeout(function() {
+            notice.classList.remove('is-visible');
+            notice.addEventListener('transitionend', function() {
+              if (notice.parentNode === noticeStack) {
+                noticeStack.removeChild(notice);
+              }
+            }, { once: true });
+          }, duration);
+        };
+      })();
+    </script>
+
+    {% if popup_message %}
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        window.showAppNotice('{{ popup_message|escapejs }}', { title: '알림', tone: 'info' });
+      });
+    </script>
+    {% endif %}
+
+    <script>
+      // 분석 시작하기 랜딩 선택 모달
+      function __initAnalysisLauncher() {
+        var triggers = document.querySelectorAll('[data-analysis-launcher="true"]');
+        var modal = document.getElementById('analysisLauncherModal');
+        if (!modal || triggers.length === 0) return;
+
+        var lastFocused = null;
+
+        function openModal() {
+          lastFocused = document.activeElement;
+          modal.hidden = false;
+          // 다음 프레임에 active 클래스를 추가해서 transition이 동작하도록 함
+          requestAnimationFrame(function () { modal.classList.add('active'); });
+          document.body.style.overflow = 'hidden';
+          var firstOption = modal.querySelector('.analysis-launcher-option');
+          if (firstOption) firstOption.focus();
+        }
+
+        function closeModal() {
+          modal.classList.remove('active');
+          document.body.style.overflow = '';
+          window.setTimeout(function () { modal.hidden = true; }, 180);
+          if (lastFocused && typeof lastFocused.focus === 'function') {
+            lastFocused.focus();
+          }
+        }
+
+        triggers.forEach(function (btn) {
+          btn.addEventListener('click', function (event) {
+            event.preventDefault();
+            openModal();
+          });
+        });
+
+        modal.addEventListener('click', function (event) {
+          if (event.target === modal) closeModal();
+          if (event.target.closest('[data-analysis-launcher-close="true"]')) closeModal();
+        });
+
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+          }
+        });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', __initAnalysisLauncher);
+      } else {
+        __initAnalysisLauncher();
+      }
+    </script>
+
+    <script>
+      window.addEventListener('pageshow', function (event) {
+        const restoredFromBackForward = event.persisted || (
+          window.performance &&
+          window.performance.getEntriesByType &&
+          window.performance.getEntriesByType('navigation')[0] &&
+          window.performance.getEntriesByType('navigation')[0].type === 'back_forward'
+        );
+        if (!restoredFromBackForward) {
+          return;
+        }
+        const hasSessionPage = document.body.dataset.hasSession === 'true';
+        if (hasSessionPage) {
+          window.location.reload();
+        }
+      });
+    </script>
+
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        const partnerPrefetchLinks = document.querySelectorAll('[data-prefetch-page="partner-dashboard"]');
+        if (partnerPrefetchLinks.length > 0) {
+          let prefetched = false;
+          const prefetchPartnerPage = function (href) {
+            if (prefetched || !href || !document.head) {
+              return;
+            }
+            prefetched = true;
+            const prefetchLink = document.createElement('link');
+            prefetchLink.rel = 'prefetch';
+            prefetchLink.as = 'document';
+            prefetchLink.href = href;
+            document.head.appendChild(prefetchLink);
+          };
+
+          partnerPrefetchLinks.forEach(function (linkEl) {
+            const triggerPrefetch = function () {
+              prefetchPartnerPage(linkEl.href);
+            };
+            linkEl.addEventListener('pointerenter', triggerPrefetch, { once: true });
+            linkEl.addEventListener('focus', triggerPrefetch, { once: true });
+          });
+        }
+
+        const designerLogoutLink = document.querySelector('[data-designer-logout="true"]');
+        if (!designerLogoutLink) {
+          return;
+        }
+
+        designerLogoutLink.addEventListener('click', async function (event) {
+          event.preventDefault();
+
+          if (designerLogoutLink.dataset.pending === 'true') {
+            return;
+          }
+
+          designerLogoutLink.dataset.pending = 'true';
+          designerLogoutLink.style.pointerEvents = 'none';
+
+          try {
+            const response = await fetch(designerLogoutLink.href, {
+              method: 'GET',
+              credentials: 'same-origin',
+              headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+              }
+            });
+
+            let redirectUrl = designerLogoutLink.dataset.afterLogout;
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const payload = await response.json();
+              redirectUrl = payload.redirect || redirectUrl;
+            }
+
+            window.location.replace(redirectUrl || designerLogoutLink.href);
+          } catch (error) {
+            window.location.replace(designerLogoutLink.href);
+          }
+        });
+      });
+    </script>
+
+    {% if request.session.customer_id %}
+    <!-- 분석 시작하기: 랜딩 선택 모달 -->
+    <div id="analysisLauncherModal" class="analysis-launcher-overlay" role="dialog" aria-modal="true" aria-labelledby="analysisLauncherTitle" hidden>
+      <div class="analysis-launcher-modal">
+        <h3 id="analysisLauncherTitle" class="analysis-launcher-title">분석 방법을 선택해 주세요</h3>
+        <p class="analysis-launcher-subtitle">사진을 새로 촬영하거나, 기기에 저장된 사진을 업로드해서 새로운 스타일 추천을 받을 수 있습니다.</p>
+        <div class="analysis-launcher-options">
+          <a href="{% url 'customer_camera' %}" class="analysis-launcher-option" data-analysis-launcher-target="camera">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span>사진 촬영</span>
+            <span class="analysis-launcher-option-desc">카메라로 바로 분석을 시작합니다.</span>
+          </a>
+          <a href="{% url 'customer_upload' %}" class="analysis-launcher-option" data-analysis-launcher-target="upload">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>사진 업로드</span>
+            <span class="analysis-launcher-option-desc">기기에 있는 사진으로 분석합니다.</span>
+          </a>
+        </div>
+        <button type="button" class="analysis-launcher-close" data-analysis-launcher-close="true">취소</button>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- 글로벌 관리자 보안키 인증 모달 -->
+    <div id="adminPinModal" class="keypad-overlay">
+      <div class="keypad-container">
+        <div id="pinModalTitle" class="keypad-title">관리자 보안키 인증</div>
+        <div id="pinModalSubtext" class="keypad-subtitle">관리자 보안키(PIN) 4자리를 입력해 주세요.</div>
+
+        <div class="keypad-display">
+          <div class="keypad-dot"></div>
+          <div class="keypad-dot"></div>
+          <div class="keypad-dot"></div>
+          <div class="keypad-dot"></div>
+        </div>
+
+        <div class="keypad-grid">
+          <button class="keypad-btn" onclick="adminGateAppendPin('1')">1</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('2')">2</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('3')">3</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('4')">4</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('5')">5</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('6')">6</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('7')">7</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('8')">8</button>
+          <button class="keypad-btn" onclick="adminGateAppendPin('9')">9</button>
+          <div class="keypad-btn btn-empty"></div>
+          <button class="keypad-btn" onclick="adminGateAppendPin('0')">0</button>
+          <button class="keypad-btn btn-back" onclick="adminGateBackspacePin()">삭제</button>
+        </div>
+
+        <button onclick="adminGateCloseModal()" class="keypad-close">취소 (닫기)</button>
+      </div>
+    </div>
+
+    <form style="display:none;">{% csrf_token %}</form>
+
+    <script>
+      (function() {
+        let currentPin = '';
+        let pinTargetType = ''; 
+        let pinTargetId = '';
+        let pinTargetScope = 'dashboard';
+        const pinModal = document.getElementById('adminPinModal');
+        const pinContainer = document.querySelector('#adminPinModal .keypad-container');
+        const pinDots = document.querySelectorAll('#adminPinModal .keypad-dot');
+        const pinSubtext = document.getElementById('pinModalSubtext');
+
+        const showAdminGateError = function(message) {
+          if (window.showAppNotice) {
+            window.showAppNotice(message, { title: '인증 실패', tone: 'error' });
+          }
+
+          if (pinContainer) {
+            pinContainer.classList.remove('is-shaking');
+            void pinContainer.offsetWidth;
+            pinContainer.classList.add('is-shaking');
+          }
+        };
+
+        const submitAdminGatePin = async function() {
+          if (!currentPin || currentPin.length < 4) return;
+
+          const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+
+          try {
+            const response = await fetch('/partner/dashboard/enter/', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken
+              },
+              body: `pin=${encodeURIComponent(currentPin)}&scope=${encodeURIComponent(pinTargetScope)}`
+            });
+            const data = await response.json();
+            if (data.status === 'success') {
+              window.adminGateCloseModal({ skipRedirect: true });
+              if (pinTargetType === 'header' || pinTargetType === 'current-view') {
+                if (window.location.pathname + window.location.search === pinTargetId) {
+                  window.location.reload();
+                } else {
+                  window.location.href = pinTargetId;
+                }
+              } else if (pinTargetType === 'dashboard') {
+                window.location.href = data.redirect || '/partner/dashboard/';
+              } else if (pinTargetType === 'detail') {
+                window.location.href = `/partner/customer-detail/${pinTargetId}/`;
+              } else {
+                window.location.reload();
+              }
+            } else {
+              showAdminGateError(data.message || '보안키가 일치하지 않습니다.');
+              window.adminGateClearPin();
+            }
+          } catch (error) {
+            console.error('PIN submit error:', error);
+            showAdminGateError('인증 처리 중 오류가 발생했습니다.');
+            window.adminGateClearPin();
+          }
+        };
+
+        window.openAdminPinModal = function(type, id = '', message = '', scope = 'dashboard') {
+          currentPin = '';
+          pinTargetType = type;
+          pinTargetId = id;
+          pinTargetScope = scope;
+          if (pinSubtext && message) pinSubtext.textContent = message;
+          updatePinDots();
+          if (pinModal) pinModal.classList.add('active');
+        };
+
+        window.adminGateCloseModal = function(options = {}) {
+          const shouldRedirect = !options.skipRedirect;
+          const redirectUrl = shouldRedirect ? (window.adminGateCancelUrl || '') : '';
+          window.adminGateCancelUrl = '';
+          if (pinModal) pinModal.classList.remove('active');
+          if (redirectUrl) {
+            window.location.replace(redirectUrl);
+          }
+        };
+
+        window.adminGateAppendPin = function(num) {
+          if (currentPin.length < 4) {
+            currentPin += num;
+            updatePinDots();
+            if (currentPin.length === 4) {
+              setTimeout(submitAdminGatePin, 300);
+            }
+          }
+        };
+
+        window.adminGateClearPin = function() {
+          currentPin = '';
+          updatePinDots();
+        };
+
+        window.adminGateBackspacePin = function() {
+          if (currentPin.length > 0) {
+            currentPin = currentPin.slice(0, -1);
+            updatePinDots();
+          }
+        };
+
+        function updatePinDots() {
+          pinDots.forEach((dot, idx) => {
+            if (idx < currentPin.length) dot.classList.add('active');
+            else dot.classList.remove('active');
+          });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          const gateLinks = document.querySelectorAll('[data-admin-gate="true"]');
+          const allowedScopes = {
+            dashboard: {% if request.session.owner_dashboard_allowed %}true{% else %}false{% endif %},
+            mypage: {% if request.session.owner_mypage_allowed %}true{% else %}false{% endif %},
+          };
+          const currentUrlName = "{{ request.resolver_match.url_name }}";
+          
+          gateLinks.forEach(link => {
+            link.addEventListener('click', function(e) {
+              const targetScope = this.dataset.adminGateScope || 'dashboard';
+              if (!allowedScopes[targetScope]) {
+                e.preventDefault();
+                const targetUrl = this.href;
+                const message = targetScope === 'mypage'
+                  ? '내 페이지 접근을 위해 관리자 보안키를 입력해 주세요.'
+                  : '파트너 센터 접근을 위해 관리자 보안키를 입력해 주세요.';
+                window.openAdminPinModal('header', targetUrl, message, targetScope);
+              }
+            });
+          });
+
+          const protectedViewScopeMap = {
+            partner_dashboard: 'dashboard',
+            partner_designer_management: 'dashboard',
+            partner_designer_signup: 'dashboard',
+            partner_designer_delete: 'dashboard',
+            {% if not skip_owner_gate_for_current_view %}
+            partner_customer_detail: 'dashboard',
+            partner_customer_reanalysis_start: 'dashboard',
+            {% endif %}
+            partner_mypage: 'mypage',
+          };
+
+          const currentScope = protectedViewScopeMap[currentUrlName];
+          if (currentScope && !allowedScopes[currentScope]) {
+            const currentUrl = window.location.pathname + window.location.search;
+            const message = currentScope === 'mypage'
+              ? '내 페이지 접근을 위해 관리자 보안키를 입력해 주세요.'
+              : '보안을 위해 관리자 보안키를 입력해 주세요.';
+            window.openAdminPinModal('current-view', currentUrl, message, currentScope);
+          }
+        });
+      })();
+    </script>
+
+    {% block page_scripts %}{% endblock %}
+  </body>
+</html>

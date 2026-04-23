@@ -1,0 +1,475 @@
+{% extends "layouts/base_site.html" %}
+{% load static %}
+
+{% block page_title %}MirrAI | Style Survey{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 컴팩트하고 세련된 설문 카드 스타일 */
+  .customer-input-card.survey-mode {
+    max-width: 930px;
+    margin: 0 auto;
+    padding: 40px 48px !important;
+    border-radius: 20px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
+    background: white;
+    border: 1px solid #f0f0f0 !important;
+  }
+
+  .section-title.compact {
+    font-size: 18px !important;
+    margin-bottom: 14px !important;
+    font-weight: 800;
+    color: var(--bg-dark);
+    justify-content: center; /* 타이틀 중앙 정렬로 더 깔끔하게 */
+  }
+
+  .section-title.compact::before {
+    display: none; /* 선 제거하여 더 심플하게 */
+  }
+
+  /* 설문 항목 컨테이너 */
+  .survey-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .question-row {
+    padding: 0;
+    border-bottom: none;
+  }
+
+  .question-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  
+  .question-title span.q-num {
+    color: var(--accent-neon);
+    font-family: 'monospace';
+    font-size: 11px;
+  }
+
+  .survey-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+  }
+  
+  /* 버튼형 선택지 스타일 개선 */
+  .survey-card {
+    position: relative;
+    padding: 6px 8px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1.2px solid #e2e8f0;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+  }
+  
+  .survey-card:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+  }
+  
+  .survey-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+  }
+  
+  .survey-card.selected {
+    background: var(--bg-dark);
+    border-color: var(--bg-dark);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .survey-card.selected .survey-label {
+    color: white;
+  }
+  
+  .survey-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    word-break: keep-all;
+  }
+
+  /* 하단 버튼 영역 */
+  .action-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  
+  .action-row .btn {
+    flex: 1;
+    height: 40px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .btn-outline {
+    background: #f8fafc;
+    color: var(--text-secondary);
+    border: 1.2px solid #e2e8f0 !important;
+  }
+
+  @media (max-width: 640px) {
+    .customer-input-card.survey-mode {
+      padding: 20px !important;
+    }
+    .survey-options {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>
+{% endblock %}
+
+{% block hero_content %}
+<div style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;">
+    <span>스타일 취향 설문</span>
+    <span style="font-size: 14px; padding: 4px 12px; background: rgba(255,255,255,0.15); border-radius: 20px; margin-left: 8px; vertical-align: middle; color: var(--accent-neon); font-weight: 600;">
+      {% if display_gender == 'male' %}남성용{% else %}여성용{% endif %}
+    </span>
+  </h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">당신이 꿈꾸는 스타일을 알려주세요.</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="panel customer-input-card survey-mode">
+  <h3 class="section-title compact">스타일 취향 설문</h3>
+  {% if request.GET.reanalysis %}
+    <div style="margin-bottom: 18px; padding: 14px 16px; border-radius: 14px; background: rgba(12, 10, 7, 0.04); border: 1px solid rgba(12, 10, 7, 0.08);">
+      <strong style="display: block; margin-bottom: 6px; color: var(--bg-dark);">재분석용 취향 다시 선택</strong>
+      <p style="margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6;">이전에 저장된 취향 대신 새로운 취향으로 다시 추천을 생성하는 흐름입니다.</p>
+    </div>
+  {% endif %}
+  
+  <form id="surveyForm" action="/api/v1/survey/" method="post" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="customer" value="{{ request.session.customer_id }}">
+    <input type="hidden" name="gender_branch" value="{{ display_gender }}">
+    
+    <div class="survey-container">
+      {% if display_gender == 'male' %}
+        <!-- 남성 설문 -->
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q1.</span> 옆머리와 뒷머리 길이감</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q1" value="아주 짧고 깔끔하게" required>
+              <span class="survey-label">짧고 깔끔하게</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q1" value="너무 짧지 않게 자연스럽게">
+              <span class="survey-label">자연스럽게</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q1" value="길이감 있게 남기고 싶음">
+              <span class="survey-label">길이감 있게</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q2.</span> 투블럭 스타일 선호도</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q2" value="확실한 투블럭" required>
+              <span class="survey-label">확실한 투블럭</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q2" value="자연스러운 투블럭">
+              <span class="survey-label">자연스러운 투블럭</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q2" value="투블럭 없이 연결감 있게">
+              <span class="survey-label">투블럭 없음</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q3.</span> 앞머리 연출 방식</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q3" value="올리는 스타일" required>
+              <span class="survey-label">올리는 스타일</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q3" value="내리는 스타일">
+              <span class="survey-label">내리는 스타일</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q3" value="상황에 따라 둘 다 가능">
+              <span class="survey-label">둘 다 가능</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q4.</span> 가르마 스타일 여부</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q4" value="가르마 스타일 선호" required>
+              <span class="survey-label">가르마 선호</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q4" value="비가르마 스타일 선호">
+              <span class="survey-label">비가르마 선호</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q4" value="상관없음">
+              <span class="survey-label">상관없음</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q5.</span> 펌 및 볼륨감 정도</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q5" value="펌 없이 깔끔하게" required>
+              <span class="survey-label">펌 없이 깔끔</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q5" value="자연스러운 볼륨 정도">
+              <span class="survey-label">자연스러운 볼륨</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q5" value="컬감이 느껴지는 스타일">
+              <span class="survey-label">컬감 강조</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q6.</span> 원하는 전체 인상</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q6" value="단정한" required>
+              <span class="survey-label">단정한</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q6" value="세련된">
+              <span class="survey-label">세련된</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q6" value="부드러운">
+              <span class="survey-label">부드러운</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q6" value="트렌디한">
+              <span class="survey-label">트렌디한</span>
+            </label>
+          </div>
+        </div>
+
+      {% else %}
+        <!-- 여성 설문 -->
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q1.</span> 선호하는 머리 길이</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q1" value="짧게" required>
+              <span class="survey-label">짧게</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q1" value="중간 길이">
+              <span class="survey-label">중간 길이</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q1" value="길게">
+              <span class="survey-label">길게</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q1" value="유지">
+              <span class="survey-label">유지</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q2.</span> 전체 실루엣 스타일</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q2" value="일자 느낌" required>
+              <span class="survey-label">일자 느낌</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q2" value="레이어감 있는 스타일">
+              <span class="survey-label">레이어드</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q2" value="볼륨감 있는 스타일">
+              <span class="survey-label">볼륨 강조</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q3.</span> 앞머리 유무 및 형태</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q3" value="앞머리 없이" required>
+              <span class="survey-label">앞머리 없이</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q3" value="시스루·가벼운 앞머리">
+              <span class="survey-label">시스루·가벼운</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q3" value="존재감 있는 앞머리">
+              <span class="survey-label">존재감 있는</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q4.</span> 선호하는 컬 강도</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q4" value="생머리 느낌" required>
+              <span class="survey-label">생머리 느낌</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q4" value="끝선 위주 자연스러운 컬">
+              <span class="survey-label">자연스러운 컬</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q4" value="전체적으로 웨이브감">
+              <span class="survey-label">웨이브감</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q5.</span> 추구하는 전체 분위기</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q5" value="내추럴한" required>
+              <span class="survey-label">내추럴</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q5" value="세련된">
+              <span class="survey-label">세련된</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q5" value="사랑스러운">
+              <span class="survey-label">사랑스러운</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q5" value="고급스러운">
+              <span class="survey-label">고급스러운</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="question-row">
+          <h3 class="question-title"><span class="q-num">Q6.</span> 스타일 변화 강도</h3>
+          <div class="survey-options">
+            <label class="survey-card">
+              <input type="radio" name="q6" value="최대한 무난하게" required>
+              <span class="survey-label">무난하게</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q6" value="적당히 변화를 주고 싶음">
+              <span class="survey-label">적당한 변화</span>
+            </label>
+            <label class="survey-card">
+              <input type="radio" name="q6" value="확실히 이미지 변신하고 싶음">
+              <span class="survey-label">확실한 변신</span>
+            </label>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="action-row">
+      <button type="submit" id="submitBtn" class="btn btn-primary">{% if request.GET.reanalysis %}취향 다시 선택 완료{% else %}취향 분석 완료{% endif %}</button>
+      <a href="{% url 'customer_camera' %}" class="btn btn-outline">{% if request.GET.reanalysis %}이전 화면{% else %}이전 단계{% endif %}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  (function() {
+    'use strict';
+    const form = document.getElementById('surveyForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const urlParams = new URLSearchParams(window.location.search);
+    const isReanalysisFlow = urlParams.get('reanalysis') === '1';
+    const reanalysisCustomerId = urlParams.get('customer_id');
+
+    document.querySelectorAll('.survey-card').forEach(card => {
+      card.addEventListener('click', function() {
+        const radio = this.querySelector('input');
+        radio.checked = true;
+        document.querySelectorAll(`input[name="${radio.name}"]`).forEach(input => {
+          input.parentElement.classList.remove('selected');
+        });
+        this.classList.add('selected');
+      });
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(form);
+      const data = {};
+      formData.forEach((value, key) => {
+        if (key !== 'csrfmiddlewaretoken') data[key] = value;
+      });
+      if (isReanalysisFlow && reanalysisCustomerId) {
+        data.customer_id = reanalysisCustomerId;
+      }
+
+      // 필수 체크 (6개 항목 모두 답변했는지 확인)
+      const answeredCount = Object.keys(data).filter(key => key.startsWith('q')).length;
+      if (answeredCount < 6) {
+        alert("6개 설문 항목에 모두 답변해 주세요.");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "분석 중...";
+
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+          },
+          body: JSON.stringify(data)
+        });
+        if (!response.ok) throw new Error("Survey submission failed");
+        const freshTs = Math.floor(Date.now() / 1000);
+        window.location.href = isReanalysisFlow
+          ? `/customer/recommendations/?reanalysis=1&fresh=${freshTs}`
+          : `/customer/recommendations/?fresh=${freshTs}`;
+      } catch (error) {
+        alert("저장 중 오류가 발생했습니다.");
+        submitBtn.disabled = false;
+        submitBtn.textContent = isReanalysisFlow ? "취향 다시 선택 완료" : "취향 분석 완료";
+      }
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,1073 @@
+{% extends "layouts/base_site.html" %}
+
+{% block page_title %}MirrAI | 추천 결과{% endblock %}
+
+{% block extra_head %}
+<style>
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 24px;
+    margin-top: 32px;
+    padding-bottom: 176px;
+  }
+
+  .style-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    transition: all 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-main);
+    cursor: pointer;
+    position: relative;
+  }
+
+  .style-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.08);
+  }
+
+  .style-card.selected {
+    border-color: var(--accent-neon);
+    box-shadow: var(--shadow-neon);
+  }
+
+  .style-card.selected::after {
+    content: "선택됨";
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    padding: 6px 10px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-dark);
+    color: var(--accent-neon);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0;
+    z-index: 2;
+  }
+
+  .style-image-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    overflow: hidden;
+  }
+
+  .style-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .match-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    padding: 4px 12px;
+    background: var(--accent-neon);
+    color: var(--bg-dark);
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .style-info {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+  }
+
+  .selection-bar {
+    position: fixed;
+    left: 50%;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: min(1080px, calc(100% - 32px));
+    background: var(--bg-dark);
+    color: white;
+    padding: 16px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    z-index: 900;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .selection-copy {
+    min-width: 0;
+  }
+
+  .selection-label {
+    margin: 0 0 4px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    font-weight: 700;
+  }
+
+  .selection-title {
+    margin: 0;
+    color: var(--accent-neon);
+    font-size: 18px;
+    font-weight: 900;
+    line-height: 1.25;
+  }
+
+  .selection-hint {
+    margin: 5px 0 0;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .selection-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .selection-actions .btn {
+    height: 48px;
+    padding: 0 22px;
+    white-space: nowrap;
+  }
+
+  .selection-actions .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .loading-detail {
+    max-width: 520px;
+    margin: 12px auto 0;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+
+  #toast {
+    position: fixed;
+    bottom: calc(112px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%) translateY(12px);
+    background: var(--bg-dark);
+    color: #ffffff;
+    padding: 16px 32px;
+    border-radius: var(--radius-pill);
+    font-weight: 700;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+    z-index: 1000;
+    box-shadow: var(--shadow-neon);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  #toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  #toast[data-tone="success"] {
+    color: var(--accent-neon);
+  }
+
+  #toast[data-tone="error"] {
+    color: #ffb4b4;
+  }
+
+  #toast[data-tone="loading"] {
+    color: #ffffff;
+  }
+
+  /* ── 스피너 애니메이션 (캐시 독립 보장) ── */
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    50% {
+      opacity: 0.5;
+      transform: scale(1.15);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .result-grid {
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
+      padding-bottom: 240px;
+    }
+
+    .selection-bar {
+      bottom: calc(12px + env(safe-area-inset-bottom));
+      width: calc(100% - 24px);
+      grid-template-columns: 1fr;
+      padding: 14px;
+      border-radius: 20px;
+    }
+
+    .selection-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .selection-actions .btn {
+      width: 100%;
+      height: 46px;
+      padding: 0 14px;
+      font-size: 14px;
+    }
+
+    #toast {
+      bottom: calc(228px + env(safe-area-inset-bottom));
+    }
+  }
+</style>
+{% endblock %}
+
+
+{% block hero_content %}
+<div
+  style="max-width: 1200px; margin: 0 auto; width: 100%; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;">
+  <h2 class="hero-title" style="margin-bottom: 0; font-size: 24px;"><span>AI 스타일 추천 결과</span></h2>
+  <p class="section-copy" style="color: rgba(255, 255, 255, 0.7); margin-bottom: 0; font-size: 14px;">
+    {% if request.GET.reanalysis %}
+    다시 선택한 취향을 반영해 최신 추천 결과를 보여드려요.
+    {% else %}
+    마음에 드는 스타일을 고르거나 바로 상담을 요청할 수 있어요.
+    {% endif %}
+  </p>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if request.GET.reanalysis %}
+<div class="panel" style="margin: 0 auto 24px; max-width: 1080px; padding: 18px 22px;">
+  <strong style="display: block; margin-bottom: 6px; color: var(--bg-dark);">취향 다시 선택이 반영됐어요.</strong>
+  <p class="section-copy" style="font-size: 13px; margin-bottom: 0;">새로운 취향 설문을 기준으로 추천 결과를 다시 생성했습니다.</p>
+</div>
+{% endif %}
+
+<div id="loadingResults" style="padding: 80px 0; text-align: center;">
+  <!-- 로딩 스피너 -->
+  <div style="position: relative; width: 80px; height: 80px; margin: 0 auto 32px;">
+    <!-- 외부 링 -->
+    <div
+      style="position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent-neon); animation: spin 1s linear infinite;">
+    </div>
+    <!-- 중간 링 (반대 방향) -->
+    <div
+      style="position: absolute; inset: 10px; border-radius: 50%; border: 3px solid var(--line); border-bottom-color: var(--accent-neon); animation: spin 1.4s linear infinite reverse; opacity: 0.7;">
+    </div>
+    <!-- 중앙 점 -->
+    <div
+      style="position: absolute; inset: 26px; border-radius: 50%; background: var(--accent-neon); animation: pulse-ring 2s ease-in-out infinite;">
+    </div>
+  </div>
+  <p id="loadingTitle" class="section-title" style="animation: fade-in 0.5s ease both;">AI가 최적의 조합을 찾는 중입니다...</p>
+  <p id="loadingDetail" class="section-copy loading-detail">촬영 이미지를 저장하고 분석한 뒤 추천 이미지를 준비하고 있어요. 보통 1~2분 정도 걸립니다.</p>
+</div>
+
+
+<div id="retryPanel" class="panel is-hidden" style="margin: 0 auto 24px; max-width: 1080px; padding: 20px 24px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+    <div>
+      <h3 class="section-title" style="font-size: 18px; margin-bottom: 6px;">마음에 드는 결과가 없나요?</h3>
+      <p class="section-copy" style="font-size: 13px;">현재 결과를 바탕으로 <strong>취향 70% + 얼굴 분석 30%</strong> 비중으로 한 번 더 추천을
+        생성할 수 있어요.</p>
+    </div>
+    <button id="retryTopBtn" class="btn btn-dark" style="height: 48px; padding: 0 24px;">취향 70% + 얼굴 분석 30% 재생성</button>
+  </div>
+</div>
+
+<div id="resultGrid" class="result-grid is-hidden"></div>
+
+<div id="selectionSummary" class="selection-bar is-hidden">
+  <div class="selection-copy">
+    <p class="selection-label">선택한 스타일</p>
+    <h4 id="selectedInfo" class="selection-title">스타일을 선택해 주세요.</h4>
+    <p id="selectionHint" class="selection-hint">마음에 드는 카드를 누르면 바로 상담 요청 버튼이 활성화됩니다.</p>
+  </div>
+  <div class="selection-actions">
+    <button id="retryBtn" class="btn btn-dark" style="border: 1px solid rgba(255,255,255,0.2);">추천 다시 받기</button>
+    <button id="directConsultBtn" class="btn btn-dark" style="border: 1px solid rgba(255,255,255,0.2);">추천 없이 상담 요청</button>
+    <button id="saveBtn" class="btn btn-primary" style="background: var(--accent-neon); color: var(--bg-dark); font-weight: 900;">스타일 선택 후 상담 요청</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  (function () {
+    'use strict';
+
+    const grid = document.getElementById('resultGrid');
+    const loading = document.getElementById('loadingResults');
+    const selectionBar = document.getElementById('selectionSummary');
+    const saveBtn = document.getElementById('saveBtn');
+    const directConsultBtn = document.getElementById('directConsultBtn');
+    const retryBtn = document.getElementById('retryBtn');
+    const retryTopBtn = document.getElementById('retryTopBtn');
+    const retryPanel = document.getElementById('retryPanel');
+    const selectedInfo = document.getElementById('selectedInfo');
+    const loadingTitle = document.getElementById('loadingTitle');
+    const loadingDetail = document.getElementById('loadingDetail');
+    const toast = document.getElementById('toast');
+    const selectionHint = document.getElementById('selectionHint');
+    let selectedStyleId = null;
+    let retryMeta = null;
+    let retryRequestInFlight = false;
+    let toastTimer = null;
+    const customerId = "{{ request.session.customer_id }}";
+    const defaultRetryBtnText = retryBtn ? retryBtn.textContent : '추천 다시 받기';
+    const defaultRetryTopBtnText = retryTopBtn ? retryTopBtn.textContent : '취향 70% + 얼굴 분석 30% 재생성';
+    const stylePlaceholderSvg = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 600">' +
+      '<defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#f7f7f7"/><stop offset="100%" stop-color="#ececec"/></linearGradient></defs>' +
+      '<rect width="480" height="600" rx="28" fill="url(#g)"/>' +
+      '<circle cx="240" cy="220" r="92" fill="#111111" opacity="0.08"/>' +
+      '<path d="M160 348c24-44 69-66 136-66s112 22 136 66v72H160z" fill="#111111" opacity="0.06"/>' +
+      '<text x="240" y="458" text-anchor="middle" fill="#111111" font-family="Arial, sans-serif" font-size="22" font-weight="700">스타일 미리보기</text>' +
+      '<text x="240" y="492" text-anchor="middle" fill="#555555" font-family="Arial, sans-serif" font-size="18">이미지 준비 중</text>' +
+      '</svg>'
+    );
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const freshTs = parseInt(urlParams.get('fresh') || '0', 10);
+    const POLL_INTERVAL_MS = 2500;
+    const POLL_TIMEOUT_MS = 240000;
+    let pollStartedAt = freshTs ? Date.now() : 0;
+    let pollTimer = null;
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[char]));
+    }
+
+    const EN_TO_KO_PHRASES = [
+      ['clean crop two-block', '깔끔한 크롭 투블럭'],
+      ['tapered slick part', '테이퍼드 슬릭 파트'],
+      ['sleek mini', '슬릭 미니'],
+      ['side-parted', '사이드 파트'],
+      ['side parted', '사이드 파트'],
+      ['c-curl', '씨컬'],
+      ['c curl', '씨컬'],
+      ['s-curl', '에스컬'],
+      ['s curl', '에스컬'],
+      ['side part', '사이드 파트 컷'],
+      ['down perm', '다운펌'],
+      ['textured', '텍스처드'],
+      ['airy', '에어리'],
+      ['short', '숏'],
+      ['medium', '미디엄'],
+      ['full', '풀'],
+      ['long', '롱'],
+      ['wave', '웨이브'],
+      ['flow', '플로우'],
+      ['curl', '컬'],
+      ['hush', '허쉬'],
+      ['down', '다운'],
+      ['two-block', '투블럭'],
+      ['crop', '크롭'],
+      ['slick', '슬릭'],
+      ['mini', '미니'],
+      ['parted', '파트'],
+      ['tapered', '테이퍼드'],
+      ['part', '파트'],
+      ['inverted triangle', '역삼각형'],
+      ['wolf cut', '울프컷'],
+      ['long bob', '롱보브'],
+      ['see-through bang', '시스루뱅'],
+      ['preference', '취향'],
+      ['ratio', '비율'],
+      ['face', '얼굴'],
+      ['penalty', '패널티'],
+      ['face shape', '얼굴형'],
+      ['ratio score', '비율 점수'],
+      ['match score', '매칭 점수'],
+      ['pixie', '픽시'],
+      ['layer', '레이어'],
+      ['bob', '보브'],
+      ['lob', '롭'],
+      ['shag', '샤기'],
+      ['perm', '펌'],
+      ['fringe', '앞머리'],
+      ['bang', '앞머리'],
+      ['volume', '볼륨'],
+      ['natural', '내추럴'],
+      ['chic', '시크'],
+      ['cute', '러블리'],
+      ['elegant', '우아한'],
+      ['classic', '클래식'],
+      ['trendy', '트렌디'],
+      ['soft', '부드러운'],
+      ['oval', '타원형'],
+      ['round', '둥근형'],
+      ['square', '각진형'],
+      ['heart', '하트형'],
+      ['diamond', '마름모형'],
+      ['oblong', '긴형'],
+      ['triangle', '삼각형'],
+      ['match', '매칭'],
+      ['cut', '컷'],
+    ];
+
+    function localizeText(value) {
+      let text = String(value ?? '').trim();
+      if (!text) {
+        return text;
+      }
+      EN_TO_KO_PHRASES.forEach(([en, ko]) => {
+        const escaped = en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        text = text.replace(new RegExp(escaped, 'gi'), ko);
+      });
+      return text
+        .replace(/파트ed/gi, '파트')
+        .replace(/\|/g, ' | ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
+    function normalizeStyleNameLabel(value) {
+      const text = localizeText(value);
+      if (!text) {
+        return '추천 스타일';
+      }
+      if (/(펌|컷|스타일)$/u.test(text)) {
+        return text;
+      }
+      if (/(파트|투블럭|크롭|보브|롭|샤기|픽시|울프|레이어|테이퍼드|슬릭)$/u.test(text)) {
+        return `${text} 컷`;
+      }
+      return text;
+    }
+
+    function formatNumericValue(value, digits = 1) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) {
+        return null;
+      }
+      return number.toFixed(digits);
+    }
+
+    function formatMatchBasis(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') {
+        return '얼굴형, 얼굴 비율, 취향 일치도를 합산한 점수입니다.';
+      }
+
+      const face = formatNumericValue(snapshot.face_score);
+      const ratio = formatNumericValue(snapshot.ratio_score);
+      const preference = formatNumericValue(snapshot.preference_score);
+      const penalty = formatNumericValue(snapshot.penalty);
+      const summary = [];
+
+      if (face) {
+        summary.push(`얼굴 ${face}`);
+      }
+      if (ratio) {
+        summary.push(`비율 ${ratio}`);
+      }
+      if (preference) {
+        summary.push(`취향 ${preference}`);
+      }
+      if (penalty && penalty !== '0.0') {
+        summary.push(`패널티 -${penalty}`);
+      }
+
+      return summary.length
+        ? `${summary.join(' + ')} 기반`
+        : '얼굴형, 얼굴 비율, 취향 일치도를 합산한 점수입니다.';
+    }
+
+    function setLoadingState(title, detail) {
+      loading.classList.remove('is-hidden');
+      if (loadingTitle) {
+        loadingTitle.textContent = title || 'AI가 최적의 조합을 찾는 중입니다...';
+      }
+      if (loadingDetail) {
+        loadingDetail.textContent = detail || '촬영 이미지를 저장하고 분석한 뒤 추천 이미지를 준비하고 있어요. 보통 1~2분 정도 걸립니다.';
+      }
+    }
+
+    function nextFrame() {
+      return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+    }
+
+    function hideToast() {
+      if (!toast) {
+        return;
+      }
+
+      toast.classList.remove('show');
+    }
+
+    function showToast(message, { tone = 'success', persist = false } = {}) {
+      if (!toast) {
+        return;
+      }
+
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+      }
+
+      toast.textContent = message;
+      toast.dataset.tone = tone;
+      toast.classList.add('show');
+
+      if (!persist) {
+        toastTimer = setTimeout(() => {
+          hideToast();
+          toastTimer = null;
+        }, 2600);
+      }
+    }
+
+    function notifyUser(message, { tone = 'error', title = '' } = {}) {
+      if (window.showAppNotice) {
+        window.showAppNotice(message, {
+          tone,
+          title: title || (tone === 'error' ? '확인이 필요합니다' : '알림'),
+        });
+        return;
+      }
+
+      showToast(message, { tone });
+    }
+
+    function redirectWithNotice(message, targetUrl) {
+      notifyUser(message, { tone: 'error' });
+      window.setTimeout(() => {
+        window.location.href = targetUrl;
+      }, 800);
+    }
+
+    function syncSelectionUI() {
+      const hasSelection = Boolean(selectedStyleId);
+      const hasResults = Boolean(grid && grid.children && grid.children.length > 0);
+
+      if (saveBtn) {
+        saveBtn.disabled = retryRequestInFlight || !hasSelection;
+        if (hasSelection) {
+          saveBtn.textContent = '선택한 스타일로 상담 요청';
+        } else if (hasResults) {
+          saveBtn.textContent = '스타일 선택 후 상담 요청';
+        } else {
+          saveBtn.textContent = '추천 결과 없음';
+        }
+      }
+
+      if (selectionHint) {
+        if (hasSelection) {
+          selectionHint.textContent = '이 화면에서 바로 상담 요청할 수 있습니다.';
+        } else if (hasResults) {
+          selectionHint.textContent = '마음에 드는 카드를 누르면 바로 상담 요청 버튼이 활성화됩니다.';
+        } else {
+          selectionHint.textContent = '추천 결과 없이 바로 상담 요청을 보낼 수 있습니다.';
+        }
+      }
+    }
+
+    function syncRetryPendingUI() {
+      const busyTextBottom = '추천 재생성 중...';
+      const busyTextTop = '재생성 중...';
+
+      if (retryBtn) {
+        retryBtn.textContent = retryRequestInFlight ? busyTextBottom : defaultRetryBtnText;
+      }
+
+      if (retryTopBtn) {
+        retryTopBtn.textContent = retryRequestInFlight ? busyTextTop : defaultRetryTopBtnText;
+      }
+    }
+
+    function setRetryPendingState(isPending) {
+      retryRequestInFlight = isPending;
+
+      if (isPending) {
+        saveBtn.disabled = true;
+        directConsultBtn.disabled = true;
+        setLoadingState(
+          '새 추천 결과를 다시 생성하고 있습니다...',
+          '취향 70% + 얼굴 분석 30% 기준으로 새 시뮬레이션 이미지를 만들고 있어요.'
+        );
+        showToast('재생성 요청을 보냈습니다. 새 추천 결과를 만드는 중입니다.', {
+          tone: 'loading',
+          persist: true,
+        });
+      } else {
+        directConsultBtn.disabled = false;
+        hideToast();
+      }
+
+      syncSelectionUI();
+      syncRetryPendingUI();
+      syncRetryButton();
+    }
+
+    function resetResultPanels() {
+      clearTimeout(pollTimer);
+      grid.innerHTML = '';
+      grid.classList.add('is-hidden');
+      retryPanel?.classList.add('is-hidden');
+      selectionBar.classList.add('is-hidden');
+    }
+
+    function isNewResult(items) {
+      if (!freshTs || !Array.isArray(items) || items.length === 0) {
+        return true;
+      }
+
+      return items.some((item) => {
+        const createdAt = item.created_at;
+        if (!createdAt) {
+          return false;
+        }
+        const ts = Math.floor(new Date(createdAt).getTime() / 1000);
+        return ts >= freshTs - 5;
+      });
+    }
+
+    function allSimulationImagesReady(items) {
+      return Array.isArray(items)
+        && items.length > 0
+        && items.every((item) => Boolean(item.simulation_image_url || item.synthetic_image_url));
+    }
+
+    function hasAnySimulationImage(items) {
+      return Array.isArray(items)
+        && items.some((item) => Boolean(item.simulation_image_url || item.synthetic_image_url));
+    }
+
+    function hasRenderableRecommendationPreview(items) {
+      return Array.isArray(items)
+        && items.some((item) => Boolean(
+          item.display_image_url
+          || item.sample_image_url
+          || item.simulation_image_url
+          || item.synthetic_image_url
+        ));
+    }
+
+    function shouldRenderPreviewWhilePolling(data, items) {
+      const gateStatus = String((data && data.display_gate_status) || '').toLowerCase();
+      return hasRenderableRecommendationPreview(items)
+        && ['sample_only', 'partial_ready', 'ready', 'mock_ready'].includes(gateStatus);
+    }
+
+    function shouldContinuePolling(data, items, elapsed) {
+      const status = String((data && data.status) || '').toLowerCase();
+      const displayGateStatus = String((data && data.display_gate_status) || '').toLowerCase();
+      const displayGateReason = String((data && data.display_gate_reason) || '').toLowerCase();
+      if (elapsed >= POLL_TIMEOUT_MS) {
+        return false;
+      }
+      if (status === 'processing' || displayGateStatus === 'processing') {
+        return elapsed < POLL_TIMEOUT_MS;
+      }
+      if (
+        status === 'empty'
+        && items.length === 0
+        && (
+          displayGateReason === 'recommendations_not_ready'
+          || displayGateReason === 'recommendations_processing'
+        )
+      ) {
+        return elapsed < POLL_TIMEOUT_MS;
+      }
+      if (status === 'needs_capture' || status === 'needs_input' || status === 'empty') {
+        return false;
+      }
+      if ((status === 'ready' || !status) && items.length > 0 && !allSimulationImagesReady(items)) {
+        if (displayGateStatus === 'partial_ready' || hasAnySimulationImage(items)) {
+          return false;
+        }
+        return true;
+      }
+      if (freshTs && status === 'ready' && !isNewResult(items)) {
+        return true;
+      }
+      return Boolean(freshTs) && status !== 'ready';
+    }
+
+    function showWaitingState() {
+      resetResultPanels();
+      setLoadingState(
+        '촬영 이미지를 분석하고 추천 결과를 준비하고 있습니다...',
+        '추천 이미지가 모두 준비되면 이 화면에서 바로 보여드릴게요. 보통 1~2분 정도 걸립니다.'
+      );
+    }
+
+    function showEmptyState(message) {
+      resetResultPanels();
+      loading.innerHTML = `<p class="section-title">${escapeHtml(message || '추천 결과가 아직 준비되지 않았습니다. 잠시 후 다시 확인해 주세요.')}</p>`;
+      loading.classList.remove('is-hidden');
+      selectionBar.classList.remove('is-hidden');
+      selectedStyleId = null;
+      selectedInfo.textContent = '추천 결과 없이 바로 상담 요청도 가능합니다.';
+      syncSelectionUI();
+      syncRetryButton();
+    }
+
+    async function fetchRecommendations({ polling = false } = {}) {
+      if (!customerId) {
+        redirectWithNotice('세션 정보가 없습니다. 다시 시작해 주세요.', '/customer/');
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/v1/analysis/recommendations/?client_id=${customerId}`);
+        if (response.status === 401 || response.status === 403) {
+          redirectWithNotice('세션이 만료되었습니다. 다시 시작해 주세요.', '/customer/');
+          return;
+        }
+
+        const data = await response.json();
+        const items = Array.isArray(data) ? data : (data.results || data.items || []);
+        if (!Array.isArray(data)) {
+          retryMeta = data;
+        }
+
+        const status = String((data && data.status) || '').toLowerCase();
+        const gateStatus = String((data && data.display_gate_status) || '').toLowerCase();
+        const hasPendingSimulationAssets = Array.isArray(items)
+          && items.length > 0
+          && !allSimulationImagesReady(items);
+        const wantsPolling = polling
+          || freshTs > 0
+          || status === 'processing'
+          || hasPendingSimulationAssets
+          || ['processing', 'sample_only', 'partial_ready'].includes(gateStatus);
+        if (wantsPolling && !pollStartedAt) {
+          pollStartedAt = Date.now();
+        }
+
+        if (wantsPolling) {
+          const elapsed = Date.now() - pollStartedAt;
+          if (shouldContinuePolling(data, items, elapsed)) {
+            if (shouldRenderPreviewWhilePolling(data, items)) {
+              renderResults(items);
+              showToast('추천 이미지를 먼저 보여드릴게요. 생성 이미지가 준비되면 자동으로 갱신합니다.', {
+                tone: 'loading',
+                persist: true,
+              });
+            } else {
+              showWaitingState();
+            }
+            pollTimer = setTimeout(() => fetchRecommendations({ polling: true }), POLL_INTERVAL_MS);
+            return;
+          }
+        }
+
+        hideToast();
+
+        if (status === 'needs_capture') {
+          showEmptyState(data.message || '촬영이 완료되지 않아 추천 이미지를 생성할 수 없습니다. 사진을 다시 촬영해 주세요.');
+          return;
+        }
+
+        if (status === 'needs_input' || status === 'empty') {
+          showEmptyState(data.message);
+          return;
+        }
+
+        renderResults(items);
+      } catch (error) {
+        showEmptyState('추천 결과를 불러오지 못했습니다.');
+      }
+    }
+
+    function resolveRenderImage(style) {
+      const simulationImageUrl = typeof style.simulation_image_url === 'string' ? style.simulation_image_url.trim() : '';
+      if (simulationImageUrl) {
+        return { field: 'simulation_image_url', url: simulationImageUrl };
+      }
+      const syntheticImageUrl = typeof style.synthetic_image_url === 'string' ? style.synthetic_image_url.trim() : '';
+      if (syntheticImageUrl) {
+        return { field: 'synthetic_image_url', url: syntheticImageUrl };
+      }
+      const sampleImageUrl = typeof style.sample_image_url === 'string' ? style.sample_image_url.trim() : '';
+      if (sampleImageUrl) {
+        return { field: 'sample_image_url', url: sampleImageUrl };
+      }
+      return { field: 'placeholder', url: stylePlaceholderSvg };
+    }
+
+    function renderResults(results) {
+      grid.innerHTML = '';
+      loading.classList.add('is-hidden');
+      clearTimeout(pollTimer);
+
+      if (!results || results.length === 0) {
+        showEmptyState('추천 결과가 아직 준비되지 않았습니다. 잠시 후 다시 확인해 주세요.');
+        return;
+      }
+
+      grid.classList.remove('is-hidden');
+      selectionBar.classList.remove('is-hidden');
+
+      results.forEach((style) => {
+        const renderImage = resolveRenderImage(style);
+        const imageUrl = renderImage.url;
+        const styleName = normalizeStyleNameLabel(style.style_name || '추천 스타일');
+        const reasoning = localizeText(style.reasoning || style.style_description || '추천 설명을 준비하고 있습니다.');
+        const matchBasis = formatMatchBasis(style.reasoning_snapshot);
+        const card = document.createElement('div');
+        card.className = 'style-card';
+        card.dataset.id = style.style_id;
+        card.innerHTML = `
+          <div class="style-image-wrapper">
+            <img class="style-image" src="${imageUrl}" alt="${escapeHtml(styleName)}" onerror="this.onerror=null;this.src='${stylePlaceholderSvg}'">
+            <span class="match-badge" title="${escapeHtml(matchBasis)}">${style.match_score || 0}% 매칭</span>
+          </div>
+          <div class="style-info">
+            <h3 class="section-title" style="font-size: 20px; margin-bottom: 0;">${escapeHtml(styleName)}</h3>
+            <p class="section-copy" style="font-size: 14px;">${escapeHtml(reasoning)}</p>
+            <button class="btn btn-dark select-btn" type="button" style="margin-top: auto; height: 44px;">이 스타일 선택</button>
+          </div>
+        `;
+        card.addEventListener('click', () => selectStyle(style));
+        card.querySelector('.select-btn').addEventListener('click', (event) => {
+          event.stopPropagation();
+          selectStyle(style);
+        });
+        grid.appendChild(card);
+      });
+
+      syncRetryButton();
+    }
+
+    function syncRetryButton() {
+      if (!retryBtn) {
+        return;
+      }
+
+      const hasResults = Boolean(grid && grid.children && grid.children.length > 0);
+      const retryConsumed = Boolean(retryMeta && retryMeta.retry_state === 'retry_consumed');
+      const consultationLocked = Boolean(retryMeta && retryMeta.consultation_locked);
+      const shouldShowRetry = hasResults && !retryConsumed && !consultationLocked;
+      const canRetry = Boolean(
+        shouldShowRetry
+        && (
+          !retryMeta
+          || retryMeta.can_retry_recommendations
+          || retryMeta.retry_state === 'available'
+        )
+      );
+
+      retryBtn.style.display = shouldShowRetry ? 'inline-flex' : 'none';
+      retryBtn.disabled = retryRequestInFlight || !canRetry;
+      retryBtn.style.opacity = (canRetry && !retryRequestInFlight) ? '1' : '0.55';
+      retryBtn.title = canRetry ? '현재 취향 벡터와 얼굴 분석 기준으로 추천을 한 번 더 생성합니다.' : '현재 상태에서는 재생성할 수 없습니다.';
+      if (retryPanel) {
+        retryPanel.classList.toggle('is-hidden', !shouldShowRetry);
+      }
+      if (retryTopBtn) {
+        retryTopBtn.disabled = retryRequestInFlight || !canRetry;
+        retryTopBtn.style.opacity = (canRetry && !retryRequestInFlight) ? '1' : '0.55';
+      }
+      syncRetryPendingUI();
+      syncSelectionUI();
+    }
+
+    function selectStyle(style) {
+      const isDeselecting = selectedStyleId === style.style_id;
+
+      // Reset all cards first
+      document.querySelectorAll('.style-card').forEach((card) => {
+        card.classList.remove('selected');
+        const btn = card.querySelector('.select-btn');
+        if (btn) btn.textContent = '이 스타일 선택';
+      });
+
+      if (isDeselecting) {
+        // Deselect current
+        selectedStyleId = null;
+        selectedInfo.textContent = '스타일을 선택해 주세요';
+      } else {
+        // Select new
+        selectedStyleId = style.style_id;
+        const selectedCard = document.querySelector(`.style-card[data-id="${selectedStyleId}"]`);
+        if (selectedCard) {
+          selectedCard.classList.add('selected');
+          const btn = selectedCard.querySelector('.select-btn');
+          if (btn) btn.textContent = '선택 완료';
+        }
+        const selectedName = normalizeStyleNameLabel(style.style_name || '추천 스타일');
+        selectedInfo.textContent = `${selectedName} · ${style.match_score || 0}% 매칭`;
+      }
+      syncSelectionUI();
+      syncRetryButton();
+    }
+
+    async function submitConsultation(payload) {
+      const response = await fetch('/api/v1/analysis/confirm/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || '상담 요청에 실패했습니다.');
+      }
+
+      window.location.href = '/customer/consultation/complete/';
+    }
+
+    async function retryRecommendations() {
+      const response = await fetch('/api/v1/analysis/retry-recommendations/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({ customer_id: parseInt(customerId, 10) })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || '재생성에 실패했습니다.');
+      }
+
+      selectedStyleId = null;
+      retryMeta = data;
+      selectedInfo.textContent = '새 추천 결과를 확인해 주세요.';
+      syncSelectionUI();
+      renderResults(data.items || []);
+    }
+
+    saveBtn.addEventListener('click', async () => {
+      if (!selectedStyleId) {
+        if (grid && grid.children.length > 0) {
+          notifyUser('상담을 요청할 스타일을 먼저 선택해 주세요.');
+        } else {
+          notifyUser('현재 추천된 스타일이 없습니다. 추천 없이 상담 요청 버튼을 이용해 주세요.');
+        }
+        return;
+      }
+
+      saveBtn.disabled = true;
+      directConsultBtn.disabled = true;
+      retryBtn.disabled = true;
+      try {
+        await submitConsultation({
+          customer_id: parseInt(customerId, 10),
+          style_id: selectedStyleId,
+          source: 'current_recommendations'
+        });
+      } catch (error) {
+        notifyUser(error.message);
+        saveBtn.disabled = false;
+        directConsultBtn.disabled = false;
+        syncSelectionUI();
+        syncRetryButton();
+      }
+    });
+
+    directConsultBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      directConsultBtn.disabled = true;
+      retryBtn.disabled = true;
+      try {
+        await submitConsultation({
+          customer_id: parseInt(customerId, 10),
+          source: 'current_recommendations',
+          direct_consultation: true
+        });
+      } catch (error) {
+        notifyUser(error.message);
+        saveBtn.disabled = false;
+        directConsultBtn.disabled = false;
+        syncSelectionUI();
+        syncRetryButton();
+      }
+    });
+
+    retryBtn.addEventListener('click', async () => {
+      setRetryPendingState(true);
+      await nextFrame();
+      try {
+        await retryRecommendations();
+        setRetryPendingState(false);
+        showToast('새 추천 결과를 불러왔습니다.', { tone: 'success' });
+      } catch (error) {
+        setRetryPendingState(false);
+        loading.classList.add('is-hidden');
+        showToast(error.message || '재생성에 실패했습니다.', { tone: 'error' });
+        syncRetryButton();
+      }
+    });
+
+    retryTopBtn?.addEventListener('click', async () => {
+      setRetryPendingState(true);
+      await nextFrame();
+      try {
+        await retryRecommendations();
+        setRetryPendingState(false);
+        showToast('새 추천 결과를 불러왔습니다.', { tone: 'success' });
+      } catch (error) {
+        setRetryPendingState(false);
+        loading.classList.add('is-hidden');
+        showToast(error.message || '재생성에 실패했습니다.', { tone: 'error' });
+        syncRetryButton();
+      }
+    });
+
+    fetchRecommendations({ polling: Boolean(freshTs) });
+  })();
+</script>
+{% endblock %}
