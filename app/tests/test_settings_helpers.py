@@ -1,0 +1,69 @@
+from unittest.mock import Mock, patch
+
+from django.test import SimpleTestCase
+
+from mirrai_project.settings_helpers import build_cache_settings, redis_cache_available, resolve_active_database_url
+
+
+class SettingsHelpersTests(SimpleTestCase):
+    def test_build_cache_settings_uses_redis_when_url_present(self):
+        cache_config = build_cache_settings(redis_url="redis://127.0.0.1:6379/1", timeout=30, key_prefix="mirrai")
+
+        self.assertEqual(cache_config["default"]["BACKEND"], "django.core.cache.backends.redis.RedisCache")
+        self.assertEqual(cache_config["default"]["LOCATION"], "redis://127.0.0.1:6379/1")
+
+    def test_build_cache_settings_falls_back_to_locmem_without_redis(self):
+        cache_config = build_cache_settings(redis_url="", timeout=30, key_prefix="mirrai")
+
+        self.assertEqual(cache_config["default"]["BACKEND"], "django.core.cache.backends.locmem.LocMemCache")
+
+    @patch("mirrai_project.settings_helpers.redis")
+    def test_redis_cache_available_returns_true_when_ping_succeeds(self, mock_redis):
+        client = Mock()
+        mock_redis.Redis.from_url.return_value = client
+
+        self.assertTrue(redis_cache_available(redis_url="redis://127.0.0.1:6379/1"))
+        client.ping.assert_called_once()
+        client.close.assert_called_once()
+
+    @patch("mirrai_project.settings_helpers.redis")
+    def test_redis_cache_available_returns_false_when_ping_fails(self, mock_redis):
+        client = Mock()
+        client.ping.side_effect = OSError("redis down")
+        mock_redis.Redis.from_url.return_value = client
+
+        self.assertFalse(redis_cache_available(redis_url="redis://127.0.0.1:6399/1"))
+        client.close.assert_called_once()
+
+    def test_resolve_active_database_url_prefers_supabase_even_without_flag(self):
+        self.assertEqual(
+            resolve_active_database_url(
+                supabase_use_remote_db=False,
+                supabase_db_url="postgresql://supabase.example/db",
+                local_database_url="sqlite:///db.sqlite3",
+                database_url="postgresql://legacy",
+            ),
+            "postgresql://supabase.example/db",
+        )
+
+    def test_resolve_active_database_url_prefers_database_url_before_local(self):
+        self.assertEqual(
+            resolve_active_database_url(
+                supabase_use_remote_db=False,
+                supabase_db_url="",
+                local_database_url="sqlite:///db.sqlite3",
+                database_url="postgresql://runtime.example/db",
+            ),
+            "postgresql://runtime.example/db",
+        )
+
+    def test_resolve_active_database_url_falls_back_to_local(self):
+        self.assertEqual(
+            resolve_active_database_url(
+                supabase_use_remote_db=False,
+                supabase_db_url="",
+                local_database_url="sqlite:///db.sqlite3",
+                database_url="",
+            ),
+            "sqlite:///db.sqlite3",
+        )
